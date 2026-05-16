@@ -1,0 +1,12 @@
+# C2(지휘통제실) web_server 의존성
+# ROS 2 (rclpy)는 시스템 ROS Humble 에서 제공 — pip 설치 대상 아님.
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+asyncpg==0.30.*
+aiortc==1.9.*
+av==12.*
+opencv-python-headless==4.10.*
+numpy<2
+python-multipart==0.0.*
+# YOLO (서버측 추론) — 선택. 미설치 시 탐지 비활성(graceful).
+ultralytics==8.3.*

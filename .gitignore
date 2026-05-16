@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# venv (sub1_side/server/.venv — requirements.txt 로 재생성)
+.venv/
+
+# Node / Next.js (npm install 로 재생성)
+node_modules/
+.next/
+sub1_side/web/.env.local
+
+# 생성 산출물
+# scenes/assets/  : m0609 URDF→USD 임포트 산출(재생성 가능, 대용량)
+scenes/assets/
+
+# 로그/임시
+*.log
+/tmp/
