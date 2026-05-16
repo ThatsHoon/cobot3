@@ -116,8 +116,16 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        # kill/SIGTERM 시 컨텍스트가 이미 내려갈 수 있어 이중 shutdown 가드
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

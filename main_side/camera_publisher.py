@@ -12,8 +12,12 @@ import os
 
 from isaacsim import SimulationApp
 
-# 카메라가 프레임을 내려면 렌더가 필요 → headless 라도 renderer 활성
-simulation_app = SimulationApp({"headless": True, "renderer": "RayTracedLighting"})
+# GP_HEADLESS=0 → GUI 창 표시(사용자가 직접 봄), 1 → headless(웹 전송 전용).
+# 둘 다 렌더링 동작(카메라 render product 생성·발행).
+_HEADLESS = os.environ.get("GP_HEADLESS", "0") == "1"
+simulation_app = SimulationApp(
+    {"headless": _HEADLESS, "renderer": "RayTracedLighting"}
+)
 
 import omni.usd
 import omni.timeline
@@ -146,6 +150,160 @@ world.reset()
 omni.timeline.get_timeline_interface().play()
 log("simulation playing — Ctrl+C to stop")
 
+# ── D-확장 직결 uplink (ROS2 우회: in-process 캡처 → web_server POST) ──────
+import json as _json
+import queue as _queue
+import threading as _threading
+import urllib.request as _ul
+import numpy as _np
+
+C2 = os.environ.get("C2_INGEST_URL", "http://localhost:8000")
+LAT0, LON0, ALT0 = 38.30, 127.50, 200.0     # sim 원점 기준점(설계 §S5 sim-GPS)
+_OW, _OH = 640, 360
+
+# rgb/depth 어노테이터 (render product 에 attach — 첫 rp 확보 후 지연 attach)
+_rep = None
+try:
+    import omni.replicator.core as _rep
+    log("uplink: omni.replicator.core 로드 OK")
+except Exception as e:
+    log(f"uplink: replicator 로드 실패 {e!r} — 영상 캡처 제한")
+_ann = {"rgb": None, "depth": None, "rp": None}
+
+# 아티큘레이션 핸들(방어적 — API 명칭 버전차 대응)
+_arts = {}
+try:
+    from isaacsim.core.prims import Articulation as _Art
+    for _nm, _p in (("m0609", "/World/Robot/m0609"),
+                    ("anymal", "/World/Robot/anymal")):
+        try:
+            a = _Art(_p)
+            a.initialize()
+            _arts[_nm] = a
+            log(f"uplink: articulation {_nm} ({_p}) init OK")
+        except Exception as e:
+            log(f"uplink: articulation {_nm} init 실패 {e!r}")
+except Exception as e:
+    log(f"uplink: Articulation API 로드 실패 {e!r} — joint 미수집")
+
+_xc = UsdGeom.XformCache(Usd.TimeCode.Default())
+_q: "_queue.Queue" = _queue.Queue(maxsize=2)
+_ustat = {"frame_ok": 0, "frame_err": 0, "tele_ok": 0, "tele_err": 0}
+
+
+def _resize_rgb(a):
+    """cv2 없이 HxWx(3|4) → 360x640x3 RGB (스트라이드 다운샘플)."""
+    if a is None or a.ndim < 3:
+        return None
+    h, w = a.shape[0], a.shape[1]
+    ri = _np.linspace(0, h - 1, _OH).astype(_np.int32)
+    ci = _np.linspace(0, w - 1, _OW).astype(_np.int32)
+    return _np.ascontiguousarray(a[ri][:, ci, :3]).astype(_np.uint8)
+
+
+def _sim_gps(x, y, z):
+    import math
+    dlat = (y / 6378137.0) * (180.0 / math.pi)
+    dlon = (x / (6378137.0 * math.cos(math.radians(LAT0)))) * (180.0 / math.pi)
+    return {"lat": LAT0 + dlat, "lon": LON0 + dlon, "alt": ALT0 + float(z)}
+
+
+def _uplink_worker():
+    while True:
+        item = _q.get()
+        if item is None:
+            return
+        frame, tele = item
+        if tele is not None:
+            try:
+                r = _ul.Request(f"{C2}/ingest/telemetry",
+                                data=_json.dumps(tele).encode(),
+                                headers={"Content-Type": "application/json"},
+                                method="POST")
+                _ul.urlopen(r, timeout=2).read()
+                _ustat["tele_ok"] += 1
+            except Exception:
+                _ustat["tele_err"] += 1
+        if frame is not None:
+            try:
+                r = _ul.Request(
+                    f"{C2}/ingest/frame?w={_OW}&h={_OH}&enc=rgb",
+                    data=frame.tobytes(),
+                    headers={"Content-Type": "application/octet-stream"},
+                    method="POST")
+                _ul.urlopen(r, timeout=2).read()
+                _ustat["frame_ok"] += 1
+            except Exception:
+                _ustat["frame_err"] += 1
+
+
+_uth = _threading.Thread(target=_uplink_worker, daemon=True)
+_uth.start()
+log(f"uplink: worker 시작 → {C2} (ingest/frame, ingest/telemetry)")
+
+
+def _attach_annotators():
+    """첫 render product 확보 시 1회 rgb/depth 어노테이터 attach."""
+    if _ann["rp"] or _rep is None:
+        return
+    try:
+        rp = og.Controller.attribute(
+            f"{GRAPH}/CreateRP.outputs:renderProductPath").get()
+    except Exception:
+        rp = None
+    if not rp:
+        return
+    try:
+        ra = _rep.AnnotatorRegistry.get_annotator("rgb")
+        da = _rep.AnnotatorRegistry.get_annotator("distance_to_image_plane")
+        ra.attach([rp])
+        da.attach([rp])
+        _ann.update(rgb=ra, depth=da, rp=rp)
+        log(f"uplink: annotator attach OK (rp={rp})")
+    except Exception as e:
+        log(f"uplink: annotator attach 실패 {e!r}")
+
+
+def _gather():
+    """현재 sim 상태 in-process 수집 → 큐 적재(비차단)."""
+    tele = {"ts": None}
+    try:
+        a = _arts.get("m0609")
+        if a is not None:
+            jp = a.get_joint_positions()
+            tele["arm_q"] = [float(v) for v in _np.ravel(jp)][:6]
+    except Exception:
+        pass
+    try:
+        a = _arts.get("anymal")
+        if a is not None:
+            jp = a.get_joint_positions()
+            tele["leg_q"] = [float(v) for v in _np.ravel(jp)][:12]
+    except Exception:
+        pass
+    try:
+        _xc.SetTime(Usd.TimeCode.Default())
+        bp = omni.usd.get_context().get_stage().GetPrimAtPath(
+            "/World/Robot/anymal")
+        m = _xc.GetLocalToWorldTransform(bp)
+        tr = m.ExtractTranslation()
+        x, y, z = float(tr[0]), float(tr[1]), float(tr[2])
+        tele["odom"] = {"x": x, "y": y, "z": z}
+        tele["gps"] = _sim_gps(x, y, z)
+    except Exception:
+        pass
+    frame = None
+    if _ann["rgb"] is not None:
+        try:
+            d = _ann["rgb"].get_data()
+            frame = _resize_rgb(_np.asarray(d))
+        except Exception:
+            pass
+    try:
+        _q.put_nowait((frame, tele))
+    except _queue.Full:
+        pass
+
 # 자가검증: 몇 스텝 후 OG 가 render product 를 실제로 만들었는지 확인
 def _diag():
     try:
@@ -165,14 +323,24 @@ try:
     while simulation_app.is_running():
         world.step(render=True)
         n += 1
+        if _ann["rp"] is None and n % 30 == 0:
+            _attach_annotators()
+        if n % 12 == 0:                       # ≈ uplink 5Hz
+            _gather()
         if n in (60, 150):
             _diag()
         if n % 300 == 0:
             t = omni.timeline.get_timeline_interface().get_current_time()
-            log(f"stepped {n} frames | simTime={t:.2f} | publishing {TOPIC} "
-                f"(domain {os.environ.get('ROS_DOMAIN_ID')})")
+            log(f"stepped {n} | simTime={t:.2f} | uplink "
+                f"frame ok/err={_ustat['frame_ok']}/{_ustat['frame_err']} "
+                f"tele ok/err={_ustat['tele_ok']}/{_ustat['tele_err']} "
+                f"ann={'Y' if _ann['rp'] else 'N'} arts={list(_arts)}")
             _diag()
 except KeyboardInterrupt:
     log("중지(Ctrl+C)")
 finally:
+    try:
+        _q.put_nowait(None)
+    except Exception:
+        pass
     simulation_app.close()

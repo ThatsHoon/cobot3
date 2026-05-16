@@ -8,7 +8,8 @@ source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-130}"
 export ROS_LOCALHOST_ONLY=0
 # Isaac Sim ROS2 bridge 와 DDS 통일 (FastDDS 디스커버리 불일치 회피)
-export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml
 
 # 로컬 Postgres / 인증 (설계 §4.3 / §13)
 export COBOT3_DB_URL="${COBOT3_DB_URL:-postgresql:///cobot3}"

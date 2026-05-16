@@ -1,0 +1,124 @@
+# cobot3 — 개발환경 & 사전설정 (Project Requirements)
+
+cobot3(GP 경계근무 4족+m0609) 시스템을 **처음 기동하기 위한 개발환경·사전설치·
+환경변수·기동절차·트러블슈팅**을 정리한 문서. 시스템 설계는
+[`gp-quadruped-system-design.md`](gp-quadruped-system-design.md) 참조.
+
+---
+
+## 1. 머신 역할 (2-PC 설계, 임시는 1-PC)
+
+| 측 | 폴더 | 역할 | 핵심 런타임 |
+|---|---|---|---|
+| **main_side** | `cobot3/main_side/` | **Isaac Sim 시뮬레이터 PC** | Isaac `python.sh`, camera_publisher, (2-PC 시) video_degrade |
+| **sub1_side** | `cobot3/sub1_side/` | **지휘통제실(C2) 별도 PC** | web_server(FastAPI venv), web(Next.js), PostgreSQL |
+
+> 분리 규약: main_side 스크립트는 **Isaac 번들 python.sh**(시스템 ROS 미소싱),
+> sub1_side/server 는 **시스템 ROS 2 Humble + venv** 사용. 섞지 말 것.
+
+---
+
+## 2. 사전 요건 (OS / 핵심 SW)
+
+- Ubuntu 22.04, NVIDIA GPU + 드라이버, **prime nvidia** 모드(외부 모니터/렌더)
+- **Isaac Sim 5.1.0** 소스빌드: `~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release`
+  (Python **3.11** 내장 — 시스템 ROS Humble 의 3.10 과 ABI 불일치, §6 핵심)
+- **ROS 2 Humble** (`/opt/ros/humble`, Python 3.10)
+- **PostgreSQL 14** (로컬, `cobot3` DB)
+- **Node 20** (Next.js)
+
+### 2.1 apt 사전설치 (이번에 막혔던 것들 — 필수)
+```bash
+echo 'rokey1234' | sudo -S apt-get install -y \
+  python3.10-venv python3-pip \
+  ros-humble-rmw-cyclonedds-cpp     # (2-PC ROS2 경로 대비)
+```
+- `python3.10-venv` 없으면 sub1_side server `.venv` 의 pip 부트스트랩 실패.
+- `ros-humble-rmw-cyclonedds-cpp` 는 기본 미설치.
+
+---
+
+## 3. 환경변수 (`~/.bashrc` 에 기설정)
+
+```bash
+export ROS_DOMAIN_ID=130
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml
+export ROS_LOCALHOST_ONLY=0
+export COBOT3_DB_URL="postgresql:///cobot3"
+# (참고) CycloneDDS 경로 전환 시: CYCLONEDDS_URI=.../cobot3/cyclonedds.xml
+```
+- `fastdds_no_shm.xml` = SharedMemory 비활성(UDP-only). NVIDIA 공식
+  `IsaacSim-ros_workspaces/humble_ws/fastdds.xml` 과 동일 — 2-PC ROS2 시 필수.
+- alias: `isaac` / `isaac-mcp` (둘 다 RMW·DOMAIN prefix 포함),
+  함수 `cobot3-cobot3_web-restart_full` (C2 스택 일괄 재기동).
+
+---
+
+## 4. 최초 설치(빌드 산출물 재생성)
+
+`.venv / node_modules / .next / __pycache__ / scenes/assets` 는 git 미추적
+(정리됨). 최초/클론 후 1회:
+
+```bash
+# sub1_side web_server (시스템 ROS 가시 위해 --system-site-packages)
+cd ~/dev_ws/isaac_sim/cobot3/sub1_side/server
+python3 -m venv --system-site-packages .venv
+./.venv/bin/pip install -r requirements.txt
+
+# sub1_side web
+cd ../web && npm install
+
+# DB 스키마 (멱등 — DROP FUNCTION 포함)
+createdb cobot3 2>/dev/null; psql -d cobot3 -f ../db/schema.sql
+
+# m0609 URDF→USD (camera_publisher 가 없으면 자동 생성하지만 사전 확인 가능)
+#   src: ~/dev_ws/isaac_sim/src/doosan-robot2/urdf/m0609_isaac_sim.urdf
+#   importer: make_default_prim 누락 시 무한 recompose 주의(§6)
+```
+
+---
+
+## 5. 배포 모드 — 임시 같은-PC vs 실 2-PC
+
+| | ① 임시 같은-PC (현 검증 환경) | ② 실배포 2-PC LAN |
+|---|---|---|
+| 영상/텔레메트리 경로 | **D-확장 HTTP `/ingest` 우회**(ROS2 미사용) | ROS2 토픽(같은 도메인+fastdds UDP-only) |
+| 이유 | Isaac 내부 ROS2(3.11) ↔ 시스템 ROS2(3.10) **같은-PC DDS 디스커버리 불통**(§6) | 머신 분리 시 DDS 와이어는 ABI 무관 → 지원 경로 |
+| main_side | `camera_publisher.py` 가 in-process 캡처(rgb/depth annotator + Articulation joint + base pose→sim-GPS) → web_server `POST /ingest/*` | OG ROS2 브리지 발행 → LAN |
+| 기동 | 아래 §5.1 | (2-PC 구성 시 ROS2 정공 — 설계서 본문) |
+
+### 5.1 임시 같은-PC 기동 절차
+```bash
+# (A) C2 스택 (sub1_side) — web_server+web+db
+cobot3-cobot3_web-restart_full          # ~/.bashrc 함수
+
+# (B) Isaac + 카메라/텔레메트리 uplink (main_side)
+#   GUI 로 보며:  사용자 터미널에서  ! ~/dev_ws/isaac_sim/cobot3/main_side/run_camera_pub_gui.sh
+#   headless:     ~/dev_ws/isaac_sim/cobot3/main_side/run_camera_pub.sh
+
+# (C) 확인
+curl -s localhost:8000/healthz ; curl -s localhost:8000/ingest/stats
+#   브라우저: http://localhost:3000  (영상벽 WebRTC + 상태/맵/관절/GPS)
+```
+> robot_state 의 mode/battery/waypoint 는 보행 FSM 미구현이라 비어있음
+> (전송수단 무관 — locomotion 노드 구현 시 채워짐).
+
+---
+
+## 6. 트러블슈팅 (이번 세션 근본원인 요약)
+
+| 증상 | 원인 | 대응 |
+|---|---|---|
+| 같은-PC `ros2 topic` 에 Isaac Publisher 0 | Isaac 번들 ROS2(py3.11) ↔ 시스템(py3.10) 같은-호스트 DDS 불통(cyclone/LD/scrub/UDP-only 전부 무효) | **D-확장 HTTP 우회**(§5) / 실배포 2-PC LAN |
+| `[json.exception.parse_error.101] last read: 's'` 스팸 | `isaac.sim.mcp_extension` 소켓 + stale Claude MCP relay | **무해 노이즈** — 무시(파이프라인 무관) |
+| URDF 임포트 후 CPU 폭주/무한 recompose | `make_default_prim=False` → 미해결 `<defaultPrim>` 참조 | dest USD 에 defaultPrim 설정 후 참조 |
+| OG `Failed to wrap graph / graph already exists` | 기존 그래프 위 edit | `stage.RemovePrim` 후 fresh `og.Controller.edit` |
+| standalone OG ROS2 노드타입 미등록 | python.sh 가 ros2.bridge 미로드 | `enable_extension("isaacsim.ros2.bridge")` + `update()` 펌프 |
+| Isaac GUI 백그라운드로 안 뜸(exit 144) | harness 백그라운드 = DISPLAY 없음 | 사용자 터미널 `! ...run_camera_pub_gui.sh` |
+| web_server `exec: uvicorn: not found` | PATH 의존 | run.sh 가 `.venv/bin/uvicorn` 명시 사용(적용됨) |
+| `cleanup_old_data() 반환형 변경 불가` | SQL 비멱등 | schema.sql `DROP FUNCTION IF EXISTS` 선행(적용됨) |
+| C2 로그 `⚠ /c2/video/compressed 수신 0` | 안 쓰는 구 ROS2 경로 헬스 | ros_bridge 헬스 ingest-인지→`ingest=LIVE`(적용됨) |
+
+상세 패턴은 스킬 참조: `gp-quadruped/references/ros2-interop-and-bypass.md`,
+`isaac-sim-mcp/references/debugging.md`, `isaac-sim-bridge/references/installation.md`.

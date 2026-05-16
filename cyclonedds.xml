@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  단일 호스트 cyclone 디스커버리 보장 (Isaac 내부 cyclone ↔ 시스템 cyclone).
+  멀티캐스트가 막혀도 localhost 유니캐스트 피어로 서로 발견.
+  CYCLONEDDS_URI=file:///home/rokey/dev_ws/isaac_sim/cobot3/cyclonedds.xml
+  를 Isaac·degrade·web_server·CLI 모두 동일 적용. (최소 설정 — rmw init 안정)
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain Id="any">
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <Peers>
+        <Peer Address="localhost"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

@@ -28,16 +28,19 @@ PostgreSQL, Node 20, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`(Isaac↔C2 공통).
 
 ```
 cobot3/
-├── dev-docs/                 설계 문서
-│   └── gp-quadruped-system-design.md   권위 설계서(S1~S7, P0~P4)
+├── dev-docs/                 설계·환경 문서
+│   ├── gp-quadruped-system-design.md   권위 설계서(S1~S7, P0~P4, Appendix-D)
+│   └── project_requirments.md          개발환경·사전설정·기동·트러블슈팅 ★먼저 읽기
 │
-├── scenes/                   Isaac 씬 빌드 모듈(절차적 지형/로봇/OG)
-│   └── assets/               (gitignore) m0609 URDF→USD 임포트 산출 — 재생성됨
+├── scenes/                   Isaac 씬(현행 GP)
+│   ├── setup_ground_and_physics.py  범용 물리(GP 재사용)
+│   ├── legacy/               아카이브: 워크하우스 M1/M2 시절(GP 무관)
+│   └── assets/               (gitignore) m0609 URDF→USD 산출 — 재생성됨
 │
 ├── main_side/                ★ 시뮬레이터 PC 측 (Isaac Sim 구동 PC)
-│   ├── camera_publisher.py   standalone: 씬 로드 + RealSense OG + /cam/realsense/rgb 발행
-│   ├── run_camera_pub.sh     위 실행 런처(CycloneDDS, python.sh)
-│   ├── video_degrade_node.py /cam/realsense/rgb → 5fps·640×360·JPEG q50 → /c2/video/compressed
+│   ├── camera_publisher.py   씬 로드 + RealSense OG + **D-확장 in-process uplink**
+│   ├── run_camera_pub.sh / run_camera_pub_gui.sh   런처(ROS env scrub, py.sh)
+│   ├── video_degrade_node.py (2-PC ROS2 경로용) 5fps·640×360·JPEG q50
 │   └── run_degrade.sh        degrade 노드 런처
 │
 └── sub1_side/                ★ 지휘통제실(C2) PC 측 (시뮬과 별도 PC)
@@ -53,8 +56,11 @@ cobot3/
         └── package.json
 ```
 
-`main_side` = Isaac Sim 이 도는 PC, `sub1_side` = 지휘통제실 별도 PC.
-둘은 ROS 2 (`ROS_DOMAIN_ID=130`, CycloneDDS, LAN)로 연결된다.
+`main_side` = Isaac Sim PC, `sub1_side` = 지휘통제실 별도 PC.
+- **실배포 2-PC LAN**: ROS 2 (`ROS_DOMAIN_ID=130`, FastDDS UDP-only) 연결
+- **임시 같은-PC**: Isaac 내부 ROS2(py3.11)↔시스템(py3.10) DDS 불통 →
+  **D-확장 HTTP `/ingest` 우회**(영상+텔레메트리). 상세·기동·트러블슈팅은
+  **`dev-docs/project_requirments.md`** 참조(먼저 읽을 것).
 
 ---
 

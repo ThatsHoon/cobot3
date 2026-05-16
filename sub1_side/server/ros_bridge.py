@@ -53,6 +53,7 @@ class RosBridge:
         }
         self._video_lock = threading.Lock()
         self._video_frame: np.ndarray | None = None  # BGR ndarray (최신 1장)
+        self.ingest_ts = 0.0         # D-확장 직결 ingest 마지막 수신(epoch)
         self._loop = None
         self._db = None
         self._ev_cb = None           # asyncio: 이벤트 브로드캐스트 콜백
@@ -186,9 +187,14 @@ if RCLPY_OK:
                 "arm":   self.count_publishers(T["arm_joint"]),
             }
             L = self.get_logger()
-            L.info(f"HEALTH rx={self.br._node._rx} | publishers={pubs}")
+            ingest_live = (time.time() - self.br.ingest_ts) < 10.0
+            L.info(f"HEALTH rx={self.br._node._rx} | publishers={pubs} | "
+                   f"ingest={'LIVE' if ingest_live else 'off'}")
             hint = None
-            if self._rx["video"] == 0:
+            if ingest_live:
+                # D-확장 직결 ingest 가 데이터 공급 중 → ROS2 경로 0 은 정상(우회)
+                hint = "ingest 활성(ROS2 우회) — 영상/텔레메트리는 /ingest 로 수신 중"
+            elif self._rx["video"] == 0:
                 hint = (f"{T['video']} 수신 0 — "
                         + ("publisher 0: degrade/Isaac 미발행"
                            if pubs["video"] == 0
@@ -196,7 +202,8 @@ if RCLPY_OK:
                 L.warn("  ⚠ " + hint)
             self.br._emit({"type": "diag", "ts": _now_iso(),
                            "src": "ros_bridge", "rx": dict(self._rx),
-                           "publishers": pubs, "hint": hint})
+                           "publishers": pubs, "ingest": ingest_live,
+                           "hint": hint})
 
         # ---- 콜백 ----
         def _on_state(self, msg):

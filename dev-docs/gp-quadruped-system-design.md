@@ -654,4 +654,56 @@ ros2 topic hz /c2/video/compressed     # ≈5
 
 ---
 
+## Appendix-D. 임시 같은-PC D-확장 우회 (ROS2 미사용)
+
+> 본문(§4·§9·§12)의 ROS2 토픽 경로는 **실배포 2-PC LAN** 기준이다. 같은-PC
+> 임시 검증에서 **Isaac 번들 내부 ROS2(Python 3.11) ↔ 시스템 ROS 2
+> Humble(Python 3.10) 가 같은 호스트에서 DDS 디스커버리 불통**임이 확인됐다
+> (cyclone 통일 / LD_LIBRARY_PATH=Isaac 번들 humble lib / 시스템 ROS env
+> scrub / FastDDS UDP-only 프로파일 = NVIDIA 공식 `humble_ws/fastdds.xml`
+> — 전부 무효; Isaac 측은 발행하나 외부 Publisher 0). 머신 분리 시 DDS
+> 와이어는 ABI 무관이라 2-PC LAN 은 지원 경로 — 즉 이건 *같은-호스트 한정
+> 병리*이며 임시 환경에서만 D-확장으로 우회한다.
+
+### D.1 데이터 경로 (DDS 완전 우회)
+```
+Isaac(camera_publisher.py, 단일 프로세스, in-process)
+ ├ replicator annotator rgb/depth  (OG render product 에 attach)
+ ├ isaacsim.core.prims.Articulation get_joint_positions (m0609 q[6], anymal q[12])
+ └ XformCache(/World/Robot/anymal) → base pose → sim-GPS 환산
+        └ 백그라운드 스레드 HTTP POST(urllib, Kit 루프 비차단)
+             → web_server  POST /ingest/frame   (raw RGB 640x360)
+             → web_server  POST /ingest/telemetry (JSON)
+   web_server: ros._set_video_frame(WebRTC/MJPEG 그대로 소비) + ros.latest +
+               WS /events + DB — 기존 UI 무변경
+```
+
+### D.2 ingest 계약 (web_server `sub1_side/server/app.py`)
+| 엔드포인트 | 입력 | 처리 |
+|---|---|---|
+| `POST /ingest/frame?w=&h=&enc=rgb` | raw HxWx3 uint8 바이트 | RGB→BGR, (선택)YOLO 오버레이+탐지 emit/DB, `ros._set_video_frame` |
+| `POST /ingest/telemetry` | JSON `{ts,arm_q,leg_q,gps,odom,state,logs}` | `ros.latest` 갱신 + WS state/gps + DB(gps_track/joint_snapshots/robot_state_log/rosout_warn) + `ros.ingest_ts` |
+| `GET /ingest/stats` | — | `{frame,tele}` 누적 수신 카운트 |
+
+- ingest 경로는 **rclpy 불요**(ros_bridge 와 독립). ros_bridge 헬스는
+  `ingest_ts` 인지 → 최근 ingest 시 구 ROS2 video WARN 대신
+  `ingest=LIVE` INFO + diag hint "ingest 활성(ROS2 우회)".
+- 영상은 어떤 경로로도 **DB 저장 안 함**(불변식 4 유지).
+- 한계: `robot_state` 의 mode/battery/waypoint 는 보행 FSM 미구현 →
+  전송수단 무관하게 빈 값(locomotion 노드 구현 시 충족).
+
+### D.3 적용 파일 (검증 완료)
+- `main_side/camera_publisher.py` (uplink 워커 + annotator + Articulation + sim-GPS)
+- `main_side/run_camera_pub.sh` / `run_camera_pub_gui.sh` (ROS env scrub +
+  Isaac 번들 ROS2 격리; GUI 는 사용자 `!` 기동)
+- `sub1_side/server/app.py` (`/ingest/*`), `ros_bridge.py`(ingest-인지 헬스)
+
+### D.4 모드 선택 규칙
+- **같은 PC(현 검증)** → D-확장 사용(이 부록).
+- **2-PC LAN(실배포)** → 본문 ROS2 정공 경로 + `fastdds_no_shm.xml`.
+- 사전설정/기동 절차는 [`project_requirments.md`](project_requirments.md) §5.
+
+---
+
 *문서 끝. 구현은 P0 → P1 순으로 진행하며, 각 단계 산출물은 17.2 경로에 작성한다.*
+*(같은-PC 임시 검증은 Appendix-D 의 D-확장 우회로 영상+텔레메트리 웹 수신 검증됨.)*

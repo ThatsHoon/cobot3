@@ -1,8 +1,11 @@
 # sub1_side — 지휘통제실(C2) 측
 
 GP 경계근무 4족보행 로봇 시스템의 **별도 로컬 PC(지휘통제실)** 구성.
-시뮬레이터(Main PC, Isaac Sim)와 분리되어 ROS 2 (`ROS_DOMAIN_ID=130`) 로
-연결된다. 설계 근거: `../dev-docs/gp-quadruped-system-design.md` (§4·§9·§12·§13·§14).
+실배포는 시뮬레이터(Main PC)와 ROS 2(`ROS_DOMAIN_ID=130`) LAN 연결,
+**임시 같은-PC 는 D-확장 HTTP `/ingest` 우회**(server `/ingest/frame`·
+`/ingest/telemetry`, ros_bridge 무관). 설계: `../dev-docs/gp-quadruped-system-design.md`
+(§4·§9·§12·§13·§14 + Appendix-D). **환경·사전설정·기동·트러블슈팅:
+`../dev-docs/project_requirments.md` 먼저 참조.**
 
 ```
 sub1_side/

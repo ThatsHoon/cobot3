@@ -1,5 +1,4 @@
 "use client";
-import { useEffect, useRef } from "react";
 
 export type LedgerItem = {
   ts: string;
@@ -20,10 +19,7 @@ const SEV_C: Record<LedgerItem["sev"], string> = {
  * 담당자는 분산된 로그가 아니라 "사건의 흐름"을 본다.
  */
 export default function OpsLedger({ items }: { items: LedgerItem[] }) {
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth" });
-  }, [items]);
+  // 자동 하단 스크롤 제거 — 사용자가 스크롤 위치를 직접 제어
 
   return (
     <div className="panel h-full flex flex-col">
@@ -49,7 +45,6 @@ export default function OpsLedger({ items }: { items: LedgerItem[] }) {
             <span className="text-ink break-all">{it.msg}</span>
           </div>
         ))}
-        <div ref={end} />
       </div>
     </div>
   );
