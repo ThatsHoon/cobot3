@@ -43,4 +43,9 @@ export GP_HEADLESS=0          # ← GUI 창 표시
 # 동봉 이식 씬(스크립트 상대 — 하드코딩 제거; camera_publisher 기본과 일치)
 export GP_SCENE="${GP_SCENE:-$_HERE/scene/gp_scene.usd}"
 ISAAC=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release
-exec "$ISAAC/python.sh" /home/rokey/dev_ws/isaac_sim/cobot3/main_side/camera_publisher.py
+# 진단: 전체 출력을 영속 로그로 tee (터미널에도 그대로 표시).
+# 폭주 첫 발생 직전 camera_publisher 마일스톤 상관분석용.
+LOG=/tmp/cobot3_isaac_gui.log
+echo "[run] 전체 로그 캡처 → $LOG (live)"
+"$ISAAC/python.sh" /home/rokey/dev_ws/isaac_sim/cobot3/main_side/camera_publisher.py 2>&1 | tee "$LOG"
+exit "${PIPESTATUS[0]}"
