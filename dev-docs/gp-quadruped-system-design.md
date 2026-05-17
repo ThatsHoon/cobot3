@@ -617,8 +617,11 @@ C2 맵 클릭(x,y) → POST /robots/{id}/goto → /robot/nav/goal (PoseStamped)
 
 ### 17.2 신규/수정 파일 (구현 단계)
 
-- `cobot3/scenes/`: `setup_terrain.py`, `setup_anymal_policy.py`,
-  `setup_m0609_mount.py`, `build_og_factory.py`(적응)
+- ~~`cobot3/scenes/`: `setup_terrain.py`, `setup_anymal_policy.py`,
+  `setup_m0609_mount.py`, `build_og_factory.py`(적응)~~ — **구현 단계에서
+  방침 변경**: scenes/ 모듈 대신 저장된 씬 USD(`GP_SCENE`) + `main_side/
+  camera_publisher.py` 인라인 구성으로 단일화. 구 scenes/ 는
+  `dev-docs/legacy_scenes/` 로 아카이브(Appendix-D 참조).
 - `cobot3_nav/locomotion_node.py`
 - `cobot3_c2/`: `gps_node.py`, `video_degrade_node.py`, `c2_command_node.py`
 - `cobot3_telemetry/logger_node.py`(적응)
@@ -663,7 +666,9 @@ ros2 topic hz /c2/video/compressed     # ≈5
 > scrub / FastDDS UDP-only 프로파일 = NVIDIA 공식 `humble_ws/fastdds.xml`
 > — 전부 무효; Isaac 측은 발행하나 외부 Publisher 0). 머신 분리 시 DDS
 > 와이어는 ABI 무관이라 2-PC LAN 은 지원 경로 — 즉 이건 *같은-호스트 한정
-> 병리*이며 임시 환경에서만 D-확장으로 우회한다.
+> 병리*이다. 단, D-확장 우회는 같은-PC 전용이 아니라 **HTTP(TCP)라 2-PC
+> LAN 에서도 그대로 동작**한다(POST 타깃을 웹PC IP 로). 같은-PC 는 D-확장이
+> *유일 선택지*, 2-PC 는 D-확장·ROS2 *둘 다 가능* — D.4 선택 규칙 참조.
 
 ### D.1 데이터 경로 (DDS 완전 우회)
 ```
@@ -698,10 +703,15 @@ Isaac(camera_publisher.py, 단일 프로세스, in-process)
   Isaac 번들 ROS2 격리; GUI 는 사용자 `!` 기동)
 - `sub1_side/server/app.py` (`/ingest/*`), `ros_bridge.py`(ingest-인지 헬스)
 
-### D.4 모드 선택 규칙
-- **같은 PC(현 검증)** → D-확장 사용(이 부록).
-- **2-PC LAN(실배포)** → 본문 ROS2 정공 경로 + `fastdds_no_shm.xml`.
-- 사전설정/기동 절차는 [`project_requirments.md`](project_requirments.md) §5.
+### D.4 모드 선택 규칙 (택1 강제 아님)
+- **같은 PC** → D-확장 **강제**(이 부록). ROS2 경로는 같은-호스트 DDS
+  불통으로 **불가**.
+- **2-PC LAN** → D-확장·ROS2 **둘 다 가능**, 요구사항으로 선택:
+  - 영상+텔레메트리만 빠르게/확실하게, 단일 소비자, Isaac 의존 최소
+    → **D-확장**(POST 타깃을 웹PC IP 로; 가장 단순·검증됨).
+  - `ros2 topic`/rosbag/rqt·다중 구독자·DDS QoS·실로봇 확장
+    → **ROS2 정공**(본문 경로 + `fastdds_no_shm.xml`).
+- 사전설정/기동 절차·선택표는 [`project_requirments.md`](project_requirments.md) §5.
 
 ---
 

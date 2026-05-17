@@ -4,7 +4,7 @@ Isaac OG 가 발행하는 RealSense rgb 를 받아 해상도↓ + JPEG 화질↓
 `/c2/video/compressed` 로 재발행한다. C2 web_server(aiortc) 가 이를 WebRTC 로 송출.
 영상은 어떤 경로로도 DB 저장하지 않는다.
 
-토픽/QoS 는 설계 §12 표 고정. RMW 는 환경(RMW_IMPLEMENTATION=rmw_cyclonedds_cpp).
+토픽/QoS 는 설계 §12 표 고정. RMW 는 환경(RMW_IMPLEMENTATION=rmw_fastrtps_cpp).
 실행: source /opt/ros/humble/setup.bash && python3 video_degrade_node.py
 """
 import os
@@ -45,8 +45,8 @@ class VideoDegrade(Node):
         L.info(f"  ROS_DOMAIN_ID={os.environ.get('ROS_DOMAIN_ID','<UNSET>')} "
                f"RMW={os.environ.get('RMW_IMPLEMENTATION','<UNSET>')} "
                f"LOCALHOST_ONLY={os.environ.get('ROS_LOCALHOST_ONLY','<UNSET>')}")
-        if os.environ.get("RMW_IMPLEMENTATION") != "rmw_cyclonedds_cpp":
-            L.warn("  ⚠ RMW != rmw_cyclonedds_cpp → Isaac 토픽 디스커버리 실패 위험")
+        if os.environ.get("RMW_IMPLEMENTATION") != "rmw_fastrtps_cpp":
+            L.warn("  ⚠ RMW != rmw_fastrtps_cpp → Isaac 토픽 디스커버리 실패 위험")
         L.info(f"  pipeline: {IN_RGB} → {OUT_RGB} @ {TARGET_FPS}fps "
                f"{OUT_W}x{OUT_H} q{JPEG_Q}")
         L.info("================================")

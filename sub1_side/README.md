@@ -6,9 +6,13 @@ GP 경계근무 4족보행 로봇 시스템의 **별도 로컬 PC(지휘통제�
 `/ingest/telemetry`, ros_bridge 무관). 설계: `../dev-docs/gp-quadruped-system-design.md`
 (§4·§9·§12·§13·§14 + Appendix-D). **환경·사전설정·기동·트러블슈팅:
 `../dev-docs/project_requirments.md` 먼저 참조.**
+**2-PC LAN ROS2 정공 시 웹PC FastDDS 설정/IP 치환·트러블슈팅:
+[`FASTDDS.md`](FASTDDS.md) (프로파일: [`fastdds_web.xml`](fastdds_web.xml)).**
 
 ```
 sub1_side/
+├── FASTDDS.md           웹PC FastDDS 설정 가이드(2-PC LAN 정공)
+├── fastdds_web.xml      웹PC FastDDS 프로파일(배포 전 IP 치환)
 ├── db/schema.sql        로컬 PostgreSQL 스키마(영상 외 전 데이터 — §13)
 ├── server/              FastAPI + rclpy + aiortc(WebRTC) + asyncpg + YOLO
 │   ├── config.py        환경변수/토픽 규약

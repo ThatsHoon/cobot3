@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  웹/C2 PC 측 FastDDS 프로파일 (2-PC LAN ROS2 정공 경로 전용).
+
+  배경: Isaac Sim 은 NVIDIA 동봉 FastDDS 로 토픽을 발행하므로 받는 C2 PC 도
+  같은 RMW(rmw_fastrtps_cpp) 여야 한다(크로스-벤더 RMW 는 ROS2 비지원).
+  CycloneDDS 가 크로스-호스트에서 손이 덜 가는 건 사실이나, FastDDS 는
+  아래 4가지를 명시해주면 동등하게 안정화된다:
+    1) SHM 제거 + UDPv4 only      (호스트 못 넘는 전송 배제, NVIDIA 해법)
+    2) initialPeers 유니캐스트     (멀티캐스트 차단 LAN 에서 Publisher 0 방지)
+    3) interfaceWhiteList          (docker0/wifi 로 잘못 announce 방지)
+    4) 송수신 버퍼 확대            (이미지 등 큰 메시지 드랍 방지; OS 버퍼도 함께)
+
+  ▶ 배포 전 반드시 치환:
+      __MAIN_PC_IP__ : Isaac/시뮬 PC 의 LAN IP
+      __C2_LAN_IP__  : 이 C2 PC 의 LAN NIC IP (docker0/wifi 아님)
+  ▶ 사내 스위치가 멀티캐스트를 허용하면 <initialPeersList> 절은 생략 가능.
+  ▶ 적용: FASTRTPS_DEFAULT_PROFILES_FILE=<이 파일 절대경로>
+          RMW_IMPLEMENTATION=rmw_fastrtps_cpp, 양 끝단 동일.
+  자세한 설명/체크리스트: ./FASTDDS.md
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only_transport</transport_id>
+        <type>UDPv4</type>
+        <!-- 4MB: 압축영상 프레임 단편화 드랍 방지 (OS net.core.*mem_max 와 함께) -->
+        <sendBufferSize>4194304</sendBufferSize>
+        <receiveBufferSize>4194304</receiveBufferSize>
+        <!-- 이 C2 PC 의 LAN 인터페이스만 사용 (멀티-NIC 오announce 차단) -->
+        <interfaceWhiteList>
+          <address>__C2_LAN_IP__</address>
+        </interfaceWhiteList>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="udp_only" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>udp_only_transport</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <builtin>
+          <!-- 멀티캐스트 비의존: 시뮬 PC 를 유니캐스트 디스커버리 피어로 명시 -->
+          <initialPeersList>
+            <locator>
+              <udpv4>
+                <address>__MAIN_PC_IP__</address>
+              </udpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

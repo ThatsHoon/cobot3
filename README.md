@@ -20,7 +20,7 @@ git clone https://github.com/ThatsHoon/cobot3.git \
 ```
 
 전제: Isaac Sim 5.1 (`~/dev_ws/isaac_sim/isaacsim`), ROS 2 Humble,
-PostgreSQL, Node 20, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`(Isaac↔C2 공통).
+PostgreSQL, Node 20, `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`(Isaac↔C2 공통, FastDDS UDP-only).
 
 ---
 
@@ -30,12 +30,8 @@ PostgreSQL, Node 20, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`(Isaac↔C2 공통).
 cobot3/
 ├── dev-docs/                 설계·환경 문서
 │   ├── gp-quadruped-system-design.md   권위 설계서(S1~S7, P0~P4, Appendix-D)
-│   └── project_requirments.md          개발환경·사전설정·기동·트러블슈팅 ★먼저 읽기
-│
-├── scenes/                   Isaac 씬(현행 GP)
-│   ├── setup_ground_and_physics.py  범용 물리(GP 재사용)
-│   ├── legacy/               아카이브: 워크하우스 M1/M2 시절(GP 무관)
-│   └── assets/               (gitignore) m0609 URDF→USD 산출 — 재생성됨
+│   ├── project_requirments.md          개발환경·사전설정·기동·트러블슈팅 ★먼저 읽기
+│   └── legacy_scenes/        아카이브: 구 scenes/ 모듈(현행 GP 미사용)
 │
 ├── main_side/                ★ 시뮬레이터 PC 측 (Isaac Sim 구동 PC)
 │   ├── camera_publisher.py   씬 로드 + RealSense OG + **D-확장 in-process uplink**

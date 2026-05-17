@@ -46,8 +46,9 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml
 export ROS_LOCALHOST_ONLY=0
 export COBOT3_DB_URL="postgresql:///cobot3"
-# (참고) CycloneDDS 경로 전환 시: CYCLONEDDS_URI=.../cobot3/cyclonedds.xml
 ```
+RMW 는 **FastDDS 로 통일**(Isaac 동봉이 FastDDS → 크로스-벤더 RMW 비지원).
+CycloneDDS 는 사용하지 않는다.
 - `fastdds_no_shm.xml` = SharedMemory 비활성(UDP-only). NVIDIA 공식
   `IsaacSim-ros_workspaces/humble_ws/fastdds.xml` 과 동일 — 2-PC ROS2 시 필수.
 - alias: `isaac` / `isaac-mcp` (둘 다 RMW·DOMAIN prefix 포함),
@@ -79,14 +80,25 @@ createdb cobot3 2>/dev/null; psql -d cobot3 -f ../db/schema.sql
 
 ---
 
-## 5. 배포 모드 — 임시 같은-PC vs 실 2-PC
+## 5. 배포 모드 — 전송 경로 선택
 
-| | ① 임시 같은-PC (현 검증 환경) | ② 실배포 2-PC LAN |
+전송 경로는 **두 가지**(D-확장 HTTP `/ingest` 우회 / ROS2 토픽)이고,
+"같은-PC=D-확장, 2-PC=ROS2" 같은 **택1 강제가 아니다**:
+
+- **같은 PC** → **D-확장 강제**. Isaac 내부 ROS2(py3.11) ↔ 시스템 ROS2(py3.10)
+  가 같은 호스트에서 DDS 디스커버리 불통(§6)이므로 ROS2 경로는 **불가**.
+- **2-PC LAN** → **D-확장·ROS2 둘 다 가능**. D-확장은 HTTP(TCP)라 POST 타깃
+  URL 만 웹PC IP 로 바꾸면 그대로 동작(DDS 미사용 → py 버전 충돌 자체가 없음).
+  ROS2 경로는 머신 분리 시 DDS 와이어가 ABI 무관이라 정상. **요구사항에 따라 선택.**
+
+| | D-확장 HTTP `/ingest` | ROS2 토픽 |
 |---|---|---|
-| 영상/텔레메트리 경로 | **D-확장 HTTP `/ingest` 우회**(ROS2 미사용) | ROS2 토픽(같은 도메인+fastdds UDP-only) |
-| 이유 | Isaac 내부 ROS2(3.11) ↔ 시스템 ROS2(3.10) **같은-PC DDS 디스커버리 불통**(§6) | 머신 분리 시 DDS 와이어는 ABI 무관 → 지원 경로 |
-| main_side | `camera_publisher.py` 가 in-process 캡처(rgb/depth annotator + Articulation joint + base pose→sim-GPS) → web_server `POST /ingest/*` | OG ROS2 브리지 발행 → LAN |
-| 기동 | 아래 §5.1 | (2-PC 구성 시 ROS2 정공 — 설계서 본문) |
+| 같은-PC | ✅ (유일한 선택지) | ❌ 같은-호스트 DDS 불통(§6) |
+| 2-PC LAN | ✅ 가장 단순·검증됨 | ✅ ROS 생태계 정공 |
+| 적합 상황 | 영상+텔레메트리만 빠르게/확실하게, 데모, 단일 소비자 | `ros2 topic`/rosbag/rqt·다중 구독자·DDS QoS·실로봇 확장 |
+| 구현 부담 | urllib POST(Isaac 의존 없음), 동작 검증 완료 | OG ROS2 브리지 + fastdds UDP-only 세팅 |
+| main_side | `camera_publisher.py` in-process 캡처(rgb/depth annotator + Articulation joint + base pose→sim-GPS) → web_server `POST /ingest/*` | OG ROS2 브리지 발행 → LAN |
+| 기동 | 아래 §5.1 (같은-PC) / 2-PC 는 POST 타깃을 웹PC IP 로 | 설계서 본문(2-PC ROS2 정공) |
 
 ### 5.1 임시 같은-PC 기동 절차
 ```bash

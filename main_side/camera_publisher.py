@@ -4,7 +4,7 @@ isaac-sim-mcp 스킬 원칙: MCP 가 불능일 때 python.sh standalone 사용.
 씬 USD 를 열고(없으면 최소 구성), m0609 link_6 플랜지에 RealSense Camera 를
 보장한 뒤, OG sensor_bridge(OnTick→ROS2Context(domain 130)→CreateRenderProduct
 →ROS2CameraHelper rgb)를 만들고 시뮬을 계속 step 하여 `/cam/realsense/rgb`
-를 발행한다. RMW 는 환경(run 스크립트가 cyclonedds 설정).
+를 발행한다. RMW 는 환경(run 스크립트가 FastDDS UDP-only 설정).
 
 실행: main_side/run_camera_pub.sh
 """
@@ -53,8 +53,8 @@ for k in ("ROS_DOMAIN_ID", "RMW_IMPLEMENTATION", "ROS_LOCALHOST_ONLY",
     log(f"  {k}={v if k != 'AMENT_PREFIX_PATH' else v.split(':')[0]+' ...'}")
 if os.environ.get("ROS_DOMAIN_ID") != "130":
     log("  ⚠ ROS_DOMAIN_ID != 130 — C2/degrade 와 불일치 가능!")
-if os.environ.get("RMW_IMPLEMENTATION") != "rmw_cyclonedds_cpp":
-    log("  ⚠ RMW != rmw_cyclonedds_cpp — Isaac↔C2 디스커버리 실패 위험!")
+if os.environ.get("RMW_IMPLEMENTATION") != "rmw_fastrtps_cpp":
+    log("  ⚠ RMW != rmw_fastrtps_cpp — Isaac↔C2 디스커버리 실패 위험!")
 log(f"  GP_SCENE={SCENE}")
 log("=============================")
 

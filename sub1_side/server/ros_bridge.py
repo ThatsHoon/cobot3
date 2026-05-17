@@ -77,8 +77,8 @@ class RosBridge:
         warns = []
         if env["ROS_DOMAIN_ID"] not in ("130", config.ROS_DOMAIN_ID):
             warns.append(f"ROS_DOMAIN_ID={env['ROS_DOMAIN_ID']} (기대 130)")
-        if env["RMW_IMPLEMENTATION"] != "rmw_cyclonedds_cpp":
-            warns.append(f"RMW={env['RMW_IMPLEMENTATION']} (기대 rmw_cyclonedds_cpp)")
+        if env["RMW_IMPLEMENTATION"] != "rmw_fastrtps_cpp":
+            warns.append(f"RMW={env['RMW_IMPLEMENTATION']} (기대 rmw_fastrtps_cpp)")
         for w in warns:
             log.warning("  ⚠ %s — Isaac 토픽 디스커버리 실패 위험", w)
         log.info("==================================")
