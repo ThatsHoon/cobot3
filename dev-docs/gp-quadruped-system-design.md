@@ -468,10 +468,20 @@ C2 맵 클릭(x,y) → POST /robots/{id}/goto → /robot/nav/goal (PoseStamped)
 |---|---|---|---|---|
 | locomotion_node | Main | `/robot/nav/goal` | physics cb, `/robot/odom`, `/robot/state` | - |
 | gps_node | Main | (world pose) | `/robot/gps` | - |
+| telemetry_bridge_node | Main | `/robot/odom` | `/robot/gps`, `/robot/state` | - |
 | video_degrade_node | Main | `/cam/realsense/rgb`,`/depth` | `/c2/video/compressed`,`/c2/depth/compressed` | - |
 | c2_command_node | Main | `/robot/speaker/audio` | `/robot/m0609/cmd`, `FireEvent`, 트레이서 | `/robot/weapon/fire` |
 | telemetry_logger_node | Main | 전 토픽 | (DB write) | - |
 | web_server | C2 | 전 토픽 + rgb | FastAPI:8000 REST/WS + aiortc WebRTC + YOLO | - |
+
+> **구현 현황(2026-05-17)**: `locomotion_node`(다운링크 명령 소비)는 미구현
+> (`main_side/FASTDDS.md` §6). 업링크 텔레메트리 정공 경로는 구현됨 —
+> arm/leg `JointState`·`/robot/odom` 은 `camera_publisher.py` 의 **OG ROS2
+> 노드**가 직접 발행하고(설계의 `gps_node` 역할 포함), `/robot/gps`·
+> `/robot/state` 는 odom 에서 `telemetry_bridge_node.py` 가 파생한다.
+> rclpy 를 Isaac(py3.11)에서 못 쓰는 제약 때문에 발행을 OG(영상·관절·odom)
+> 와 시스템 노드(gps·state)로 분리한 것이 설계 표의 단일 노드들과의 차이.
+> D-확장 HTTP `/ingest` 경로는 이와 무관하게 병행(`Appendix-D`).
 
 ### 12.2 토픽·QoS 매트릭스
 

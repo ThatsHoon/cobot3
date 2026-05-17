@@ -4,7 +4,10 @@ isaac-sim-mcp 스킬 원칙: MCP 가 불능일 때 python.sh standalone 사용.
 씬 USD 를 열고(없으면 최소 구성), m0609 link_6 플랜지에 RealSense Camera 를
 보장한 뒤, OG sensor_bridge(OnTick→ROS2Context(domain 130)→CreateRenderProduct
 →ROS2CameraHelper rgb)를 만들고 시뮬을 계속 step 하여 `/cam/realsense/rgb`
-를 발행한다. RMW 는 환경(run 스크립트가 FastDDS UDP-only 설정).
+를 발행한다. 같은 그래프에서 ROS2 정공 텔레메트리(arm/leg JointState +
+base Odometry)도 OG 노드로 발행(GP_ROS2_TELEM=1, gps/state 는 시스템측
+telemetry_bridge_node 가 odom 에서 파생). D-확장 HTTP /ingest 경로는 그대로
+병행. RMW 는 환경(run 스크립트가 FastDDS UDP-only 설정).
 
 실행: main_side/run_camera_pub.sh
 """
@@ -115,36 +118,94 @@ if stage.GetPrimAtPath(GRAPH).IsValid():
         simulation_app.update()
     log(f"기존 {GRAPH} 제거 (fresh 재생성 위해)")
 
+# ── ROS2 정공 텔레메트리 발행 (OG, py3.11↔3.10 경계 안전) ─────────────────
+# rclpy 를 Isaac(py3.11) 에서 import 하면 시스템 ROS2(py3.10) 와 ABI 충돌 →
+# run_camera_pub.sh 가 의도적으로 시스템 ROS scrub. 따라서 텔레메트리도
+# video(/cam/realsense/rgb) 와 동일하게 **OG 내부 ROS2 브리지**로만 발행한다.
+# arm/leg=JointState, base=Odometry. gps(NavSatFix)/state(String) 는 OG
+# 정규노드가 없어 시스템측 telemetry_bridge_node.py 가 /robot/odom 에서 파생.
+# C2 ros_bridge 는 RELIABLE 구독 → 발행도 RELIABLE 명시(QoS 매칭).
+# HTTP /ingest D-확장 경로(_gather/_uplink_worker)는 그대로 병행(무손상).
+_TELEM = os.environ.get("GP_ROS2_TELEM", "1") == "1"
+_REL_QOS = ('{"history":"keepLast","depth":10,'
+            '"reliability":"reliable","durability":"volatile"}')
+ARM_PRIM, LEG_PRIM = "/World/Robot/m0609", "/World/Robot/anymal"
+ARM_TOPIC = "/dsr01/joint_states"          # C2 config.TOPICS["arm_joint"]
+LEG_TOPIC = "/robot/leg_joint_states"      # C2 config.TOPICS["leg_joint"]
+ODOM_TOPIC = "/robot/odom"                 # C2 config.TOPICS["odom"]
+
 K = og.Controller.Keys
+_CN = [
+    ("OnTick", "omni.graph.action.OnPlaybackTick"),
+    ("Ctx", "isaacsim.ros2.bridge.ROS2Context"),
+    ("CreateRP", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+    ("CamRGB", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+]
+_SV = [
+    ("Ctx.inputs:domain_id", DOMAIN),
+    ("CreateRP.inputs:cameraPrim", CAM_PATH),
+    ("CreateRP.inputs:width", 1280),
+    ("CreateRP.inputs:height", 720),
+    ("CamRGB.inputs:topicName", TOPIC),
+    ("CamRGB.inputs:frameId", "realsense"),
+    ("CamRGB.inputs:type", "rgb"),
+    ("CamRGB.inputs:qosProfile", "sensor_data"),
+]
+_CC = [
+    ("OnTick.outputs:tick", "CreateRP.inputs:execIn"),
+    ("CreateRP.outputs:execOut", "CamRGB.inputs:execIn"),
+    ("CreateRP.outputs:renderProductPath",
+     "CamRGB.inputs:renderProductPath"),
+    ("Ctx.outputs:context", "CamRGB.inputs:context"),
+]
+if _TELEM:
+    _CN += [
+        ("SimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+        ("ArmJS", "isaacsim.ros2.bridge.ROS2PublishJointState"),
+        ("LegJS", "isaacsim.ros2.bridge.ROS2PublishJointState"),
+        ("Odo", "isaacsim.core.nodes.IsaacComputeOdometry"),
+        ("OdoPub", "isaacsim.ros2.bridge.ROS2PublishOdometry"),
+    ]
+    _SV += [
+        ("ArmJS.inputs:targetPrim", ARM_PRIM),
+        ("ArmJS.inputs:topicName", ARM_TOPIC),
+        ("ArmJS.inputs:qosProfile", _REL_QOS),
+        ("LegJS.inputs:targetPrim", LEG_PRIM),
+        ("LegJS.inputs:topicName", LEG_TOPIC),
+        ("LegJS.inputs:qosProfile", _REL_QOS),
+        ("Odo.inputs:chassisPrim", LEG_PRIM),
+        ("OdoPub.inputs:topicName", ODOM_TOPIC),
+        ("OdoPub.inputs:odomFrameId", "odom"),
+        ("OdoPub.inputs:chassisFrameId", "base_link"),
+        ("OdoPub.inputs:qosProfile", _REL_QOS),
+    ]
+    _CC += [
+        ("OnTick.outputs:tick", "ArmJS.inputs:execIn"),
+        ("OnTick.outputs:tick", "LegJS.inputs:execIn"),
+        ("OnTick.outputs:tick", "Odo.inputs:execIn"),
+        ("Odo.outputs:execOut", "OdoPub.inputs:execIn"),
+        ("Ctx.outputs:context", "ArmJS.inputs:context"),
+        ("Ctx.outputs:context", "LegJS.inputs:context"),
+        ("Ctx.outputs:context", "OdoPub.inputs:context"),
+        ("SimTime.outputs:simulationTime", "ArmJS.inputs:timeStamp"),
+        ("SimTime.outputs:simulationTime", "LegJS.inputs:timeStamp"),
+        ("SimTime.outputs:simulationTime", "OdoPub.inputs:timeStamp"),
+        ("Odo.outputs:position", "OdoPub.inputs:position"),
+        ("Odo.outputs:orientation", "OdoPub.inputs:orientation"),
+        ("Odo.outputs:linearVelocity", "OdoPub.inputs:linearVelocity"),
+        ("Odo.outputs:angularVelocity", "OdoPub.inputs:angularVelocity"),
+    ]
+
 og.Controller.edit(
     {"graph_path": GRAPH, "evaluator_name": "execution"},
-    {
-        K.CREATE_NODES: [
-            ("OnTick", "omni.graph.action.OnPlaybackTick"),
-            ("Ctx", "isaacsim.ros2.bridge.ROS2Context"),
-            ("CreateRP", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
-            ("CamRGB", "isaacsim.ros2.bridge.ROS2CameraHelper"),
-        ],
-        K.SET_VALUES: [
-            ("Ctx.inputs:domain_id", DOMAIN),
-            ("CreateRP.inputs:cameraPrim", CAM_PATH),
-            ("CreateRP.inputs:width", 1280),
-            ("CreateRP.inputs:height", 720),
-            ("CamRGB.inputs:topicName", TOPIC),
-            ("CamRGB.inputs:frameId", "realsense"),
-            ("CamRGB.inputs:type", "rgb"),
-            ("CamRGB.inputs:qosProfile", "sensor_data"),
-        ],
-        K.CONNECT: [
-            ("OnTick.outputs:tick", "CreateRP.inputs:execIn"),
-            ("CreateRP.outputs:execOut", "CamRGB.inputs:execIn"),
-            ("CreateRP.outputs:renderProductPath",
-             "CamRGB.inputs:renderProductPath"),
-            ("Ctx.outputs:context", "CamRGB.inputs:context"),
-        ],
-    },
+    {K.CREATE_NODES: _CN, K.SET_VALUES: _SV, K.CONNECT: _CC},
 )
 log(f"OG {GRAPH} fresh 생성 완료 → {TOPIC} (domain {DOMAIN})")
+if _TELEM:
+    log(f"OG 텔레메트리 발행: {ARM_TOPIC}, {LEG_TOPIC}, {ODOM_TOPIC} "
+        f"(RELIABLE) — gps/state 는 telemetry_bridge_node 가 odom 에서 파생")
+else:
+    log("GP_ROS2_TELEM=0 → ROS2 텔레메트리 발행 비활성(HTTP /ingest 만)")
 
 # 4) 시뮬 구동 — OnPlaybackTick 이 틱하도록 계속 step -----------------------
 world = World(stage_units_in_meters=1.0)

@@ -38,12 +38,15 @@ cobot3/
 │   └── site.sh               site.env → C2_INGEST_URL·FastDDS 자동 파생 헬퍼
 │
 ├── main_side/                ★ 시뮬레이터 PC 측 (Isaac Sim 구동 PC)
-│   ├── camera_publisher.py   씬 로드 + RealSense OG + **D-확장 in-process uplink**
+│   ├── camera_publisher.py   씬 로드 + RealSense OG + OG ROS2 텔레메트리
+│   │                         (arm/leg JointState·odom) + **D-확장 uplink** 병행
 │   ├── scene/                자체완결 GP 씬+에셋(이식 가능, ANYmal만 S3 URL)
 │   ├── run_camera_pub.sh / run_camera_pub_gui.sh   런처(ROS env scrub, py.sh)
 │   ├── FASTDDS.md / fastdds_main.xml   2-PC Isaac측 설정(↔sub1_side 대칭)
-│   ├── video_degrade_node.py (2-PC ROS2 경로용) 5fps·640×360·JPEG q50
-│   └── run_degrade.sh        degrade 노드 런처
+│   ├── video_degrade_node.py / run_degrade.sh   /cam/realsense/rgb→/c2/video
+│   │                         (2-PC ROS2 경로) 5fps·640×360·JPEG q50
+│   └── telemetry_bridge_node.py / run_telemetry_bridge.sh
+│                             /robot/odom→/robot/{gps,state} 파생(시스템 ROS2)
 │
 └── sub1_side/                ★ 지휘통제실(C2) PC 측 (시뮬과 별도 PC)
     ├── db/schema.sql         로컬 PostgreSQL 스키마(영상 외 전 데이터)

@@ -9,11 +9,13 @@
 | 경로 | 용도 | main_side 설정 |
 |---|---|---|
 | **D-확장 HTTP** (검증·운용중) | Isaac → C2 **영상·텔레메트리 관측**(단방향) | `C2_INGEST_URL` 만 C2 PC 로 (§1) |
-| **ROS2 정공** (전송 prep) | C2 ↔ Isaac **양방향 토픽**(명령 다운링크 포함) | FastDDS 크로스호스트 (§2~§5) + **소비자 노드(§6, 미구현)** |
+| **ROS2 정공 — 업링크** (발행측 구현됨) | Isaac → C2 영상·텔레메트리 토픽 | OG+노드 발행(§3.1) + FastDDS 크로스호스트(§2~§5) |
+| **ROS2 정공 — 다운링크** (미구현) | C2 → Isaac **명령 토픽** | 전송(§2~§5) 가능하나 **소비자 노드(§6) 미구현** |
 
-영상만 필요하면 D-확장으로 충분(현재 동작). C2 가 시뮬로 **명령 토픽
-발송**하려면 ROS2 정공이 필요한데, 전송설정(§2~5)만으로는 부족하고
-Isaac 측 **명령 구독·실행 노드(§6)** 가 있어야 실제 반영된다.
+업링크 텔레메트리는 D-확장(HTTP)·ROS2 정공 **둘 다 동작**(병행, §3.1).
+영상만 관측하면 D-확장으로 충분. 단 C2 가 시뮬로 **명령 토픽 발송**(다운링크)
+하려면 전송설정(§2~5)만으로는 부족하고 Isaac 측 **명령 구독·실행
+노드(§6)** 가 있어야 실제 반영된다 — 이 부분은 여전히 미구현.
 
 ## 1. D-확장 업링크 대상 (영상 경로 — 현 운용)
 
@@ -55,6 +57,37 @@ ip -4 addr show   # MAIN_SIDE_IP = 실제 LAN NIC IP (docker0/wlan 아님)
 env 로 `FASTRTPS_DEFAULT_PROFILES_FILE` 를 직접 주면 그 값이 최우선.
 멀티캐스트 허용 LAN 이면 `<initialPeersList>` 없이 `fastdds_no_shm.xml`
 로도 충분 — 막힌 환경에서 Publisher 0 방지가 핵심.
+
+## 3.1 ROS2 정공 업링크 텔레메트리 (발행측 구현됨)
+
+`rclpy` 를 Isaac(py3.11)에서 import 하면 시스템 ROS2(py3.10) ABI 충돌이라
+`run_camera_pub.sh` 가 시스템 ROS 를 의도적으로 scrub 한다. 그래서 텔레메트리도
+영상과 **동일하게 OG 내부 ROS2 브리지로만** 발행한다(rclpy 미사용).
+
+| 토픽 | 타입 | 발행 주체 | 비고 |
+|---|---|---|---|
+| `/cam/realsense/rgb` | sensor_msgs/Image | camera_publisher OG (`ROS2CameraHelper`) | → `video_degrade_node` → `/c2/video/compressed` |
+| `/dsr01/joint_states` | sensor_msgs/JointState | camera_publisher OG (`ROS2PublishJointState`, m0609) | RELIABLE |
+| `/robot/leg_joint_states` | sensor_msgs/JointState | camera_publisher OG (ANYmal) | RELIABLE |
+| `/robot/odom` | nav_msgs/Odometry | camera_publisher OG (`ComputeOdometry`+`ROS2PublishOdometry`, ANYmal base) | RELIABLE |
+| `/robot/gps` | sensor_msgs/NavSatFix | `telemetry_bridge_node` (odom→sim-GPS 파생) | OG 정규노드 없음 |
+| `/robot/state` | std_msgs/String(JSON) | `telemetry_bridge_node` (mode/gait/battery/waypoint 합성) | `extra.synthetic=true` |
+
+- 토글: `GP_ROS2_TELEM`(기본 `1`). `0` 이면 OG 텔레메트리 노드 미생성
+  (HTTP `/ingest` D-확장만). 영상 OG 는 토글과 무관하게 항상 발행.
+- QoS: C2 `ros_bridge` 가 state/gps/odom/arm/leg 를 **RELIABLE** 구독 →
+  OG 발행·`telemetry_bridge` 발행 모두 RELIABLE 명시(매칭). 영상만 BEST_EFFORT.
+- sim-GPS 기준점(`LAT0/LON0/ALT0`)은 `camera_publisher._sim_gps` 와
+  `telemetry_bridge_node._sim_gps` 가 **동일**해야 HTTP·ROS2 좌표가 일치.
+- 기동: `run_telemetry_bridge.sh`(`run_degrade.sh` 형제, 시스템 ROS2).
+  `cobot3-cobot3_web-restart_full` 가 degrade 와 함께 자동 기동.
+- D-확장 HTTP `/ingest` 경로(`_gather`/`_uplink_worker`)는 **무손상 병행** —
+  같은-PC(디스커버리 불가) 환경에서도 영상/텔레메트리는 계속 HTTP 로 수신.
+- ⚠ **2-PC 정공 + HTTP 동시 활성 주의**: ROS2 디스커버리가 성립하는 2-PC 에서
+  `C2_INGEST_URL` 까지 C2 로 향하면 C2 가 동일 텔레메트리를 ROS2·HTTP **두
+  경로로 중복 수신**(DB 이중 적재·WS 이중 emit 가능). 정공 운용 시에는
+  `C2_INGEST_URL` 을 미설정(또는 localhost 로 두어 도달 실패)하거나
+  `GP_ROS2_TELEM=0` 으로 한쪽만 쓰는 것을 권장. 같은-PC 는 ROS2 0 이라 무관.
 
 ## 4. OS 커널 버퍼 (Isaac PC, 1회·영구)
 
