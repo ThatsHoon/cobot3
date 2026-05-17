@@ -20,7 +20,8 @@ for _p in "${_parts[@]}"; do
 done
 
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml
+# 같은-PC 기본=fastdds_no_shm.xml. 2-PC 정공은 env 로 치환본 지정(FASTDDS.md §3).
+export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml}"
 export ROS_DOMAIN_ID=130
 export ROS_LOCALHOST_ONLY=0
 export ROS_DISTRO=humble
