@@ -2,6 +2,7 @@
 # standalone 카메라 퍼블리셔 기동 (MCP/GUI 비의존, CycloneDDS).
 # GUI Isaac 과 동시에 띄우면 GPU 경합 → GUI Isaac 은 닫고 실행 권장.
 set -e
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── ★ 시스템 ROS 환경 스크럽 (핵심 수정) ───────────────────────────────
 # 시스템 /opt/ros/humble(py3.10) 가 PYTHONPATH/AMENT/LD 에 있으면 Isaac(py3.11)
@@ -27,6 +28,7 @@ _ISAAC_BR=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/exts/isaacsim.
 export LD_LIBRARY_PATH="$_ISAAC_BR${_clean_ld:+:$_clean_ld}"
 # 어떤 씬을 쓸지 (기본 cobot3_1.usd; 없으면 스크립트가 최소 구성/빈 스테이지)
 export GP_HEADLESS=1
-export GP_SCENE="${GP_SCENE:-/home/rokey/dev_ws/isaac_sim/src/doosan-robot2/urdf/m0609_isaac_sim/cobot3_1.usd}"
+# 동봉 이식 씬(스크립트 상대 — 하드코딩 제거; camera_publisher 기본과 일치)
+export GP_SCENE="${GP_SCENE:-$_HERE/scene/gp_scene.usd}"
 ISAAC=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release
 exec "$ISAAC/python.sh" /home/rokey/dev_ws/isaac_sim/cobot3/main_side/camera_publisher.py

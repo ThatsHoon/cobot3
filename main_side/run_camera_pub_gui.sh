@@ -3,6 +3,7 @@
 # 사용자 세션에서 직접 실행해야 함(GUI=DISPLAY 필요): 프롬프트에 `! 이 경로`
 # headless 와 동일하게 OG 자동 생성·Play·publish 하므로 별도 조작 불필요.
 set -e
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── ★ 시스템 ROS 환경 스크럽 (핵심 수정) ───────────────────────────────
 # `!` 실행 시 셸의 ~/.bashrc 가 /opt/ros/humble(py3.10) 를 소싱 → Isaac(py3.11)
@@ -30,6 +31,7 @@ export ROS_DISTRO=humble
 _ISAAC_BR=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/exts/isaacsim.ros2.bridge/humble/lib
 export LD_LIBRARY_PATH="$_ISAAC_BR${_clean_ld:+:$_clean_ld}"
 export GP_HEADLESS=0          # ← GUI 창 표시
-export GP_SCENE="${GP_SCENE:-/home/rokey/dev_ws/isaac_sim/src/doosan-robot2/urdf/m0609_isaac_sim/cobot3_1.usd}"
+# 동봉 이식 씬(스크립트 상대 — 하드코딩 제거; camera_publisher 기본과 일치)
+export GP_SCENE="${GP_SCENE:-$_HERE/scene/gp_scene.usd}"
 ISAAC=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release
 exec "$ISAAC/python.sh" /home/rokey/dev_ws/isaac_sim/cobot3/main_side/camera_publisher.py
