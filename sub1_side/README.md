@@ -13,6 +13,10 @@ GP 경계근무 4족보행 로봇 시스템의 **별도 로컬 PC(지휘통제�
 sub1_side/
 ├── FASTDDS.md           웹PC FastDDS 설정 가이드(2-PC LAN 정공)
 ├── fastdds_web.xml      웹PC FastDDS 프로파일(배포 전 IP 치환)
+├── CLOUDFLARE.md        공개 호스팅 가이드(Cloudflare Tunnel + Access)
+├── FOXGLOVE.md          Foxglove 도입 런북(B 정공·Lichtblick·/debug)
+├── run_cloudflared.sh   Cloudflare Tunnel 멱등 기동(PUBLIC_HOST SSOT)
+├── cloudflared/config.yml  터널 ingress 템플릿(런타임 치환)
 ├── db/schema.sql        로컬 PostgreSQL 스키마(영상 외 전 데이터 — §13)
 ├── server/              FastAPI + rclpy + aiortc(WebRTC) + asyncpg + YOLO
 │   ├── config.py        환경변수/토픽 규약
@@ -91,7 +95,7 @@ npm install && npm run dev          # :3000
 - **EngagementConsole**: 교전 절차순(확성기 경고 → ARM → FIRE 확인모달),
   접촉 시 강조, X-API-KEY 설정
 - **OpsLedger**: 탐지·사격·rosout WARN 을 시간순 **단일 작전 원장**으로 통합
-- **DiagnosticsStrip**: m0609 q[6]·ANYmal q[12] — 접이식 슬림(평소 접힘)
+- **DiagnosticsStrip**: Spot arm0 q[*]·Spot leg q[*] — 접이식 슬림(평소 접힘)
 
 미학: 다크 인광-그린 전술 콘솔, Chakra Petch / JetBrains Mono, HUD 코너
 브래킷·스캔라인, 접촉 시 전역 적색 경보 전환.

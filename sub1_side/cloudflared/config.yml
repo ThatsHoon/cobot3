@@ -1,0 +1,31 @@
+# cobot3 C2 공개 호스팅 — Cloudflare Tunnel(named) ingress 템플릿.
+#
+# 이 파일은 placeholder 보관용. run_cloudflared.sh 가 site.env(SSOT)의
+# PUBLIC_HOST 와 터널 UUID 를 치환해 ~/.cloudflared/config-cobot3.yml 로
+# 생성한다(repo 오염 없음 — common/site.sh 와 동일 철학).
+#
+# 단일 오리진 구성: UI(Next.js)+API(FastAPI)가 같은 도메인 → CORS/WS 무문제.
+#   /ingest 는 의도적으로 미라우팅 → Isaac→C2 데이터 투입은 LAN 직결 전용
+#   (무인증 ingest 의 공개 노출 차단 — 보안).
+#   공개 노출 전체는 Cloudflare Access(Zero Trust)로 게이트 (CLOUDFLARE.md §3).
+
+tunnel: __TUNNEL_UUID__
+credentials-file: /home/rokey/.cloudflared/__TUNNEL_UUID__.json
+
+ingress:
+  # 1) /ingest — 외부 차단(LAN 전용). 404 로 즉시 종결.
+  - hostname: __PUBLIC_HOST__
+    path: ^/ingest(/.*)?$
+    service: http_status:404
+
+  # 2) FastAPI: REST + WebSocket(/events) + 영상(/c2/*)
+  - hostname: __PUBLIC_HOST__
+    path: ^/(healthz|robots|telemetry|events|c2)(/.*)?$
+    service: http://localhost:8000
+
+  # 3) 나머지 = Next.js 오퍼레이터 UI
+  - hostname: __PUBLIC_HOST__
+    service: http://localhost:3000
+
+  # 4) 매칭 실패(다른 호스트 등)
+  - service: http_status:404

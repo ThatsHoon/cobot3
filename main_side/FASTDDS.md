@@ -67,9 +67,9 @@ env 로 `FASTRTPS_DEFAULT_PROFILES_FILE` 를 직접 주면 그 값이 최우선.
 | 토픽 | 타입 | 발행 주체 | 비고 |
 |---|---|---|---|
 | `/cam/realsense/rgb` | sensor_msgs/Image | camera_publisher OG (`ROS2CameraHelper`) | → `video_degrade_node` → `/c2/video/compressed` |
-| `/dsr01/joint_states` | sensor_msgs/JointState | camera_publisher OG (`ROS2PublishJointState`, m0609) | RELIABLE |
-| `/robot/leg_joint_states` | sensor_msgs/JointState | camera_publisher OG (ANYmal) | RELIABLE |
-| `/robot/odom` | nav_msgs/Odometry | camera_publisher OG (`ComputeOdometry`+`ROS2PublishOdometry`, ANYmal base) | RELIABLE |
+| `/dsr01/joint_states` | sensor_msgs/JointState | camera_publisher OG (`ROS2PublishJointState`, Spot 단일 아티큘레이션 전체) | RELIABLE |
+| `/robot/leg_joint_states` | sensor_msgs/JointState | camera_publisher OG (Spot 동일 아티큘레이션) — arm/leg 의미분리는 HTTP `_gather` 가 조인트명 prefix 로 | RELIABLE |
+| `/robot/odom` | nav_msgs/Odometry | camera_publisher OG (`ComputeOdometry`+`ROS2PublishOdometry`, Spot base `/World/Robot/base`) | RELIABLE |
 | `/robot/gps` | sensor_msgs/NavSatFix | `telemetry_bridge_node` (odom→sim-GPS 파생) | OG 정규노드 없음 |
 | `/robot/state` | std_msgs/String(JSON) | `telemetry_bridge_node` (mode/gait/battery/waypoint 합성) | `extra.synthetic=true` |
 
@@ -115,15 +115,16 @@ echo 'rokey1234' | sudo -S ufw allow from 192.168.10.0/24
 C2 가 토픽을 보내도 시뮬에서 **아무도 실행하지 않는다**. ROS2 정공으로
 "C2→시뮬 제어"를 완성하려면 이 구독·실행 노드 구현이 별도로 필요.
 
-## 7. 카메라 장착 (수정 반영됨)
+## 7. 카메라 장착 (Spot 기준)
 
-RealSense 는 `/World/Robot/m0609/m0609/link_6/realsense`(진짜 관절
-플랜지)에 런타임 생성된다. 과거 씬 로컬화로 평탄경로
-`/World/Robot/m0609/link_6` 빈 스캐폴드에 카메라가 박혀 detached 였던
-버그는 `gp_scene.usd` 에서 스캐폴드 제거로 해결(camera_publisher 의
-link_6 탐색이 실 플랜지에 재생성, 팔 추종). 기동 로그에
-`created RealSense camera at /World/Robot/m0609/m0609/link_6/realsense`
-가 찍히면 정상.
+로봇은 **spot_with_arm**(4족+팔 단일 아티큘레이션, S3 레퍼런스).
+RealSense 는 `gp_scene.usd` 에 Spot 팔 끝
+`/World/Robot/arm0_link_wr1/realsense` 로 **이미 저장**돼 있다
+(전방 hand-eye: 손목 로컬 +X 0.06 이동·−Z→+X 회전). 마이크/확성기/
+GPS 표식도 같은 손목(`arm0_link_wr1`) 하위. camera_publisher 는 이
+경로를 그대로 쓰고, 없을 때만(구 씬) 손목 하위에 재생성한다. 기동 로그
+`created RealSense camera at /World/Robot/arm0_link_wr1/realsense`
+(또는 `RealSense camera present: …`) 가 정상.
 
 ## 8. 검증 / 트러블슈팅
 

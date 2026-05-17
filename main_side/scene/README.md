@@ -12,15 +12,17 @@ scene/
 ├── assets/
 │   ├── terrain.usdz             지형 (구 ~/Downloads BRUMA, 텍스처 usdz 내장)
 │   ├── barbed_wire_fence.usdz   철조망 (Fence 124 세그가 참조)
-│   └── m0609.usd                m0609 로봇팔 (src/doosan-robot2/usd/m0609.usd)
+│   └── m0609.usd                (미사용 — 구 m0609 씬 잔존물, 현 씬은 Spot)
 └── textures/
     ├── Fence003/  *_Color/_NormalGL/_Roughness/_Opacity.png   (철조망 PBR)
     └── Snow010A/  *_Color/_NormalGL/_Roughness.png            (눈 PBR)
 ```
 
-prim: `/World/Terrain`, `/World/Robot/m0609`, `/World/Robot/anymal`,
-`/World/Fence/seg_0..123` — `camera_publisher.py` 의 m0609/anymal prim
-규약(`/World/Robot/...`)과 일치.
+prim: `/World/Terrain`, `/World/Robot`(= spot_with_arm S3 레퍼런스, 4족+팔
+단일 아티큘레이션), `/World/Robot/arm0_link_wr1/{realsense,microphone,
+speaker,gps}`, `/World/Fence/seg_0..123` — `camera_publisher.py` 의 Spot
+prim 규약(`/World/Robot`, `arm0_link_wr1/realsense`)과 일치. (구 m0609/
+anymal 2-아티큘레이션은 폐기 — Spot 단일 아티큘레이션으로 전환.)
 
 ## 이식성 계약 (다른 PC 에서 이어가기)
 
@@ -33,10 +35,10 @@ prim: `/World/Terrain`, `/World/Robot/m0609`, `/World/Robot/anymal`,
 - **예외 2건(파일 아님 — 정상)**:
   1. `OmniPBR.mdl` 등 코어 MDL: Isaac/RTX 런타임이 이름으로 해석.
      Isaac Sim 이 설치된 PC 면 자동 해결(본 프로젝트 전제).
-  2. `/World/Robot/anymal` → Omniverse 공개 S3 URL
-     (`…/Isaac/5.1/…/anymal_c/anymal_c.usd`). Isaac 표준 로봇이라
-     동봉하지 않음 — **씬 최초 로드시 인터넷 필요**(이후 Isaac 자산
-     캐시). 오프라인 필요 시 이 URL 을 로컬 다운로드본으로 교체.
+  2. `/World/Robot` → Omniverse 공개 S3 URL
+     (`…/Isaac/5.1/…/BostonDynamics/spot/spot_with_arm.usd`). Isaac
+     표준 로봇이라 동봉하지 않음 — **씬 최초 로드시 인터넷 필요**(이후
+     Isaac 자산 캐시). 오프라인 필요 시 이 URL 을 로컬 다운로드본으로 교체.
 
 ## 재생성 (참고)
 

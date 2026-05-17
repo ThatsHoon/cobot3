@@ -1,6 +1,6 @@
 # cobot3 — 개발환경 & 사전설정 (Project Requirements)
 
-cobot3(GP 경계근무 4족+m0609) 시스템을 **처음 기동하기 위한 개발환경·사전설치·
+cobot3(GP 경계근무 spot_with_arm) 시스템을 **처음 기동하기 위한 개발환경·사전설치·
 환경변수·기동절차·트러블슈팅**을 정리한 문서. 시스템 설계는
 [`gp-quadruped-system-design.md`](gp-quadruped-system-design.md) 참조.
 
@@ -61,7 +61,7 @@ CycloneDDS 는 사용하지 않는다.
 
 `.venv / node_modules / .next / __pycache__` 는 git 미추적(정리됨).
 GP 씬·에셋은 `main_side/scene/` 에 **자체완결로 동봉**(clone 만으로 열림 —
-ANYmal 만 공개 S3 URL, 최초 로드시 인터넷). 최초/클론 후 1회:
+Spot 만 공개 S3 URL, 최초 로드시 인터넷). 최초/클론 후 1회:
 
 ```bash
 # sub1_side web_server (시스템 ROS 가시 위해 --system-site-packages)
@@ -77,9 +77,10 @@ createdb cobot3 2>/dev/null; psql -d cobot3 -f ../db/schema.sql
 
 # 씬: main_side/scene/gp_scene.usd 동봉 — 별도 생성 불요(camera_publisher
 #   기본값, 스크립트 상대경로). 상세: main_side/scene/README.md
-# (씬 재구성 시에만) m0609 URDF→USD 재임포트:
-#   src: ~/dev_ws/isaac_sim/src/doosan-robot2/urdf/m0609_isaac_sim.urdf
-#   importer: make_default_prim 누락 시 무한 recompose 주의(§6)
+# (씬 재구성 시에만) 로봇은 spot_with_arm USD(단일 아티큘레이션) 기준 —
+#   gp_scene.usd 에 Spot 가 이미 로컬화 동봉(공개 S3 레퍼런스). 별도
+#   URDF→USD 임포트 불요. importer 사용 시 make_default_prim 누락 무한
+#   recompose 주의(§6)는 일반 원칙으로 유효.
 ```
 
 ---

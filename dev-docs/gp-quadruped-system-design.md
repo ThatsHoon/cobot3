@@ -1,4 +1,15 @@
-# GP 경계근무 4족보행 + m0609 로봇 시스템 설계서
+# GP 경계근무 4족보행(Spot+팔) 로봇 시스템 설계서
+
+> ⚠ **로봇 스왑(2026-05-17)**: 로봇이 **anymal+m0609(2-아티큘레이션) →
+> `spot_with_arm`(4족+팔 **단일 아티큘레이션**, `/World/Robot`, base
+> `/World/Robot/base`, 카메라 `/World/Robot/arm0_link_wr1/realsense`, 팔
+> 조인트 `arm0_*`, 다리 `fl_/fr_/hl_/hr_`)** 로 전면 교체됨. 현행 코드·
+> 통신 계약은 `../main_side/FASTDDS.md §3.1`·`camera_publisher.py`·
+> `telemetry_bridge_node.py`·`server/config.py` 가 권위. 아래 본문 중
+> ANYmal-C/m0609/`link_6`/2-아티큘레이션 결합(fixed joint·stow)·ANYmal
+> 정책 에셋 경로 등 **구체 메커니즘 서술은 구 설계(superseded)** — 토픽
+> 규약(`/dsr01/joint_states`,`/robot/leg_joint_states`,`/robot/odom` 등)은
+> 그대로 유효하나 발행 주체는 Spot 단일 아티큘레이션 OG 다.
 
 > cobot3 프로젝트 — 창고 분류에서 **GP(경계초소) 경계근무 대체 로봇**으로 전환.
 > 본 문서는 시스템 아키텍처 / 노드·통신 구조 / 구현 구체화 / 워크플로우를
@@ -35,16 +46,17 @@
 
 ### 1.1 한 문장 목표
 
-> Isaac Sim 안에서 **ANYmal-C 4족 로봇이 사전학습 RL 정책으로 산지 지형을 실제 물리
-> 보행**하며, 등에 결합된 **Doosan m0609 6축 팔의 플랜지에 장착된 RealSense RGB-D**
+> Isaac Sim 안에서 **spot_with_arm(4족+팔 단일 아티큘레이션)이 사전학습 RL
+> 정책으로 산지 지형을 실제 물리 보행**하며, 팔 끝 `arm0_link_wr1`
+> 플랜지의 **RealSense RGB-D**
 > 로 철조망 너머 생물체를 감시하고, 별도 PC의 **지휘통제실(C2) 웹 UI**가 데이터를
 > 실시간 표시·YOLO 분석하며 사격·확성기·위치지정을 원격 조작하는 시스템.
 
 ### 1.2 범위 (In Scope)
 
 - 절차적 볼록 산악 지형 + 철조망 구축 (에셋 조사·적용 포함)
-- ANYmal-C 번들 RL 정책 기반 **실제 물리 보행** + 정해진 경로/목표점 추종
-- m0609 팔을 ANYmal base 에 결합, link_6 플랜지에 RealSense RGB-D
+- spot_with_arm 번들 RL 정책 기반 **실제 물리 보행** + 정해진 경로/목표점 추종
+- 팔(`arm0_*`)은 Spot 단일 아티큘레이션에 포함, `arm0_link_wr1` 플랜지에 RealSense RGB-D
 - 시뮬 데이터(GPS·로봇상태·rosout WARN·dsr01/joint_states·RGB-D) → C2 PC 전송
 - C2 웹 UI: 실시간 직관 표시 + 웹서버측 YOLO 분석 + 사격·확성기·위치지정 조작
 - Main PC(Isaac) ↔ C2 PC ROS 2 LAN 통신, 영상 화질저하·5fps 대역 절감
@@ -82,7 +94,7 @@
 | D2 | 험지 | 지형 굴곡을 flat 정책 안정범위로 클램프, rough RL 은 P4 | 우회 아닌 명시 단계 |
 | D3 | 팔 결합 | m0609 6축을 ANYmal base 에 fixed joint 결합 | URDF: `src/doosan-robot2/urdf/m0609_isaac_sim.urdf` |
 | D3a | 결합 리스크 | m0609 질량/관성 → base CoM 이동 → 보행 불안정 가능 | 완화: 링크 질량 경감 + 보행 중 stow + P4 재학습 |
-| D4 | 센서 위치 | RealSense = m0609 6번 관절 플랜지 자식 Camera (런타임 생성) | `/World/Robot/m0609/m0609/link_6/realsense` (동봉 m0609.usd defaultPrim 중첩 → `m0609/m0609`; 구 평탄경로 스캐폴드 버그는 gp_scene.usd 에서 제거됨) |
+| D4 | 센서 위치 | RealSense = Spot 팔 끝 `arm0_link_wr1` 플랜지 자식 Camera | `/World/Robot/arm0_link_wr1/realsense` (gp_scene.usd 에 동봉 저장; 없을 때만 손목 하위 런타임 생성) |
 | D5 | 무기 | 시뮬 전용: 조준 + raycast 히트 + 트레이서 + `FireEvent` | 실무기·탄도 없음 |
 | D6 | YOLO 위치 | C2 웹서버 측 수신 프레임 추론 (in-sim 아님) | Main PC 부하 ↓ |
 | D7 | C2 백엔드 | Next.js + **FastAPI**(server-bridge 재사용) + 로컬 Postgres. **영상=WebRTC(aiortc)**, 제어/상태=WS | Django 미채택(실시간 스트리밍 부적합); 비즈로직만 GP 교체 |
@@ -134,9 +146,9 @@ L1 Simulation    : Isaac Sim Kit (USD stage, PhysX, OG ROS 브리지)
   │  /World/Terrain               볼록 heightfield (정적 충돌)     │
   │  /World/Fence                 철조망 (시각+충돌 proxy)         │
   │  /World/Path/route            정해진 경로 폴리라인             │
-  │  /World/Robot/anymal          ANYmal-C (12 leg joints, 정책)   │
-  │  /World/Robot/m0609           base 에 fixed, 6축 (보행중 stow) │
-  │     └ link_6/realsense        RGB-D Camera                     │
+  │  /World/Robot                 spot_with_arm 단일 아티큘레이션  │
+  │     ├ base                    Spot 몸체(odom·sim-GPS 기준)     │
+  │     └ arm0_link_wr1/realsense RGB-D Camera (팔 끝 플랜지)      │
   │  /World/Graphs/sensor_bridge  OG: camera/jointstate/tf pub     │
   │  /World/Graphs/cmd_bridge     OG: nav goal sub                 │
   └───┬───────────────┬───────────────┬──────────────┬────────────┘
@@ -194,17 +206,17 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ├── /World/Fence                     철조망 (post/wire Cylinder + 충돌 proxy)
 ├── /World/Path
 │   └── /World/Path/route            BasisCurves/Points (waypoint 폴리라인)
-└── /World/Robot
-    ├── /World/Robot/anymal          ArticulationRoot (ANYmal-C, 12 joint)
-    │   └── base                     (ANYmal base link)
-    └── /World/Robot/m0609/m0609     ArticulationRoot (동봉 m0609.usd defaultPrim 중첩)
-        ├── base_link  link_1 .. link_6  tool0
-        └── /World/Robot/m0609/m0609/link_6/realsense   Camera (+depth, 런타임 생성)
+└── /World/Robot                     ArticulationRoot (spot_with_arm, 단일)
+    ├── base                         Spot 몸체(odom·sim-GPS 기준)
+    ├── (다리) fl_/fr_/hl_/hr_ × hx/hy/kn
+    ├── (팔)  arm0_* … arm0_link_wr1
+    └── /World/Robot/arm0_link_wr1/realsense   Camera (+depth, 씬 동봉)
 ```
 
 토픽 네임스페이스 규약:
 - 센서/상태: `/robot/...` (단일 로봇; 확장 시 `/r{N}/...`)
-- m0609 조인트: `/dsr01/joint_states` (dsr_controller2 규약 유지)
+- 팔(arm0) 조인트: `/dsr01/joint_states` (토픽명 규약 유지 — Spot 단일
+  아티큘레이션이라 OG 는 전체 JointState 발행, arm/leg 의미분리는 소비측)
 - C2 영상: `/c2/...`
 
 ### 5.2 물리 설정
@@ -221,8 +233,10 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 두 그래프로 분리(센서 발행 / 명령 구독):
 
 **`/World/Graphs/sensor_bridge`** (OnPlaybackTick → ROS2Context →):
-- `ROS2PublishJointState` ← m0609 articulation → `/dsr01/joint_states`
-- `ROS2PublishJointState` ← anymal articulation → `/robot/leg_joint_states`
+- `ROS2PublishJointState` ← Spot 단일 articulation → `/dsr01/joint_states`
+- `ROS2PublishJointState` ← 동일 Spot articulation → `/robot/leg_joint_states`
+  (Spot 단일 아티큘레이션이라 두 토픽 모두 전체 JointState; arm/leg 의미
+  분리는 소비측/HTTP `_gather` 가 조인트명 prefix 로 — `FASTDDS.md §3.1`)
 - `IsaacCreateRenderProduct`(realsense) → `ROS2CameraHelper` rgb → `/cam/realsense/rgb`
 - 동 render product → `ROS2CameraHelper` depth → `/cam/realsense/depth`
 - `ROS2PublishTransformTree` → `/tf`, `/tf_static`
@@ -316,10 +330,10 @@ base_command = [v_x, 0.0, w_z]
 
 ### 7.3 RealSense 장착 (D4)
 
-- `/World/Robot/m0609/m0609/link_6/realsense` Camera prim (focal·aperture →
-  K 행렬), depth annotator 활성. `camera_publisher.py` 가 진짜 관절 플랜지
-  (`m0609/m0609/link_6`)에 런타임 생성·CAM_PATH 자동 갱신. (구 K 계산
-  레퍼런스 `setup_cameras.py` 는 `dev-docs/legacy_scenes/` 로 아카이브)
+- `/World/Robot/arm0_link_wr1/realsense` Camera prim (focal·aperture →
+  K 행렬), depth annotator 활성. gp_scene.usd 에 동봉 저장; `camera_
+  publisher.py` 는 이를 그대로 쓰고 없을 때만 손목(`arm0_link_wr1`) 하위
+  런타임 생성·CAM_PATH 자동 갱신.
 - OG `IsaacCreateRenderProduct` → `ROS2CameraHelper` rgb/depth
   → `/cam/realsense/rgb`, `/cam/realsense/depth`
 
@@ -364,7 +378,7 @@ pub /c2/video/compressed (CompressedImage)   pub /c2/depth/compressed
 
 ### 9.2 gps_node (net-new, D9)
 
-- ANYmal base world pose(x,y,z) 취득 → sim 원점 기준 ENU → 기준 위경도(설정값)에
+- Spot base(`/World/Robot/base`) world pose(x,y,z) 취득 → sim 원점 기준 ENU → 기준 위경도(설정값)에
   로컬접평면 환산 → `sensor_msgs/NavSatFix` 풍 `/robot/gps` 발행 (RELIABLE)
 - 동시에 `/robot/odom`(보행 노드) 와 일관
 
@@ -686,8 +700,8 @@ ros2 topic hz /c2/video/compressed     # ≈5
 ```
 Isaac(camera_publisher.py, 단일 프로세스, in-process)
  ├ replicator annotator rgb/depth  (OG render product 에 attach)
- ├ isaacsim.core.prims.Articulation get_joint_positions (m0609 q[6], anymal q[12])
- └ XformCache(/World/Robot/anymal) → base pose → sim-GPS 환산
+ ├ isaacsim.core.prims.Articulation get_joint_positions (Spot 단일 — arm0_*/다리, 조인트명 prefix 로 분리)
+ └ XformCache(/World/Robot/base) → base pose → sim-GPS 환산
         └ 백그라운드 스레드 HTTP POST(urllib, Kit 루프 비차단)
              → web_server  POST /ingest/frame   (raw RGB 640x360)
              → web_server  POST /ingest/telemetry (JSON)

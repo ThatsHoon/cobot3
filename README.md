@@ -1,8 +1,9 @@
-# cobot3 — GP 경계근무 4족보행 + m0609 로봇 시스템
+# cobot3 — GP 경계근무 4족보행(Spot+팔) 로봇 시스템
 
-Isaac Sim 시뮬레이션 안에서 **ANYmal-C 4족 로봇(번들 RL 보행 정책)** 등에
-**Doosan m0609 6축 팔**을 결합하고, m0609 `link_6` 플랜지의 **RealSense RGB-D**
-영상을 별도 PC의 **지휘통제실(C2) 웹 UI**로 실시간 송출·조작하는 프로젝트.
+Isaac Sim 시뮬레이션 안에서 **spot_with_arm**(4족+팔 **단일 아티큘레이션**,
+번들 RL 보행 정책)을 구동하고, Spot 팔 끝 `arm0_link_wr1` 플랜지의
+**RealSense RGB-D** 영상을 별도 PC의 **지휘통제실(C2) 웹 UI**로 실시간
+송출·조작하는 프로젝트.
 
 설계 원본: [`dev-docs/gp-quadruped-system-design.md`](dev-docs/gp-quadruped-system-design.md)
 
@@ -40,7 +41,7 @@ cobot3/
 ├── main_side/                ★ 시뮬레이터 PC 측 (Isaac Sim 구동 PC)
 │   ├── camera_publisher.py   씬 로드 + RealSense OG + OG ROS2 텔레메트리
 │   │                         (arm/leg JointState·odom) + **D-확장 uplink** 병행
-│   ├── scene/                자체완결 GP 씬+에셋(이식 가능, ANYmal만 S3 URL)
+│   ├── scene/                자체완결 GP 씬+에셋(이식 가능, Spot만 S3 URL)
 │   ├── run_camera_pub.sh / run_camera_pub_gui.sh   런처(ROS env scrub, py.sh)
 │   ├── FASTDDS.md / fastdds_main.xml   2-PC Isaac측 설정(↔sub1_side 대칭)
 │   ├── video_degrade_node.py / run_degrade.sh   /cam/realsense/rgb→/c2/video

@@ -30,8 +30,8 @@ TOPICS = {
     "state":     "/robot/state",            # std_msgs/String (JSON)
     "gps":       "/robot/gps",              # sensor_msgs/NavSatFix
     "odom":      "/robot/odom",             # nav_msgs/Odometry
-    "arm_joint": "/dsr01/joint_states",     # sensor_msgs/JointState (m0609)
-    "leg_joint": "/robot/leg_joint_states", # sensor_msgs/JointState (ANYmal)
+    "arm_joint": "/dsr01/joint_states",     # sensor_msgs/JointState (Spot arm0)
+    "leg_joint": "/robot/leg_joint_states", # sensor_msgs/JointState (Spot legs)
     "rosout":    "/rosout",                 # rcl_interfaces/Log (level>=30 필터)
     "video":     "/c2/video/compressed",    # sensor_msgs/CompressedImage (degrade rgb)
     "depth":     "/c2/depth/compressed",    # sensor_msgs/CompressedImage

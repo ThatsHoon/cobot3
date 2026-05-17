@@ -1,13 +1,15 @@
 """standalone RealSense 카메라 퍼블리셔 (MCP/GUI 비의존, 결정적).
 
 isaac-sim-mcp 스킬 원칙: MCP 가 불능일 때 python.sh standalone 사용.
-씬 USD 를 열고(없으면 최소 구성), m0609 link_6 플랜지에 RealSense Camera 를
-보장한 뒤, OG sensor_bridge(OnTick→ROS2Context(domain 130)→CreateRenderProduct
-→ROS2CameraHelper rgb)를 만들고 시뮬을 계속 step 하여 `/cam/realsense/rgb`
-를 발행한다. 같은 그래프에서 ROS2 정공 텔레메트리(arm/leg JointState +
-base Odometry)도 OG 노드로 발행(GP_ROS2_TELEM=1, gps/state 는 시스템측
-telemetry_bridge_node 가 odom 에서 파생). D-확장 HTTP /ingest 경로는 그대로
-병행. RMW 는 환경(run 스크립트가 FastDDS UDP-only 설정).
+씬 USD 를 열고(없으면 최소 구성), Spot 팔 끝(arm0_link_wr1) 의 RealSense
+Camera 를 보장한 뒤, OG sensor_bridge(OnTick→ROS2Context(domain 130)→
+CreateRenderProduct→ROS2CameraHelper rgb)를 만들고 시뮬을 계속 step 하여
+`/cam/realsense/rgb` 를 발행한다. 같은 그래프에서 ROS2 정공 텔레메트리
+(Spot 단일 아티큘레이션 JointState + base Odometry)도 OG 노드로 발행
+(GP_ROS2_TELEM=1, gps/state 는 시스템측 telemetry_bridge_node 가 odom 에서
+파생). 로봇은 spot_with_arm(4족+팔 단일 아티큘레이션) — 과거 m0609+ANYmal
+2-아티큘레이션이 아니라, arm/leg 분리는 _gather 에서 조인트명 prefix 로
+수행한다. D-확장 HTTP /ingest 경로는 그대로 병행. RMW 는 환경 설정.
 
 실행: main_side/run_camera_pub.sh
 """
@@ -37,10 +39,14 @@ for _ in range(60):              # 노드 타입 등록될 때까지 app 펌프
 SCENE = os.environ.get(
     "GP_SCENE",
     # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결
-    # 로컬화 씬(terrain/fence/m0609/textures 동봉, ANYmal 만 공개 S3 URL).
+    # 로컬화 씬(terrain/fence/textures 동봉, Spot 만 공개 S3 URL 레퍼런스).
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "gp_scene.usd"),
 )
-CAM_PATH = "/World/Robot/m0609/link_6/realsense"
+# Spot 팔 끝(손목) 의 RealSense — gp_scene.usd 에 이미 저장돼 있음.
+CAM_PATH = "/World/Robot/arm0_link_wr1/realsense"
+SPOT_PRIM = "/World/Robot"                 # spot_with_arm 단일 아티큘레이션 루트
+BASE_PRIM = "/World/Robot/base"            # Spot 몸체(odom·sim-GPS 기준)
+WRIST_PRIM = "/World/Robot/arm0_link_wr1"  # 카메라 부모(없을 때 생성 위치)
 GRAPH = "/World/Graphs/sensor_bridge"
 TOPIC = "/cam/realsense/rgb"
 DOMAIN = int(os.environ.get("ROS_DOMAIN_ID", "130"))
@@ -74,18 +80,22 @@ else:
     log(f"scene not found, empty stage: {SCENE}")
 stage = ctx.get_stage()
 
-# 2) RealSense 카메라 보장 (없으면 link_6 자식으로 생성) -------------------
+# 2) RealSense 카메라 보장 -------------------------------------------------
+# gp_scene.usd 에 Spot 손목(arm0_link_wr1/realsense) 으로 이미 저장됨. 없을
+# 때만(구 씬 등) 손목 자식으로 재생성 — Spot 팔 끝에 전방 hand-eye 로.
 cam_prim = stage.GetPrimAtPath(CAM_PATH)
 if not cam_prim.IsValid():
-    # link_6 탐색
-    link6 = None
-    rp = stage.GetPrimAtPath("/World/Robot/m0609")
+    # 'realsense' 프림 탐색(경로 변형 대비), 없으면 손목 하위 생성
+    found = None
+    rp = stage.GetPrimAtPath("/World/Robot")
     if rp.IsValid():
         for p in Usd.PrimRange(rp):
-            if p.GetName() == "link_6":
-                link6 = str(p.GetPath())
+            if p.GetName() == "realsense":
+                found = str(p.GetPath())
                 break
-    target = (link6 + "/realsense") if link6 else CAM_PATH
+    target = found or (WRIST_PRIM + "/realsense"
+                       if stage.GetPrimAtPath(WRIST_PRIM).IsValid()
+                       else CAM_PATH)
     cam = UsdGeom.Camera.Define(stage, target)
     W, H, F, HA, VA = 1280, 720, 24.0, 20.955, 11.787
     cam.GetFocalLengthAttr().Set(F)
@@ -94,8 +104,9 @@ if not cam_prim.IsValid():
     cam.GetClippingRangeAttr().Set(Gf.Vec2f(0.05, 100.0))
     xf = UsdGeom.Xformable(cam.GetPrim())
     xf.ClearXformOpOrder()
-    xf.AddTranslateOp().Set(Gf.Vec3f(0, 0, 0.05))
-    xf.AddRotateXYZOp().Set(Gf.Vec3f(0, 180, 0))
+    # Spot 손목 로컬: 전방(+X) 으로 0.06 이동 후 -Z→+X 로 회전(전방 주시)
+    xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
+    xf.AddRotateXYZOp().Set(Gf.Vec3f(0, 90, 0))
     CAM_PATH = target
     log(f"created RealSense camera at {CAM_PATH}")
 else:
@@ -122,14 +133,18 @@ if stage.GetPrimAtPath(GRAPH).IsValid():
 # rclpy 를 Isaac(py3.11) 에서 import 하면 시스템 ROS2(py3.10) 와 ABI 충돌 →
 # run_camera_pub.sh 가 의도적으로 시스템 ROS scrub. 따라서 텔레메트리도
 # video(/cam/realsense/rgb) 와 동일하게 **OG 내부 ROS2 브리지**로만 발행한다.
-# arm/leg=JointState, base=Odometry. gps(NavSatFix)/state(String) 는 OG
-# 정규노드가 없어 시스템측 telemetry_bridge_node.py 가 /robot/odom 에서 파생.
-# C2 ros_bridge 는 RELIABLE 구독 → 발행도 RELIABLE 명시(QoS 매칭).
-# HTTP /ingest D-확장 경로(_gather/_uplink_worker)는 그대로 병행(무손상).
+# Spot 은 단일 아티큘레이션(arm0_*+다리 한 몸) — ROS2PublishJointState 는
+# 아티큘레이션 단위라 arm/leg 를 OG 에서 못 가른다. 두 토픽 모두 Spot 전체
+# JointState 를 싣고(C2 는 토픽명 불변·유효 데이터 수신), arm/leg 의미 분리는
+# 라이브 경로인 HTTP _gather 가 조인트명 prefix 로 수행(아래 §_gather).
+# base=Odometry. gps(NavSatFix)/state(String) 는 OG 정규노드가 없어 시스템측
+# telemetry_bridge_node.py 가 /robot/odom 에서 파생. C2 ros_bridge 는
+# RELIABLE 구독 → 발행도 RELIABLE 명시. HTTP /ingest 경로는 그대로 병행(무손상).
 _TELEM = os.environ.get("GP_ROS2_TELEM", "1") == "1"
 _REL_QOS = ('{"history":"keepLast","depth":10,'
             '"reliability":"reliable","durability":"volatile"}')
-ARM_PRIM, LEG_PRIM = "/World/Robot/m0609", "/World/Robot/anymal"
+# Spot 단일 아티큘레이션 → arm/leg JointState·Odom 모두 같은 루트 대상.
+ARM_PRIM, LEG_PRIM = SPOT_PRIM, SPOT_PRIM
 ARM_TOPIC = "/dsr01/joint_states"          # C2 config.TOPICS["arm_joint"]
 LEG_TOPIC = "/robot/leg_joint_states"      # C2 config.TOPICS["leg_joint"]
 ODOM_TOPIC = "/robot/odom"                 # C2 config.TOPICS["odom"]
@@ -173,7 +188,7 @@ if _TELEM:
         ("LegJS.inputs:targetPrim", LEG_PRIM),
         ("LegJS.inputs:topicName", LEG_TOPIC),
         ("LegJS.inputs:qosProfile", _REL_QOS),
-        ("Odo.inputs:chassisPrim", LEG_PRIM),
+        ("Odo.inputs:chassisPrim", BASE_PRIM),   # Spot 몸체 rigid body
         ("OdoPub.inputs:topicName", ODOM_TOPIC),
         ("OdoPub.inputs:odomFrameId", "odom"),
         ("OdoPub.inputs:chassisFrameId", "base_link"),
@@ -233,19 +248,23 @@ except Exception as e:
     log(f"uplink: replicator 로드 실패 {e!r} — 영상 캡처 제한")
 _ann = {"rgb": None, "depth": None, "rp": None}
 
-# 아티큘레이션 핸들(방어적 — API 명칭 버전차 대응)
+# Spot 단일 아티큘레이션 핸들 + 조인트명(arm/leg 분리에 사용)
 _arts = {}
+_SPOT_DOF = []          # dof 이름 순서 (get_joint_positions 와 동일 순서)
 try:
     from isaacsim.core.prims import Articulation as _Art
-    for _nm, _p in (("m0609", "/World/Robot/m0609"),
-                    ("anymal", "/World/Robot/anymal")):
+    try:
+        a = _Art(SPOT_PRIM)
+        a.initialize()
+        _arts["spot"] = a
         try:
-            a = _Art(_p)
-            a.initialize()
-            _arts[_nm] = a
-            log(f"uplink: articulation {_nm} ({_p}) init OK")
-        except Exception as e:
-            log(f"uplink: articulation {_nm} init 실패 {e!r}")
+            _SPOT_DOF = [str(n) for n in (a.dof_names or [])]
+        except Exception:
+            _SPOT_DOF = []
+        log(f"uplink: articulation spot ({SPOT_PRIM}) init OK "
+            f"(dof={len(_SPOT_DOF)})")
+    except Exception as e:
+        log(f"uplink: articulation spot init 실패 {e!r}")
 except Exception as e:
     log(f"uplink: Articulation API 로드 실패 {e!r} — joint 미수집")
 
@@ -330,24 +349,28 @@ def _attach_annotators():
 def _gather():
     """현재 sim 상태 in-process 수집 → 큐 적재(비차단)."""
     tele = {"ts": None}
+    # Spot 단일 아티큘레이션 → 조인트명 prefix 로 arm/leg 분리
+    # (arm0_* = 팔, fl_/fr_/hl_/hr_ = 4족 다리). dof명 없으면 전체를 arm_q.
     try:
-        a = _arts.get("m0609")
+        a = _arts.get("spot")
         if a is not None:
-            jp = a.get_joint_positions()
-            tele["arm_q"] = [float(v) for v in _np.ravel(jp)][:6]
-    except Exception:
-        pass
-    try:
-        a = _arts.get("anymal")
-        if a is not None:
-            jp = a.get_joint_positions()
-            tele["leg_q"] = [float(v) for v in _np.ravel(jp)][:12]
+            jp = [float(v) for v in _np.ravel(a.get_joint_positions())]
+            if _SPOT_DOF and len(_SPOT_DOF) == len(jp):
+                arm = [v for n, v in zip(_SPOT_DOF, jp)
+                       if n.startswith("arm0_")]
+                leg = [v for n, v in zip(_SPOT_DOF, jp)
+                       if n[:3] in ("fl_", "fr_", "hl_", "hr_")]
+                tele["arm_q"], tele["leg_q"] = arm[:8], leg[:12]
+            else:
+                tele["arm_q"] = jp[:8]
     except Exception:
         pass
     try:
         _xc.SetTime(Usd.TimeCode.Default())
-        bp = omni.usd.get_context().get_stage().GetPrimAtPath(
-            "/World/Robot/anymal")
+        _st = omni.usd.get_context().get_stage()
+        bp = _st.GetPrimAtPath(BASE_PRIM)
+        if not (bp and bp.IsValid()):
+            bp = _st.GetPrimAtPath(SPOT_PRIM)
         m = _xc.GetLocalToWorldTransform(bp)
         tr = m.ExtractTranslation()
         x, y, z = float(tr[0]), float(tr[1]), float(tr[2])

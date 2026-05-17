@@ -1,0 +1,238 @@
+# Foxglove 도입 런북 — C2(sub1_side) 디버그 시각화
+
+목적: sub1_side 웹에 **`/debug` 라우트**를 추가하고, 그 안에서 Foxglove
+(자체호스팅 **Lichtblick**)로 로봇 텔레메트리/영상을 렌더(참고 스크린샷 =
+3D 패널 + Plot 스택 + Image).
+
+> 상태: **구현 완료(임시 같은-PC 모드)**. 텔레메트리·영상 ROS2 발행은
+> 이미 코드에 있고(아래 S1), 같은-PC 시각화는 `ros_bridge.py` 의
+> ingest→ROS2 **재발행**으로 동작한다. 권위 설계: `../dev-docs/
+> gp-quadruped-system-design.md`, 통신 전제: `FASTDDS.md`, 공개: `CLOUDFLARE.md`.
+
+확정 결정: 데이터 = ROS2(`foxglove_bridge`) · 3D = 1단계 메시 없음
+(TF/odom 축 + JointState) · 표시 = 기존 Next.js 앱 `/debug` iframe ·
+뷰어 = docker Lichtblick :8080.
+
+---
+
+## 0. ⚠ 전제 / 제약 (먼저 읽을 것)
+
+**(P1) 같은-PC 직결 DDS 는 불통 — 그래서 ingest 재발행으로 우회한다.**
+`foxglove_bridge` 는 시스템 ROS2(py3.10). Isaac 번들 ROS2(py3.11) ↔ 시스템
+ROS2 는 같은 PC 에서 DDS 디스커버리 불통(불변식 #8). **돌파구**: Isaac 은
+이미 영상·텔레메트리를 `web_server`(py3.10) `/ingest/*` 로 HTTP POST 한다.
+`ros_bridge.py` 가 `C2_INGEST_REPUBLISH=1` 일 때 그 데이터를 ROS2 로
+**재발행** → 같은-PC `foxglove_bridge`(동일 py3.10)가 정상 수신. 즉
+Isaac↔시스템 DDS 홉이 HTTP 로 대체되고, 유일한 DDS 홉(web_server →
+foxglove_bridge)은 동일구현·같은-PC라 OK. **2-PC 정식 운용 시에는 이
+재발행 OFF(기본)**, C2 PC 의 foxglove_bridge 가 Isaac 실토픽을 LAN 으로
+직접 본다(§"2-PC 정식").
+
+**(P2) S1(Isaac→ROS2 텔레메트리 발행)은 이미 구현됨.** `main_side/
+camera_publisher.py` 의 OG 가 `/cam/realsense/rgb`·`/dsr01/joint_states`·
+`/robot/leg_joint_states`·`/robot/odom` 을, `main_side/
+telemetry_bridge_node.py` 가 `/robot/gps`·`/robot/state` 를 발행한다(rclpy
+를 Isaac py3.11 에서 못 쓰므로 **OG 내부 ROS2 브리지**로만 — `FASTDDS.md
+§3.1`). 같은-PC 시각화는 이 토픽을 직접 보는 게 아니라 위 (P1) 재발행으로
+확보한다(같은-PC 직결 불가이므로).
+
+**(P3) D-확장 HTTP `/ingest` 경로는 깨지 않는다.** 재발행은 `/ingest`
+핸들러·DB·WS 를 건드리지 않는 **읽기 미러**다. `C2_INGEST_REPUBLISH`
+미설정(기본)이면 `ros_bridge.py` 는 종전과 바이트 동일(구독만, 신규
+publisher/타이머 없음) — 2-PC·현 대시보드 무영향.
+
+**(P4) 로봇 = spot_with_arm(단일 아티큘레이션).** anymal+m0609 2-아티큘
+레이션은 폐기. Foxglove 는 USD 를 못 읽으므로 3D 로봇 메시는 1단계에서
+**생략**(TF/odom 축 + JointState Plot). Spot URDF/glTF 메시는 후속 단계.
+
+---
+
+## 1. 종단 아키텍처 (2 모드)
+
+### M1 — 임시 같은-PC (현재 구현·"일단 동작")
+
+```
+[같은 PC] Isaac camera_publisher.py(py3.11)
+   └─ HTTP POST /ingest/{frame,telemetry} ─▶ web_server :8000 (py3.10)
+                                              ros.latest / ros._video_frame
+        C2_INGEST_REPUBLISH=1 → ros_bridge._C2Node 가 10Hz 재발행:
+          /robot/state /robot/gps /robot/odom /tf
+          /dsr01/joint_states /robot/leg_joint_states /c2/video/compressed
+                                              │ 시스템 ROS2(py3.10) DDS
+                                              ▼ (같은구현·같은-PC OK)
+   foxglove_bridge :8765 ──ws──▶ Lichtblick :8080 ──iframe──▶ Next.js /debug :3000
+```
+
+### M2 — 2-PC 정식 (재발행 OFF, 기본)
+
+```
+[Main PC] Isaac OG/telemetry_bridge ── ROS2/FastDDS domain130 ──┐ LAN
+[C2 PC]  video_degrade_node /cam/realsense/rgb→/c2/video/compressed
+[C2 PC]  foxglove_bridge :8765 (Isaac 실토픽 직접 구독) → Lichtblick → /debug
+   브라우저 ──TLS── Cloudflare(Access) ── (CLOUDFLARE.md)
+```
+
+`foxglove_bridge` 는 화이트리스트 없이 전 토픽 노출 → 어느 모드든 layout
+변경 불필요(토픽명 동일).
+
+---
+
+## 2. 사전 요구 (설치 완료 상태)
+
+| 항목 | 상태 |
+|---|---|
+| `ros-humble-foxglove-bridge` | ✅ 설치됨 (3.3.0) |
+| `docker.io` | ✅ 설치됨 (29.x). 임시 런북은 `sudo docker` 사용(그룹 재로그인 회피) |
+| Lichtblick 이미지 | ✅ `ghcr.io/lichtblick-suite/lichtblick:latest`(Caddy :8080 정적 SPA, 검증됨) |
+| ROS2 env | `ROS_DOMAIN_ID=130`, `RMW=rmw_fastrtps_cpp` (`FASTDDS.md`) |
+| Cloudflare(2-PC 공개 시) | `CLOUDFLARE.md` — §"2-PC 정식" 참조 |
+
+---
+
+## S1 — Isaac→ROS2 텔레메트리 발행 (이미 구현됨 — 확인만)
+
+별도 구현 불필요. 발행 주체·토픽(계약은 `server/config.py` TOPICS, QoS 는
+RELIABLE — 영상만 BEST_EFFORT):
+
+| 채널 | 토픽 | 타입 | 발행 주체 |
+|---|---|---|---|
+| state | `/robot/state` | std_msgs/String(JSON) | `telemetry_bridge_node`(odom 파생) |
+| gps | `/robot/gps` | sensor_msgs/NavSatFix | `telemetry_bridge_node` |
+| odom | `/robot/odom` | nav_msgs/Odometry | camera_publisher OG |
+| arm | `/dsr01/joint_states` | sensor_msgs/JointState | camera_publisher OG(Spot 전체) |
+| leg | `/robot/leg_joint_states` | sensor_msgs/JointState | camera_publisher OG(Spot 전체) |
+| video | `/c2/video/compressed` | sensor_msgs/CompressedImage | video_degrade_node |
+
+상세는 `../main_side/FASTDDS.md §3.1`. **같은-PC(M1)** 에선 위 토픽을
+Isaac 가 DDS 로 직접 못 보내므로(불변식 #8), `ros_bridge.py` 가
+`/ingest` 로 받은 동일 데이터를 같은 토픽명으로 **재발행**한다. arm/leg 는
+`/ingest` 의 `arm_q`/`leg_q`(맨 float 리스트)에 합성 조인트명을 부여
+(arm `arm0_j{i}`, leg `fl/fr/hl/hr × hx/hy/kn`).
+
+---
+
+## S2 — foxglove_bridge
+
+런처 = `sub1_side/run_foxglove_bridge.sh`(생성됨). 도메인130·
+rmw_fastrtps·site.sh FastDDS 프로파일 정합·`:8765`·화이트리스트 없음.
+
+```bash
+cd sub1_side && bash run_foxglove_bridge.sh   # 또는 bashrc 오케스트레이션
+```
+
+검증: `ros2 topic list` 에 재발행/실 토픽이 보이고 bridge 로그에
+`Foxglove WebSocket server ... listening on 0.0.0.0:8765` + 클라이언트
+connect. M1 에선 `ros2 node info /c2_web_server` 가 해당 토픽을
+**publisher** 로 표시(= web_server PID 가 재발행 중).
+
+---
+
+## S3 — Lichtblick 자체호스팅 (docker, 검증됨)
+
+이미지의 entrypoint 가 **`/lichtblick/default-layout.json`** 바인드마운트를
+읽어 index.html 의 레이아웃 플레이스홀더에 주입한다(검증: 마운트 시 패널
+ID 가 서빙 HTML 에 반영됨). 레이아웃 = `sub1_side/lichtblick/layout.json`
+(3D[/tf,/robot/odom] · RawMessages[/robot/state] · Plot[arm] · Plot[leg] ·
+Image[/c2/video/compressed]).
+
+```bash
+sudo docker rm -f cobot3-lichtblick 2>/dev/null
+sudo docker run -d --name cobot3-lichtblick --restart unless-stopped \
+  -p 8080:8080 \
+  -v /home/rokey/dev_ws/isaac_sim/cobot3/sub1_side/lichtblick/layout.json:/lichtblick/default-layout.json:ro \
+  ghcr.io/lichtblick-suite/lichtblick:latest
+```
+
+외부 SaaS(app.foxglove.dev) 임베드는 경계초소 데이터 외부 유출이라 금지
+— 자체호스팅 Lichtblick 만. Spot 3D 메시(URDF/glTF, USD 불가)는 후속 확장.
+
+---
+
+## S4 — sub1_side/web `/debug` 라우트 (생성됨)
+
+`app/page.tsx`·`layout.tsx` **무수정**. 신규 `app/debug/page.tsx` 가 루트
+layout 자동 상속, `.panel` 스타일 + 전체화면 iframe. 데이터소스 자동연결:
+`?ds=foxglove-websocket&ds.url=ws://localhost:8765`.
+
+env(`lib/api.ts` `LICHTBLICK_URL`, 빌드타임 주입):
+`NEXT_PUBLIC_LICHTBLICK_URL`(기본 `http://localhost:8080`).
+**같은-PC 임시 검증 시 `.env.local` 의 `NEXT_PUBLIC_C2_API` 도
+`http://localhost:8000` 로 둘 것** — prod https 오리진에 http Lichtblick
+iframe 은 혼합콘텐츠로 차단됨. `NEXT_PUBLIC_*` 변경 시 `next dev` 재시작/
+재빌드 필요.
+
+---
+
+## S5 — 같은-PC(M1) 런북 (일단 동작시키기)
+
+`~/.bashrc` `cobot3-cobot3_web-restart_full` 이 이 결합 모드 = 같은-PC.
+**적용할 ~/.bashrc 편집(머신로컬, repo 아님 — 사용자가 적용)**:
+
+1. web_server 기동 서브셸에 `export C2_INGEST_REPUBLISH=1` 추가.
+2. telemetry_bridge 기동 블록 뒤에 foxglove_bridge 기동:
+   `( cd "$SUB1" && setsid bash run_foxglove_bridge.sh </dev/null
+   >/tmp/cobot3_foxglove.log 2>&1 & )`
+3. 이어 Lichtblick: 위 S3 의 `sudo docker rm -f` → `sudo docker run` 2줄.
+4. 종료 함수 `cobot3-cobot3_web-down`: pkill 패턴에 `foxglove_bridge`
+   추가 + `sudo docker rm -f cobot3-lichtblick 2>/dev/null`.
+
+기동 순서: Isaac `main_side/run_camera_pub.sh`(Play) → `cobot3-cobot3_
+web-restart_full`(재발행 ON) → 브라우저 `http://localhost:3000/debug`.
+
+---
+
+## 2-PC 정식 (재발행 OFF — 기본, 공개)
+
+별도 C2 PC 운용 시 `C2_INGEST_REPUBLISH` 미설정(기본 OFF):
+`ros_bridge.py` 는 종전대로 Isaac 실토픽을 **구독**, foxglove_bridge 를
+C2 PC 에서 띄우면 LAN 으로 Isaac 토픽 직접 노출. Cloudflare 공개는 전용
+호스트 권장 + **반드시 동일 Cloudflare Access 정책**(디버그=로봇 전상태
+노출):
+
+```yaml
+# cloudflared/config.yml ingress (CLOUDFLARE.md 확장)
+  - hostname: cobot3-foxglove.thatshoon.com
+    path: ^/ws(/.*)?$
+    service: ws://localhost:8765
+  - hostname: cobot3-foxglove.thatshoon.com
+    service: http://localhost:8080
+```
+web env: `NEXT_PUBLIC_LICHTBLICK_URL=https://cobot3-foxglove.thatshoon.com`,
+iframe ds.url 을 `wss://cobot3-foxglove.thatshoon.com/ws` 로.
+
+---
+
+## 6. 검증
+
+**M1 같은-PC(재발행 ON)**:
+1. Isaac `run_camera_pub.sh` → Play. `curl -s localhost:8000/ingest/stats`
+   → frame/tele 증가.
+2. `ROS_DOMAIN_ID=130 ros2 topic list` → `/robot/{state,gps,odom}`,
+   `/dsr01/joint_states`,`/robot/leg_joint_states`,`/c2/video/compressed`,
+   `/tf`. `ros2 node info /c2_web_server` 에 이들이 **publisher**.
+3. `ros2 topic echo /robot/state --once` JSON, `ros2 topic hz
+   /c2/video/compressed`.
+4. `/tmp/cobot3_foxglove.log` listening 0.0.0.0:8765.
+5. `http://localhost:3000/debug` → 3D 축 이동, State/Plot 스트림, Image 영상.
+
+**2-PC 회귀(재발행 OFF 기본)**: `C2_INGEST_REPUBLISH` 없이 기동 →
+`ros2 node info /c2_web_server` 가 구독 + 업링크 pub(`/robot/nav/goal`,
+`/robot/speaker/audio`)만, 신규 publisher/타이머 없음. 텔레메트리 버스트
+후 `robot_state_log`/`gps_track`/`joint_snapshots` 중복행 0, WS 중복 0.
+
+## 7. 트러블슈팅
+
+| 증상 | 원인 | 조치 |
+|---|---|---|
+| Foxglove 토픽 0 | M1 인데 `C2_INGEST_REPUBLISH` 미설정 / Isaac 미Play | env=1 확인, ingest_stats 증가 확인 |
+| 토픽 보이나 0 메시지 | ingest 끊김(>10s) → 재발행 정지 | Isaac uplink·`/ingest/stats` 확인 |
+| Image 패널 빈값 | 영상 프레임 미수신 | `/c2/video/compressed hz`, ros._video_frame |
+| iframe 빈 화면 | `NEXT_PUBLIC_*` 미주입 | `.env.local` 후 web 재빌드 |
+| 혼합콘텐츠 차단 | prod https + http Lichtblick | 임시는 localhost http 통일, 정식은 §2-PC Cloudflare |
+| DB/WS 중복 | 2-PC 인데 재발행 ON | `C2_INGEST_REPUBLISH` 해제(기본 OFF 유지) |
+| docker 권한 | 그룹 미반영 | 임시 런북은 `sudo docker` |
+
+---
+관련: `../main_side/FASTDDS.md §3.1`(발행측) · `CLOUDFLARE.md` ·
+`../dev-docs/gp-quadruped-system-design.md` · `server/config.py`(TOPICS) ·
+`server/ros_bridge.py`(재발행/구독)

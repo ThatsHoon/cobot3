@@ -18,10 +18,17 @@ cobot3_site_load() {           # site.env 의 KEY=VALUE 만 순수 bash 로 추�
         k="${line%%=*}"; v="${line#*=}"
         k="${k//[[:space:]]/}"; v="${v//[[:space:]]/}"
         case "$k" in
-            MAIN_SIDE_IP|SUB1_SIDE_IP) [ -n "$v" ] && export "$k=$v" ;;
+            MAIN_SIDE_IP|SUB1_SIDE_IP|PUBLIC_HOST) [ -n "$v" ] && export "$k=$v" ;;
         esac
     done < "$f"
+    # 성공 기준은 IP 2종만(PUBLIC_HOST 는 선택 — 미사용 배포 허용).
     [ -n "$MAIN_SIDE_IP" ] && [ -n "$SUB1_SIDE_IP" ]
+}
+
+cobot3_public_url() {          # C2 공개 호스팅 URL (Cloudflare). 미설정 시 1
+    cobot3_site_load
+    [ -n "$PUBLIC_HOST" ] || { echo "[site] PUBLIC_HOST 미설정" >&2; return 1; }
+    echo "https://${PUBLIC_HOST}"
 }
 
 cobot3_c2_ingest_url() {       # D-확장 업링크 대상 (C2 web_server)

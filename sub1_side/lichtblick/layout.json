@@ -1,0 +1,75 @@
+{
+  "configById": {
+    "3D!spot": {
+      "followTf": "odom",
+      "followMode": "follow-pose",
+      "scene": { "enableStats": false },
+      "transforms": {},
+      "topics": {
+        "/tf": { "visible": true },
+        "/robot/odom": { "visible": true }
+      },
+      "layers": {},
+      "cameraState": {
+        "distance": 6,
+        "perspective": true,
+        "phi": 60,
+        "thetaOffset": 45,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      }
+    },
+    "RawMessages!state": {
+      "topicPath": "/robot/state"
+    },
+    "Plot!arm": {
+      "title": "arm0 joints",
+      "paths": [
+        { "value": "/dsr01/joint_states.position[:]", "enabled": true, "timestampMethod": "receiveTime" }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true
+    },
+    "Plot!leg": {
+      "title": "leg joints",
+      "paths": [
+        { "value": "/robot/leg_joint_states.position[:]", "enabled": true, "timestampMethod": "receiveTime" }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true
+    },
+    "Image!cam": {
+      "cameraTopic": "/c2/video/compressed",
+      "transformMarkers": false,
+      "synchronize": false,
+      "mode": "fit"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "direction": "row",
+    "first": "3D!spot",
+    "second": {
+      "direction": "column",
+      "first": "RawMessages!state",
+      "second": {
+        "direction": "column",
+        "first": "Plot!arm",
+        "second": {
+          "direction": "column",
+          "first": "Plot!leg",
+          "second": "Image!cam",
+          "splitPercentage": 50
+        },
+        "splitPercentage": 40
+      },
+      "splitPercentage": 28
+    },
+    "splitPercentage": 55
+  }
+}

@@ -21,9 +21,12 @@ fi
 export COBOT3_DB_URL="${COBOT3_DB_URL:-postgresql:///cobot3}"
 # export ISAAC_SIM_API_KEY=...   # 변경계열 보호용 (미설정 시 LAN 개발모드)
 
-# venv 의 uvicorn 을 명시적으로 사용 (PATH 의존 제거). 없으면 시스템 fallback.
-if [ -x ./.venv/bin/uvicorn ]; then
-    exec ./.venv/bin/uvicorn app:app --host "${C2_HTTP_HOST:-0.0.0.0}" --port "${C2_HTTP_PORT:-8000}"
+# venv 의 uvicorn 을 명시적으로 사용 (PATH·CWD 비의존 절대경로). 상대경로
+# ./.venv 는 호출 위치에 따라 빗나가 시스템 python3 fallback(uvicorn 부재)
+# 으로 샐 수 있어 $0 기준 절대경로로 고정.
+VENV_UVICORN="$(cd "$(dirname "$0")" && pwd)/.venv/bin/uvicorn"
+if [ -x "$VENV_UVICORN" ]; then
+    exec "$VENV_UVICORN" app:app --host "${C2_HTTP_HOST:-0.0.0.0}" --port "${C2_HTTP_PORT:-8000}"
 else
     exec python3 -m uvicorn app:app --host "${C2_HTTP_HOST:-0.0.0.0}" --port "${C2_HTTP_PORT:-8000}"
 fi

@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from "react";
 export const API_BASE =
   process.env.NEXT_PUBLIC_C2_API || "http://localhost:8000";
 export const ROBOT_ID = process.env.NEXT_PUBLIC_GP_ROBOT || "gp0";
+// 디버그(/debug) 페이지가 iframe 으로 임베드하는 Lichtblick(Foxglove) URL.
+// 같은-PC 임시: http://localhost:8080. NEXT_PUBLIC_* 는 빌드타임 주입.
+export const LICHTBLICK_URL =
+  process.env.NEXT_PUBLIC_LICHTBLICK_URL || "http://localhost:8080";
 
 export function apiKey(): string {
   if (typeof window === "undefined") return "";
