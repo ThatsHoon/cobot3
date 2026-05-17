@@ -97,16 +97,36 @@ CREATE TABLE IF NOT EXISTS rosout_warn (
 );
 CREATE INDEX IF NOT EXISTS idx_rosout_ts ON rosout_warn (ts DESC);
 
--- joint_snapshots  (재사용) : m0609 q[6] + ANYmal leg q[12], 10Hz 다운샘플 -
+-- joint_snapshots (재사용) : Spot arm0 + 다리 관절, 10Hz 다운샘플 ---------
 CREATE TABLE IF NOT EXISTS joint_snapshots (
     id        BIGSERIAL PRIMARY KEY,
     robot_id  TEXT NOT NULL REFERENCES robots(robot_id),
     ts        TIMESTAMPTZ NOT NULL,
-    arm_q     REAL[],                     -- m0609 6축 (/dsr01/joint_states)
-    leg_q     REAL[]                      -- ANYmal 12 leg (/robot/leg_joint_states)
+    arm_q     REAL[],                     -- Spot arm0 (/dsr01/joint_states)
+    leg_q     REAL[]                      -- Spot 다리 (/robot/leg_joint_states)
 );
 CREATE INDEX IF NOT EXISTS idx_js_robot_ts_brin
     ON joint_snapshots USING BRIN (robot_id, ts);
+
+-- ── 스키마 마이그레이션: 구 배포 드리프트 자가치유 (멱등) ─────────────────
+-- 과거 joint_snapshots 컬럼은 q/qd 였음. `CREATE TABLE IF NOT EXISTS` 는
+-- 기존 테이블을 변경하지 않으므로 구 DB 에서는 db_writer(arm_q/leg_q)와
+-- 불일치 → "column arm_q does not exist" 로 flush 실패. 이 블록이
+-- schema.sql 재실행 시(restart_full/start 가 매번 적용) 자동 정합한다.
+-- 신규 DB 에서는 전부 no-op(멱등).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'joint_snapshots' AND column_name = 'q') THEN
+    ALTER TABLE joint_snapshots RENAME COLUMN q TO arm_q;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'joint_snapshots' AND column_name = 'qd') THEN
+    ALTER TABLE joint_snapshots RENAME COLUMN qd TO leg_q;
+  END IF;
+END $$;
+ALTER TABLE joint_snapshots ADD COLUMN IF NOT EXISTS arm_q REAL[];
+ALTER TABLE joint_snapshots ADD COLUMN IF NOT EXISTS leg_q REAL[];
 
 -- robot_state_log  (신규) : 모드/배터리/보행상태 스냅샷 ----------------
 CREATE TABLE IF NOT EXISTS robot_state_log (

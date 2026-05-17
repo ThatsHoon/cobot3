@@ -39,27 +39,89 @@ sub1_side/
 - **업링크**: 맵 클릭→`/robots/{id}/goto`, 확성기→`/speaker`, 사격→`/fire`
   (변경계열은 `X-API-Key`; 미설정 시 LAN 개발모드)
 
-## 기동 (C2 PC 에서)
+## 2-PC 실전 — C2(서브사이드) PC 설치·설정 체크리스트
+
+> Isaac=Main PC / 웹·브리지·DB=이 C2 PC. 통신 전제 `FASTDDS.md`,
+> Foxglove `FOXGLOVE.md`, 공개호스팅 `CLOUDFLARE.md`.
+
+### A. 사전 설치 (1회, C2 PC)
 
 ```bash
-# 1) DB
-createdb cobot3 2>/dev/null || true
-psql -d cobot3 -f db/schema.sql
-
-# 2) web_server (ROS 2 Humble 필요)
-cd server
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-./run.sh                     # :8000  (ROS_DOMAIN_ID=130 자동)
-
-# 3) web (다른 터미널)
-cd web
-cp .env.local.example .env.local   # 필요 시 NEXT_PUBLIC_C2_API 수정
-npm install && npm run dev          # :3000
+# ROS 2 Humble 설치 전제(/opt/ros/humble). 그 외 apt:
+echo 'rokey1234' | sudo -S apt-get install -y \
+  ros-humble-foxglove-bridge docker.io postgresql \
+  python3-venv python3-pip nodejs npm
+# docker 그룹(재로그인 필요) — 또는 start_all_2 처럼 sudo docker 사용
+echo 'rokey1234' | sudo -S usermod -aG docker "$USER"
 ```
 
-브라우저 → `http://localhost:3000`. `X-API-KEY` 는 CommandBar 입력칸에
-넣으면 localStorage 에 저장된다(서버 `ISAAC_SIM_API_KEY` 와 일치해야 변경계열 동작).
+### B. 리포 + IP 단일소스(SSOT) — **가장 중요**
+
+```bash
+git clone https://github.com/ThatsHoon/cobot3.git ~/dev_ws/isaac_sim/cobot3
+cd ~/dev_ws/isaac_sim/cobot3
+# common/site.env 를 이 배포 IP 로 (양 PC 동일 값):
+#   MAIN_SIDE_IP = Isaac PC LAN IP
+#   SUB1_SIDE_IP = 이 C2 PC LAN IP   ← 역할 자동판별·FastDDS 치환 기준
+nano common/site.env
+ip -4 addr show   # SUB1_SIDE_IP 가 이 PC 실제 LAN NIC 인지 확인(docker0/wlan 아님)
+```
+
+### C. 서버 venv / 웹 / DB
+
+```bash
+cd sub1_side/server
+python3 -m venv --system-site-packages .venv      # rclpy 가시 위해 시스템 패키지
+./.venv/bin/pip install -r requirements.txt
+cd ../web && npm install
+
+# DB: schema.sql 은 멱등·자가치유(구 배포 컬럼 드리프트 q/qd→arm_q/leg_q
+# 자동 마이그레이션) — start_all_2 가 매 기동 자동 적용. 수동은:
+createdb cobot3 2>/dev/null || true; psql -d cobot3 -f ../db/schema.sql
+```
+
+### D. web `.env.local` (2-PC)
+
+`sub1_side/web/.env.local` — `.env.local.example` 참고. 2-PC 는 둘 중:
+- **공개(Cloudflare 단일오리진, 권장)**: `NEXT_PUBLIC_C2_API=https://<PUBLIC_HOST>`,
+  `NEXT_PUBLIC_LICHTBLICK_URL=https://<foxglove 호스트>` — 같은 도메인이라
+  CORS 무발생(`CLOUDFLARE.md`).
+- **LAN 직결**: `NEXT_PUBLIC_C2_API=http://localhost:8000`(C2 PC 에서 브라우저
+  띄울 때) 또는 `http://<SUB1_SIDE_IP>:8000`. `NEXT_PUBLIC_LICHTBLICK_URL`
+  동일 호스트 `:8080`. ⚠ https 페이지에 http iframe = 혼합콘텐츠 차단 —
+  스킴 통일. `NEXT_PUBLIC_*` 는 빌드/`next dev` 기동 시 주입 → 변경 시 재기동.
+
+CORS: web_server 는 `config.WEB_ORIGINS`(기본 `localhost:3000`,`127.0.0.1:3000`)
+만 허용. 다른 오리진에서 브라우저 접속 시 `C2_WEB_ORIGINS` env 로 추가.
+
+### E. 통신 사전조건 (`FASTDDS.md` 참조)
+
+- 런처가 `common/site.sh` 로 `RMW=rmw_fastrtps_cpp`·`ROS_DOMAIN_ID=130`·
+  FastDDS 프로파일(`cobot3_fastdds_profile web`, site.env IP 자동치환) 설정.
+- OS 커널 버퍼(`FASTDDS.md §4`) + 방화벽 C2 서브넷 허용(`§5`) 1회.
+
+### F. 기동 (한 명령 — 역할 자동판별)
+
+```bash
+source ~/.bashrc          # bashrc 함수 사용(머신로컬, 리포 미포함)
+cobot3-start_all_2        # 로컬 IP=SUB1_SIDE_IP → C2 역할 자동:
+#   PG+schema · web_server(:8000, 재발행 OFF=정공) · web(:3000) ·
+#   video_degrade · telemetry_bridge · foxglove_bridge(:8765) ·
+#   Lichtblick(:8080) · cloudflared(PUBLIC_HOST 설정 시)
+# 종료: cobot3-down_all_2     (C2 역할 = 위 전체 정리)
+# ⚠ Isaac PC 에서도 cobot3-start_all_2 (MAIN 역할 = GUI Isaac) 실행
+```
+
+수동 기동(디버그)도 가능: `db→server/run.sh→web npm run dev`,
+`run_degrade.sh`,`run_telemetry_bridge.sh`,`run_foxglove_bridge.sh`.
+
+### G. 검증
+
+브라우저 `http://localhost:3000`(또는 공개 URL) → `/` 작전콘솔, `/debug`
+Foxglove. `curl -s localhost:8000/healthz`=200, `ros2 topic list` 에 Isaac
+실토픽(`/robot/odom`,`/dsr01/joint_states`,`/c2/video/compressed`…),
+ros_bridge HEALTH `rx` 가 0→증가(정공 성립). `X-API-KEY` 는 CommandBar
+입력 시 localStorage 저장(서버 `ISAAC_SIM_API_KEY` 와 일치해야 변경계열 동작).
 
 ## Main PC 와의 계약 (토픽/서비스)
 

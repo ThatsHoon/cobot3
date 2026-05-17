@@ -6,6 +6,7 @@ ROS 콜백/추론 결과를 큐에 넣으면 백그라운드 태스크가 1초 �
 import asyncio
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import asyncpg
 
@@ -27,6 +28,31 @@ COLUMNS = {
     "robot_state_log":  ["robot_id", "ts", "mode", "gait",
                          "battery", "waypoint", "extra"],
 }
+
+
+def _coerce_ts(table: str, rec: tuple) -> tuple:
+    """`ts` 컬럼을 datetime 으로 강제. 호출처(app.py ingest / ros_bridge
+    콜백)는 `_now_iso()` ISO 문자열을 넘기는데 DB `ts` 는 timestamptz →
+    asyncpg COPY 가 'expected datetime, got str' 로 배치 전체 실패.
+    단일 지점에서 정합(실시간 WS 는 문자열 그대로 — 여기 미경유). 이미
+    datetime 이면 통과, 파싱 실패 시 현재시각으로 대체(행 손실 방지)."""
+    cols = COLUMNS.get(table)
+    if not cols or "ts" not in cols:
+        return rec
+    i = cols.index("ts")
+    v = rec[i]
+    if isinstance(v, datetime):
+        return rec
+    if isinstance(v, str):
+        s = v[:-1] + "+00:00" if v.endswith("Z") else v  # py3.10 fromisoformat Z 미지원
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            dt = datetime.now(timezone.utc)
+        r = list(rec)
+        r[i] = dt
+        return tuple(r)
+    return rec
 
 
 class DBWriter:
@@ -63,7 +89,7 @@ class DBWriter:
             batch: dict[str, list] = defaultdict(list)
             while not self._q.empty():
                 table, rec = self._q.get_nowait()
-                batch[table].append(rec)
+                batch[table].append(_coerce_ts(table, rec))
             if not batch or self._pool is None:
                 continue
             try:
