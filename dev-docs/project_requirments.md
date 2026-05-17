@@ -126,7 +126,7 @@ curl -s localhost:8000/healthz ; curl -s localhost:8000/ingest/stats
 | 증상 | 원인 | 대응 |
 |---|---|---|
 | 같은-PC `ros2 topic` 에 Isaac Publisher 0 | Isaac 번들 ROS2(py3.11) ↔ 시스템(py3.10) 같은-호스트 DDS 불통(cyclone/LD/scrub/UDP-only 전부 무효) | **D-확장 HTTP 우회**(§5) / 실배포 2-PC LAN |
-| `[json.exception.parse_error.101] last read: 's'` 스팸 | `isaac.sim.mcp_extension` 소켓 + stale Claude MCP relay | **무해 노이즈** — 무시(파이프라인 무관) |
+| `[json.exception.parse_error.101] last read: 's'` 스팸 | (MCP 가설 기각) standalone+OG 렌더프로덕트에서 `omni.usd-abi getRenderSettings failed getting a stage-id` 와 1:1 짝지어 매 렌더프레임 폭주 — 대화형 뷰포트가 렌더세팅 소유주 아님(Isaac standalone 알려진-양성). 씬/MCP/애너테이터 무관(증거: 신·구 씬 /Render 동일, MCP 제거 후 재발, 폭주가 attach 보다 먼저) | **기능 무영향 확정.** run 스크립트가 raw 로그 전량 `$LOG` 보존 + 콘솔에서만 2종 필터. getRenderSettings 성공시키려면 standalone 에 없는 뷰포트 소유주 필요 → 수정 무가치 |
 | URDF 임포트 후 CPU 폭주/무한 recompose | `make_default_prim=False` → 미해결 `<defaultPrim>` 참조 | dest USD 에 defaultPrim 설정 후 참조 |
 | OG `Failed to wrap graph / graph already exists` | 기존 그래프 위 edit | `stage.RemovePrim` 후 fresh `og.Controller.edit` |
 | standalone OG ROS2 노드타입 미등록 | python.sh 가 ros2.bridge 미로드 | `enable_extension("isaacsim.ros2.bridge")` + `update()` 펌프 |
