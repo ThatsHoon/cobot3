@@ -73,8 +73,12 @@ env 로 `FASTRTPS_DEFAULT_PROFILES_FILE` 를 직접 주면 그 값이 최우선.
 | `/robot/gps` | sensor_msgs/NavSatFix | `telemetry_bridge_node` (odom→sim-GPS 파생) | OG 정규노드 없음 |
 | `/robot/state` | std_msgs/String(JSON) | `telemetry_bridge_node` (mode/gait/battery/waypoint 합성) | `extra.synthetic=true` |
 
-- 토글: `GP_ROS2_TELEM`(기본 `1`). `0` 이면 OG 텔레메트리 노드 미생성
-  (HTTP `/ingest` D-확장만). 영상 OG 는 토글과 무관하게 항상 발행.
+- 토글: `GP_ROS2_TELEM`(기본 `1`) — `0` 이면 OG 텔레메트리 노드 미생성.
+  `GP_HTTP_UPLINK`(기본 `1`) — `0` 이면 HTTP `/ingest` 업링크(`_uplink_
+  worker`/`_gather`/annotator) 미가동. **두 토글로 경로 단일화**:
+  · 1-PC(M1, ROS2 디스커버리 불가): `GP_ROS2_TELEM=0`+`GP_HTTP_UPLINK=1`
+  · 2-PC 정공(B/M2): `GP_ROS2_TELEM=1`+**`GP_HTTP_UPLINK=0`** (C2 는 ROS2
+    단일 경로 수신 → 이중수신 원천 차단). 영상 OG 는 토글 무관 항상 발행.
 - QoS: C2 `ros_bridge` 가 state/gps/odom/arm/leg 를 **RELIABLE** 구독 →
   OG 발행·`telemetry_bridge` 발행 모두 RELIABLE 명시(매칭). 영상만 BEST_EFFORT.
 - sim-GPS 기준점(`LAT0/LON0/ALT0`)은 `camera_publisher._sim_gps` 와
@@ -83,11 +87,13 @@ env 로 `FASTRTPS_DEFAULT_PROFILES_FILE` 를 직접 주면 그 값이 최우선.
   `cobot3-cobot3_web-restart_full` 가 degrade 와 함께 자동 기동.
 - D-확장 HTTP `/ingest` 경로(`_gather`/`_uplink_worker`)는 **무손상 병행** —
   같은-PC(디스커버리 불가) 환경에서도 영상/텔레메트리는 계속 HTTP 로 수신.
-- ⚠ **2-PC 정공 + HTTP 동시 활성 주의**: ROS2 디스커버리가 성립하는 2-PC 에서
-  `C2_INGEST_URL` 까지 C2 로 향하면 C2 가 동일 텔레메트리를 ROS2·HTTP **두
-  경로로 중복 수신**(DB 이중 적재·WS 이중 emit 가능). 정공 운용 시에는
-  `C2_INGEST_URL` 을 미설정(또는 localhost 로 두어 도달 실패)하거나
-  `GP_ROS2_TELEM=0` 으로 한쪽만 쓰는 것을 권장. 같은-PC 는 ROS2 0 이라 무관.
+- ⚠ **2-PC 정공 이중수신 차단(필수·강제됨)**: ROS2 정공 성립 시 HTTP `/ingest`
+  까지 C2 로 가면 C2 가 동일 데이터를 ROS2·HTTP 두 경로로 받아 DB 이중
+  적재·WS 이중 emit. `run_camera_pub*.sh` 는 `C2_INGEST_URL` 을 항상
+  자동설정하므로 **`GP_HTTP_UPLINK=0` 으로 HTTP 발신 자체를 끄는 것이
+  유일한 확실한 차단**(C2_INGEST_REPUBLISH OFF 만으로는 ingest 핸들러
+  vs ROS2 구독 이중을 못 막음). `cobot3-start_all_2`(MAIN 역할)이 이를
+  자동 적용. 같은-PC(M1)는 ROS2 0 이라 무관(`GP_HTTP_UPLINK=1` 유지).
 
 ## 4. OS 커널 버퍼 (Isaac PC, 1회·영구)
 

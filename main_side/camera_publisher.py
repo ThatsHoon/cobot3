@@ -236,6 +236,12 @@ import urllib.request as _ul
 import numpy as _np
 
 C2 = os.environ.get("C2_INGEST_URL", "http://localhost:8000")
+# D-확장 HTTP /ingest 업링크 토글 (GP_ROS2_TELEM 과 대칭, 기본 ON).
+# 2-PC 정공(B/M2)에선 C2 가 ROS2 로 수신하므로 HTTP 까지 보내면 C2 가
+# 동일 데이터를 ROS2·HTTP 두 경로로 받아 DB 이중 적재·WS 이중 emit.
+# → 정공 운용 시 GP_HTTP_UPLINK=0 으로 HTTP 경로를 꺼 단일 소스화.
+# 같은-PC(M1)는 ROS2 디스커버리 불가라 HTTP 가 유일 경로 → 1(기본) 유지.
+_HTTP_UPLINK = os.environ.get("GP_HTTP_UPLINK", "1") == "1"
 LAT0, LON0, ALT0 = 38.30, 127.50, 200.0     # sim 원점 기준점(설계 §S5 sim-GPS)
 _OW, _OH = 640, 360
 
@@ -319,9 +325,13 @@ def _uplink_worker():
                 _ustat["frame_err"] += 1
 
 
-_uth = _threading.Thread(target=_uplink_worker, daemon=True)
-_uth.start()
-log(f"uplink: worker 시작 → {C2} (ingest/frame, ingest/telemetry)")
+if _HTTP_UPLINK:
+    _uth = _threading.Thread(target=_uplink_worker, daemon=True)
+    _uth.start()
+    log(f"uplink: worker 시작 → {C2} (ingest/frame, ingest/telemetry)")
+else:
+    log("GP_HTTP_UPLINK=0 → HTTP /ingest 업링크 비활성 "
+        "(2-PC 정공: C2 는 ROS2 단일 경로로 수신, 이중수신 차단)")
 
 
 def _attach_annotators():
@@ -409,10 +419,11 @@ try:
     while simulation_app.is_running():
         world.step(render=True)
         n += 1
-        if _ann["rp"] is None and n % 30 == 0:
-            _attach_annotators()
-        if n % 12 == 0:                       # ≈ uplink 5Hz
-            _gather()
+        if _HTTP_UPLINK:                       # HTTP /ingest 전용 수집 경로
+            if _ann["rp"] is None and n % 30 == 0:
+                _attach_annotators()
+            if n % 12 == 0:                   # ≈ uplink 5Hz
+                _gather()
         if n in (60, 150):
             _diag()
         if n % 300 == 0:
