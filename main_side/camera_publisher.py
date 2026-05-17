@@ -33,7 +33,9 @@ for _ in range(60):              # 노드 타입 등록될 때까지 app 펌프
 
 SCENE = os.environ.get(
     "GP_SCENE",
-    "/home/rokey/dev_ws/isaac_sim/src/doosan-robot2/urdf/m0609_isaac_sim/cobot3_1.usd",
+    # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결
+    # 로컬화 씬(terrain/fence/m0609/textures 동봉, ANYmal 만 공개 S3 URL).
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "gp_scene.usd"),
 )
 CAM_PATH = "/World/Robot/m0609/link_6/realsense"
 GRAPH = "/World/Graphs/sensor_bridge"
