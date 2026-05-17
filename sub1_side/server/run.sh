@@ -9,10 +9,13 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-130}"
 export ROS_LOCALHOST_ONLY=0
 # Isaac Sim ROS2 bridge 와 DDS 통일 (FastDDS 디스커버리 불일치 회피)
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
-# 웹/C2 PC 자체 프로파일을 기본 사용 (별도 PC 에 Main PC 경로가 없어
-# 무음 실패하던 버그 수정). 같은-PC 임시모드는 bashrc 가 export 한 값이
-# 우선되어 기존 동작 불변. 설정/IP 치환: ../FASTDDS.md
-export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-$(cd .. && pwd)/fastdds_web.xml}"
+# FastDDS 프로파일: env 지정 > common/site.env(SSOT) 자동 치환본(web) >
+# placeholder 폴백. main_side 런처와 대칭(IP 단일소스). 설정: ../FASTDDS.md
+[ -f ../../common/site.sh ] && source ../../common/site.sh
+if [ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ]; then
+  command -v cobot3_fastdds_profile >/dev/null 2>&1 && _P="$(cobot3_fastdds_profile web 2>/dev/null || true)"
+  export FASTRTPS_DEFAULT_PROFILES_FILE="${_P:-$(cd .. && pwd)/fastdds_web.xml}"
+fi
 
 # 로컬 Postgres / 인증 (설계 §4.3 / §13)
 export COBOT3_DB_URL="${COBOT3_DB_URL:-postgresql:///cobot3}"

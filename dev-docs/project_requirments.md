@@ -30,11 +30,12 @@ cobot3(GP 경계근무 4족+m0609) 시스템을 **처음 기동하기 위한 개
 ### 2.1 apt 사전설치 (이번에 막혔던 것들 — 필수)
 ```bash
 echo 'rokey1234' | sudo -S apt-get install -y \
-  python3.10-venv python3-pip \
-  ros-humble-rmw-cyclonedds-cpp     # (2-PC ROS2 경로 대비)
+  python3.10-venv python3-pip
 ```
 - `python3.10-venv` 없으면 sub1_side server `.venv` 의 pip 부트스트랩 실패.
-- `ros-humble-rmw-cyclonedds-cpp` 는 기본 미설치.
+- RMW 는 **FastDDS(`rmw_fastrtps_cpp`) 로 통일** — ROS 2 Humble 기본
+  제공이라 별도 apt 불요. CycloneDDS 는 사용하지 않음(크로스-벤더
+  RMW 비지원 → Isaac 동봉 FastDDS 와 통일). 구 `cyclonedds.xml` 삭제됨.
 
 ---
 
@@ -43,7 +44,7 @@ echo 'rokey1234' | sudo -S apt-get install -y \
 ```bash
 export ROS_DOMAIN_ID=130
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml
+export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/main_side/fastdds_no_shm.xml
 export ROS_LOCALHOST_ONLY=0
 export COBOT3_DB_URL="postgresql:///cobot3"
 ```
@@ -119,9 +120,11 @@ curl -s localhost:8000/healthz ; curl -s localhost:8000/ingest/stats
 > robot_state 의 mode/battery/waypoint 는 보행 FSM 미구현이라 비어있음
 > (전송수단 무관 — locomotion 노드 구현 시 채워짐).
 
-### 5.2 2-PC 실배포 워크드 예시 (현장 검증값)
+### 5.2 2-PC 실배포 워크드 예시
 
-역할/IP: **main_side(Isaac)=`192.168.10.94`**, **sub1_side(C2/웹)=`192.168.10.16`**,
+**IP 단일소스(SSOT) = `common/site.env`** — 배포지 변경 시 여기만 수정하면
+양측(C2_INGEST_URL·FastDDS 프로파일) 자동 반영. 아래는 현장 검증 예시값:
+`MAIN_SIDE_IP=192.168.10.94`(Isaac), `SUB1_SIDE_IP=192.168.10.16`(C2/웹),
 같은 LAN(`192.168.10.0/24`), `ROS_DOMAIN_ID=130`, `rmw_fastrtps_cpp`.
 
 **영상·텔레메트리 (D-확장 — 검증·운용중, 권장)**

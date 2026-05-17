@@ -25,7 +25,7 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # FastDDS: env > site.env 자동 치환본(2-PC) > 기본 UDP-only. (FASTDDS.md §3)
 if [ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ]; then
   command -v cobot3_fastdds_profile >/dev/null 2>&1 && _P="$(cobot3_fastdds_profile main 2>/dev/null || true)"
-  export FASTRTPS_DEFAULT_PROFILES_FILE="${_P:-/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml}"
+  export FASTRTPS_DEFAULT_PROFILES_FILE="${_P:-$_HERE/fastdds_no_shm.xml}"
 fi
 export ROS_DOMAIN_ID=130
 export ROS_LOCALHOST_ONLY=0

@@ -18,10 +18,11 @@ Isaac 측 **명령 구독·실행 노드(§6)** 가 있어야 실제 반영된�
 ## 1. D-확장 업링크 대상 (영상 경로 — 현 운용)
 
 `C2_INGEST_URL` = C2 웹서버. 같은-PC=localhost / 2-PC=C2 PC IP.
-- repo 의 `run_camera_pub*.sh` 는 기본 `localhost`(하드코딩 없음).
-- 2-PC 사이트값은 `~/.bashrc` `cobot3-isaacSim-gui` 에서 주입
-  (`export C2_INGEST_URL=http://<C2_IP>:8000`, env override 가능).
-- 검증: Isaac PC 에서 `curl -s http://<C2_IP>:8000/ingest/stats` 의
+- **IP 단일소스 = `../common/site.env`**(`SUB1_SIDE_IP`). 런처가
+  `../common/site.sh` 의 `cobot3_c2_ingest_url` 로 `http://$SUB1_SIDE_IP:8000`
+  **자동 파생**(bashrc·repo 하드코딩 없음). env 로 직접 주면 그 값 최우선.
+- 배포지 변경 시 `common/site.env` 두 줄만 수정 → 양측 자동 반영.
+- 검증: Isaac PC 에서 `curl -s http://$SUB1_SIDE_IP:8000/ingest/stats` 의
   `frame`/`tele` 카운트 증가 + 메인 로그 `uplink ok/err` 의 ok 증가.
 
 ## 2. 환경변수 (Isaac PC, camera_publisher 프로세스)

@@ -82,7 +82,7 @@
 | D2 | 험지 | 지형 굴곡을 flat 정책 안정범위로 클램프, rough RL 은 P4 | 우회 아닌 명시 단계 |
 | D3 | 팔 결합 | m0609 6축을 ANYmal base 에 fixed joint 결합 | URDF: `src/doosan-robot2/urdf/m0609_isaac_sim.urdf` |
 | D3a | 결합 리스크 | m0609 질량/관성 → base CoM 이동 → 보행 불안정 가능 | 완화: 링크 질량 경감 + 보행 중 stow + P4 재학습 |
-| D4 | 센서 위치 | RealSense = m0609 `link_6` 플랜지 자식 Camera | `/World/Robot/m0609/link_6/realsense` |
+| D4 | 센서 위치 | RealSense = m0609 6번 관절 플랜지 자식 Camera (런타임 생성) | `/World/Robot/m0609/m0609/link_6/realsense` (동봉 m0609.usd defaultPrim 중첩 → `m0609/m0609`; 구 평탄경로 스캐폴드 버그는 gp_scene.usd 에서 제거됨) |
 | D5 | 무기 | 시뮬 전용: 조준 + raycast 히트 + 트레이서 + `FireEvent` | 실무기·탄도 없음 |
 | D6 | YOLO 위치 | C2 웹서버 측 수신 프레임 추론 (in-sim 아님) | Main PC 부하 ↓ |
 | D7 | C2 백엔드 | Next.js + **FastAPI**(server-bridge 재사용) + 로컬 Postgres. **영상=WebRTC(aiortc)**, 제어/상태=WS | Django 미채택(실시간 스트리밍 부적합); 비즈로직만 GP 교체 |
@@ -197,9 +197,9 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 └── /World/Robot
     ├── /World/Robot/anymal          ArticulationRoot (ANYmal-C, 12 joint)
     │   └── base                     (ANYmal base link)
-    └── /World/Robot/m0609           ArticulationRoot (m0609)
+    └── /World/Robot/m0609/m0609     ArticulationRoot (동봉 m0609.usd defaultPrim 중첩)
         ├── base_link  link_1 .. link_6  tool0
-        └── /World/Robot/m0609/link_6/realsense   Camera (+depth)
+        └── /World/Robot/m0609/m0609/link_6/realsense   Camera (+depth, 런타임 생성)
 ```
 
 토픽 네임스페이스 규약:
@@ -316,8 +316,10 @@ base_command = [v_x, 0.0, w_z]
 
 ### 7.3 RealSense 장착 (D4)
 
-- `/World/Robot/m0609/link_6/realsense` Camera prim (focal·aperture → K 행렬,
-  cobot3 `setup_cameras.py` K 계산 재사용), depth annotator 활성
+- `/World/Robot/m0609/m0609/link_6/realsense` Camera prim (focal·aperture →
+  K 행렬), depth annotator 활성. `camera_publisher.py` 가 진짜 관절 플랜지
+  (`m0609/m0609/link_6`)에 런타임 생성·CAM_PATH 자동 갱신. (구 K 계산
+  레퍼런스 `setup_cameras.py` 는 `dev-docs/legacy_scenes/` 로 아카이브)
 - OG `IsaacCreateRenderProduct` → `ROS2CameraHelper` rgb/depth
   → `/cam/realsense/rgb`, `/cam/realsense/depth`
 

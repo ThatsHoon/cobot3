@@ -20,14 +20,15 @@
 | 변수 | 값 | 비고 |
 |---|---|---|
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | Isaac 과 통일(필수) |
-| `FASTRTPS_DEFAULT_PROFILES_FILE` | `…/sub1_side/fastdds_web.xml` | **웹PC 자체 프로파일**(아래 §3) |
+| `FASTRTPS_DEFAULT_PROFILES_FILE` | site.env 자동 치환본 | **§3** |
 | `ROS_DOMAIN_ID` | `130` | 양 PC 동일 |
 | `ROS_LOCALHOST_ONLY` | `0` | `1` 이면 크로스호스트 차단 |
 
-`run.sh` 는 `FASTRTPS_DEFAULT_PROFILES_FILE` 미지정 시 **같은 폴더의
-`fastdds_web.xml`** 을 기본 사용(별도 C2 PC 에 Main PC 경로가 없어
-무음 실패하던 버그 수정). 같은-PC 임시 모드에서 bashrc 가 값을
-export 해두면 그 값이 우선되어 기존 동작 불변.
+`server/run.sh` 는 `../../common/site.sh` 를 source 하여 미지정 시
+`cobot3_fastdds_profile web`(= `~/.config/cobot3/fastdds_web.xml`,
+`common/site.env` IP 자동 치환)을 사용하고, site.sh 없으면 placeholder
+`sub1_side/fastdds_web.xml` 로 폴백. env 로 직접 주면 그 값 최우선
+(main_side 런처와 대칭 — IP 단일소스).
 
 ## 2. 코드 측 QoS (이미 반영됨 — 수정 불필요)
 
@@ -82,7 +83,7 @@ echo 'rokey1234' | sudo -S sysctl --system
 DDS UDP 포트는 `ROS_DOMAIN_ID` 기반으로 가변 → 서브넷 단위 허용이 안전.
 
 ```bash
-echo 'rokey1234' | sudo -S ufw allow from 192.168.0.0/24
+echo 'rokey1234' | sudo -S ufw allow from 192.168.10.0/24   # LAN 대역(site.env IP 기준)
 ```
 
 ## 6. 검증 / 트러블슈팅

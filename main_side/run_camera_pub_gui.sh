@@ -39,7 +39,7 @@ if [ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ]; then
   if command -v cobot3_fastdds_profile >/dev/null 2>&1; then
     _P="$(cobot3_fastdds_profile main 2>/dev/null || true)"
   fi
-  export FASTRTPS_DEFAULT_PROFILES_FILE="${_P:-/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml}"
+  export FASTRTPS_DEFAULT_PROFILES_FILE="${_P:-$_HERE/fastdds_no_shm.xml}"
 fi
 export ROS_DOMAIN_ID=130
 export ROS_LOCALHOST_ONLY=0
