@@ -33,6 +33,10 @@ cobot3/
 │   ├── project_requirments.md          개발환경·사전설정·기동·트러블슈팅 ★먼저 읽기
 │   └── legacy_scenes/        아카이브: 구 scenes/ 모듈(현행 GP 미사용)
 │
+├── common/                   2-PC 사이트 단일소스(SSOT)
+│   ├── site.env              MAIN_SIDE_IP/SUB1_SIDE_IP — 배포지 바뀌면 여기만 수정
+│   └── site.sh               site.env → C2_INGEST_URL·FastDDS 자동 파생 헬퍼
+│
 ├── main_side/                ★ 시뮬레이터 PC 측 (Isaac Sim 구동 PC)
 │   ├── camera_publisher.py   씬 로드 + RealSense OG + **D-확장 in-process uplink**
 │   ├── scene/                자체완결 GP 씬+에셋(이식 가능, ANYmal만 S3 URL)

@@ -13,6 +13,8 @@
 #       /home/rokey/dev_ws/isaac-sim-mcp/isaac_mcp/server.py
 set -e
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 사이트 IP 단일소스(SSOT): common/site.env → C2_INGEST_URL·FastDDS 자동 파생
+[ -f "$_HERE/../common/site.sh" ] && source "$_HERE/../common/site.sh"
 
 # ── ★ 시스템 ROS 환경 스크럽 (핵심 수정) ───────────────────────────────
 # `!` 실행 시 셸의 ~/.bashrc 가 /opt/ros/humble(py3.10) 를 소싱 → Isaac(py3.11)
@@ -32,9 +34,13 @@ for _p in "${_parts[@]}"; do
 done
 
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-# 같은-PC 기본=fastdds_no_shm.xml. 2-PC 정공은 env 로 치환본(initialPeers/
-# interfaceWhiteList 포함) 지정 — bashrc cobot3-isaacSim-gui 가 주입. (FASTDDS.md §3)
-export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml}"
+# FastDDS 프로파일: env 지정 > site.env 로 자동 치환본(2-PC) > 기본 UDP-only.
+if [ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ]; then
+  if command -v cobot3_fastdds_profile >/dev/null 2>&1; then
+    _P="$(cobot3_fastdds_profile main 2>/dev/null || true)"
+  fi
+  export FASTRTPS_DEFAULT_PROFILES_FILE="${_P:-/home/rokey/dev_ws/isaac_sim/cobot3/fastdds_no_shm.xml}"
+fi
 export ROS_DOMAIN_ID=130
 export ROS_LOCALHOST_ONLY=0
 export ROS_DISTRO=humble
@@ -46,7 +52,7 @@ export GP_HEADLESS=0          # ← GUI 창 표시
 export GP_SCENE="${GP_SCENE:-$_HERE/scene/gp_scene.usd}"
 # D-확장 업링크 대상. 같은-PC=localhost. 2-PC=C2 PC IP 로 (env 또는
 # bashrc cobot3-isaacSim-gui 에서 지정 — 사이트값은 repo 에 하드코딩 안 함).
-export C2_INGEST_URL="${C2_INGEST_URL:-http://localhost:8000}"
+export C2_INGEST_URL="${C2_INGEST_URL:-$(cobot3_c2_ingest_url 2>/dev/null || echo http://localhost:8000)}"
 ISAAC=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release
 # 전체 raw 출력은 $LOG 에 전량 보존(tee). 콘솔에서는 standalone+OG
 # 렌더프로덕트의 알려진-양성 2종(omni.usd-abi getRenderSettings stage-id

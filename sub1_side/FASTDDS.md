@@ -52,14 +52,18 @@ QoS 불일치는 DDS 벤더 무관 함정이므로 변경 시 이 매칭을 깨�
    `docker0`/`br-…`/wifi 로 잘못 announce 하는 함정 차단.
 4. **버퍼 4MB** — 압축영상 프레임 단편화 드랍 방지(아래 OS 버퍼와 함께).
 
-```bash
-# IP 치환 (예: 시뮬 PC 192.168.0.10, 이 C2 PC 192.168.0.20)
-cd /home/rokey/dev_ws/isaac_sim/cobot3/sub1_side
-sed -i 's/__MAIN_PC_IP__/192.168.0.10/; s/__C2_LAN_IP__/192.168.0.20/' fastdds_web.xml
-ip -4 addr show   # LAN NIC IP 확인 (docker0/wlan 아님)
-```
+**IP 단일소스 = `../common/site.env`** (`MAIN_SIDE_IP`/`SUB1_SIDE_IP`).
+`fastdds_web.xml` 은 placeholder 보관용. 치환본은 `common/site.sh` 로 생성:
 
-멀티캐스트 허용 LAN 이면 `<initialPeersList>` 절은 삭제해도 됨.
+```bash
+source /home/rokey/dev_ws/isaac_sim/cobot3/common/site.sh
+export FASTRTPS_DEFAULT_PROFILES_FILE="$(cobot3_fastdds_profile web)"
+#  → ~/.config/cobot3/fastdds_web.xml (repo·placeholder 오염 없음)
+ip -4 addr show   # SUB1_SIDE_IP = 이 PC 실제 LAN NIC (docker0/wlan 아님)
+```
+배포지 바뀌면 **site.env 만 수정**(양측 자동 반영). web_server `run.sh`
+도 동일 헬퍼로 자동 적용하도록 연동 가능. 멀티캐스트 허용 LAN 이면
+`<initialPeersList>` 절은 삭제 가능.
 
 ## 4. OS 커널 버퍼 (C2 PC, 1회·영구)
 

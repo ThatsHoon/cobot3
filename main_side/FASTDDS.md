@@ -36,20 +36,22 @@ Isaac 측 **명령 구독·실행 노드(§6)** 가 있어야 실제 반영된�
 `run_camera_pub*.sh` / bashrc `isaac`·`cobot3-isaacSim-gui` 가 설정.
 2-PC 정공 시 프로파일을 §3 치환본으로 가리키게 한다.
 
-## 3. 프로파일 `fastdds_main.xml` — 치환 절차 (repo 오염 방지)
+## 3. 프로파일 자동 생성 — `common/site.env`(SSOT)
 
-repo 의 [`fastdds_main.xml`](fastdds_main.xml) 은 **placeholder** 만 보관.
-실제 IP 치환본은 **repo 밖**에 만들어 env 로 가리킨다(placeholder 파일을
-직접 sed 하면 커밋이 더러워짐):
+IP 는 **`../common/site.env`** 한 곳만 수정한다(`MAIN_SIDE_IP`/`SUB1_SIDE_IP`).
+repo 의 [`fastdds_main.xml`](fastdds_main.xml) 은 placeholder 보관용이고,
+런처(`run_camera_pub*.sh`)가 `../common/site.sh` 의
+`cobot3_fastdds_profile main` 으로 **치환본을 `~/.config/cobot3/
+fastdds_main.xml` 에 자동 생성**해 `FASTRTPS_DEFAULT_PROFILES_FILE` 로
+가리킨다(repo·bashrc 하드코딩 없음, placeholder 파일 오염 없음).
 
+수동으로 강제하려면(디버그 등):
 ```bash
-mkdir -p ~/.config/cobot3
-sed 's/__C2_PC_IP__/192.168.10.16/; s/__MAIN_LAN_IP__/192.168.10.94/' \
-  ~/dev_ws/isaac_sim/cobot3/main_side/fastdds_main.xml \
-  > ~/.config/cobot3/fastdds_main.xml
-export FASTRTPS_DEFAULT_PROFILES_FILE=~/.config/cobot3/fastdds_main.xml
-ip -4 addr show   # __MAIN_LAN_IP__ = 실제 LAN NIC IP (docker0/wlan 아님)
+source ~/dev_ws/isaac_sim/cobot3/common/site.sh
+export FASTRTPS_DEFAULT_PROFILES_FILE="$(cobot3_fastdds_profile main)"
+ip -4 addr show   # MAIN_SIDE_IP = 실제 LAN NIC IP (docker0/wlan 아님)
 ```
+env 로 `FASTRTPS_DEFAULT_PROFILES_FILE` 를 직접 주면 그 값이 최우선.
 멀티캐스트 허용 LAN 이면 `<initialPeersList>` 없이 `fastdds_no_shm.xml`
 로도 충분 — 막힌 환경에서 Publisher 0 방지가 핵심.
 
