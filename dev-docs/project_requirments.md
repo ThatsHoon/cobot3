@@ -119,6 +119,29 @@ curl -s localhost:8000/healthz ; curl -s localhost:8000/ingest/stats
 > robot_state 의 mode/battery/waypoint 는 보행 FSM 미구현이라 비어있음
 > (전송수단 무관 — locomotion 노드 구현 시 채워짐).
 
+### 5.2 2-PC 실배포 워크드 예시 (현장 검증값)
+
+역할/IP: **main_side(Isaac)=`192.168.10.94`**, **sub1_side(C2/웹)=`192.168.10.16`**,
+같은 LAN(`192.168.10.0/24`), `ROS_DOMAIN_ID=130`, `rmw_fastrtps_cpp`.
+
+**영상·텔레메트리 (D-확장 — 검증·운용중, 권장)**
+
+| 측 | 설정 |
+|---|---|
+| main_side | `C2_INGEST_URL=http://192.168.10.16:8000` — repo 무하드코딩(런처 기본 localhost), 사이트값은 `~/.bashrc` `cobot3-isaacSim-gui` 가 주입. 기동 로그 `D-확장 업링크 → http://192.168.10.16:8000` 확인 |
+| sub1_side | **추가 설정 없음** — `/ingest/*` 무인증, web_server `--host 0.0.0.0`(run.sh 기본). `cobot3-cobot3_web-restart_full` 로 가동만. 방화벽 :8000 은 도달 검증됨(`/healthz`·`/ingest/stats`=200) |
+| 확인 | main 로그 `uplink ok/err` 의 ok 증가 / `curl http://192.168.10.16:8000/ingest/stats` 카운트 증가 / C2 ros_bridge `ingest=LIVE` |
+
+**C2→시뮬 명령 토픽 (ROS2 정공 — 전송 prep, 미완)**
+
+| 측 | 설정 | 문서 |
+|---|---|---|
+| main_side | FastDDS 크로스호스트: `fastdds_main.xml` 치환본(`__C2_PC_IP__`=16/`__MAIN_LAN_IP__`=94) + OS 버퍼 + 방화벽 | `main_side/FASTDDS.md` |
+| sub1_side | `fastdds_web.xml` 치환본(`__MAIN_PC_IP__`=94/`__C2_LAN_IP__`=16) + OS 버퍼 + 방화벽 | `sub1_side/FASTDDS.md` |
+| **한계** | 전송이 열려도 **Isaac 측 명령 구독·실행 노드 미구현** → 토픽이 DDS 까지 가도 시뮬이 실행 안 함. 별도 구현 필요(설정 문제 아님) | `main_side/FASTDDS.md §6` |
+
+> 두 경로는 **병행 가능**: 영상은 D-확장 그대로, 제어는 ROS2 추가.
+
 ---
 
 ## 6. 트러블슈팅 (이번 세션 근본원인 요약)
