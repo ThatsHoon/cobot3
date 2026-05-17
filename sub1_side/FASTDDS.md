@@ -1,8 +1,12 @@
 # 웹/C2 PC 측 FastDDS 설정 (2-PC LAN ROS2 정공)
 
 > 이 문서는 **실배포 2-PC LAN** 에서 C2 PC 의 web_server(`ros_bridge.py`)가
-> 시뮬 PC(Isaac)의 ROS2 토픽을 안정적으로 수신하기 위한 설정만 다룬다.
-> **임시 같은-PC 모드는 D-확장 HTTP `/ingest` 우회** 라 DDS 설정과 무관
+> 시뮬 PC(Isaac)의 ROS2 토픽을 안정적으로 수신하기 위한 설정을 다룬다.
+> 같은-PC 의 **Isaac↔web_server 텔레메트리**는 D-확장 HTTP `/ingest` 우회라
+> 그 홉은 DDS 무관. 단 같은-PC **M1 재발행→foxglove_bridge** 는 같은 호스트
+> 안의 DDS 홉이므로 DDS 설정이 **필요**하다(2-PC web 프로파일은 SHM off+
+> 단일 peer+단일 NIC whitelist 라 같은-PC 디스커버리를 막음 → 그 경우
+> FastDDS 기본 빌트인(SHM/멀티캐스트/loopback) 사용 = 프로파일 미지정).
 > (`../dev-docs/gp-quadruped-system-design.md` Appendix-D, `project_requirments.md` §5).
 
 ## 왜 FastDDS 인가 (CycloneDDS 아님)
@@ -98,10 +102,11 @@ ros2 topic hz /c2/video/compressed    # 영상 수신율
 
 | 증상 | 원인 | 조치 |
 |---|---|---|
-| `ros2 topic list` 에 시뮬 토픽 없음 / publishers=0 | 멀티캐스트 차단 또는 IP 오설정 | §3 initialPeers 의 `__MAIN_PC_IP__` 확인, 방화벽 §5 |
+| **C2 토픽 0 인데 Isaac 는 ROS2 발행 중**(로그 `OG 텔레메트리 발행`) | ★1순위★ **Isaac 가 2-PC 치환본이 아닌 `fastdds_no_shm.xml`(initialPeers 0개=멀티캐스트 전용)로 기동** → 크로스호스트 멀티캐스트 차단 시 C2 가 영영 못 봄 | Isaac PC: `cat /proc/$(pgrep -f camera_publisher.py\|head -1)/environ \| tr '\0' '\n' \| grep FASTRTPS` → `~/.config/cobot3/fastdds_main.xml`(initialPeers→C2) 여야. `fastdds_no_shm.xml` 이면 폴백된 것 — `cobot3-start_all_2`(MAIN) 가 이제 명시 export. 수동 시 `FASTRTPS_DEFAULT_PROFILES_FILE="$(cobot3_fastdds_profile main)"` 후 재기동 |
+| `ros2 topic list` 에 시뮬 토픽 없음 / publishers=0 | 멀티캐스트 차단 또는 IP 오설정 | 위 항목 먼저, 그다음 §3 initialPeers·interfaceWhiteList(양 PC site.env=실 NIC), 방화벽 §5(UDP — HTTP TCP 되어도 UDP 별도 차단 가능) |
 | 토픽은 보이나 영상만 0 | QoS 불일치 또는 멀티-NIC | §2 QoS 유지 확인, §3 interfaceWhiteList IP 확인 |
 | 영상 끊김/지연 | 버퍼 부족 | §3 버퍼·§4 OS 버퍼, video_degrade 동작 확인 |
-| ros_bridge HEALTH `ingest=off` 이고 rx 0 | 정공 경로 미수신 | 위 순서대로; 단 같은-PC 면 D-확장(이 문서 무관) |
+| ros_bridge HEALTH `ingest=LIVE` 인데 rx 0 | 정공 DDS 미성립, HTTP /ingest 폴백 동작 중 | 위 1·2순위(거의 항상 Isaac 프로파일 폴백 또는 양측 site.env/NIC 불일치·UDP 방화벽) |
 
 ros_bridge 의 5초 주기 `HEALTH` 로그(`rx=… publishers=… ingest=…`)와
 WS `diag` 이벤트가 1차 진단원. publishers>0 인데 rx=0 → QoS/RMW 의심.
