@@ -2,6 +2,15 @@
 # 카메라 퍼블리셔 — GUI 표시판(사용자가 Isaac 창에서 직접 봄).
 # 사용자 세션에서 직접 실행해야 함(GUI=DISPLAY 필요): 프롬프트에 `! 이 경로`
 # headless 와 동일하게 OG 자동 생성·Play·publish 하므로 별도 조작 불필요.
+#
+# ⚠ MCP 비양립: 이건 standalone python.sh(mcp 확장 미적재). 동시에
+#   isaac-sim MCP 서버가 떠 있으면 relay 가 빈 8766 소켓을 두드려 Isaac
+#   콘솔에 `json parse … 's'` + `getRenderSettings … stage-id` 가 무한
+#   폭주(무해하나 시끄러움). 근본조치: MCP 서버 비활성
+#     claude mcp remove "isaac-sim" -s user      # 되돌리기:
+#     claude mcp add isaac-sim -s user -- \
+#       /home/rokey/dev_ws/isaac-sim-mcp/.venv/bin/python \
+#       /home/rokey/dev_ws/isaac-sim-mcp/isaac_mcp/server.py
 set -e
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
