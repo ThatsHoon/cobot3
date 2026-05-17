@@ -30,6 +30,8 @@ export LD_LIBRARY_PATH="$_ISAAC_BR${_clean_ld:+:$_clean_ld}"
 export GP_HEADLESS=1
 # 동봉 이식 씬(스크립트 상대 — 하드코딩 제거; camera_publisher 기본과 일치)
 export GP_SCENE="${GP_SCENE:-$_HERE/scene/gp_scene.usd}"
+# D-확장 업링크 대상. 같은-PC=localhost / 2-PC=C2 PC IP (env 로 지정).
+export C2_INGEST_URL="${C2_INGEST_URL:-http://localhost:8000}"
 ISAAC=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release
 # 전체 raw 출력은 $LOG 에 전량 보존(tee). 콘솔에서는 알려진-양성 2종
 # (omni.usd-abi getRenderSettings stage-id + 짝지은 json 's')만 필터.
