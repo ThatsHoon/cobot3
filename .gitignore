@@ -11,6 +11,9 @@ node_modules/
 .next/
 sub1_side/web/.env.local
 
+# YOLO 가중치 (ultralytics 가 web_server 첫 기동 시 자동 다운로드 — 재생성)
+sub1_side/server/*.pt
+
 # 생성 산출물
 # (구 scenes/assets/ 규칙 제거 — scenes/ 는 dev-docs/legacy_scenes/ 로
 #  아카이브, m0609 URDF→USD 산출물은 cobot3 외부 GP_SCENE 경로에 생성)
