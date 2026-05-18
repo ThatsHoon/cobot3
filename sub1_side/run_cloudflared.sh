@@ -43,7 +43,8 @@ echo "[cf] UUID = $UUID"
 
 # ── 템플릿 → 치환본 생성(repo 비오염, ~/.cloudflared/) ────────────────
 command sed -e "s/__TUNNEL_UUID__/$UUID/g" \
-            -e "s/__PUBLIC_HOST__/$PUBLIC_HOST/g" "$TMPL" > "$OUT"
+            -e "s/__PUBLIC_HOST__/$PUBLIC_HOST/g" \
+            -e "s#__CF_HOME__#$HOME#g" "$TMPL" > "$OUT"
 case "$(<"$OUT")" in *__*) echo "[cf] 치환 미완(placeholder 잔존)"; exit 1 ;; esac
 echo "[cf] config 생성 → $OUT"
 

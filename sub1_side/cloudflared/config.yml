@@ -10,7 +10,8 @@
 #   공개 노출 전체는 Cloudflare Access(Zero Trust)로 게이트 (CLOUDFLARE.md §3).
 
 tunnel: __TUNNEL_UUID__
-credentials-file: /home/rokey/.cloudflared/__TUNNEL_UUID__.json
+# 홈 경로는 배포 PC 마다 다르므로 placeholder — run_cloudflared.sh 가 $HOME 으로 치환.
+credentials-file: __CF_HOME__/.cloudflared/__TUNNEL_UUID__.json
 
 ingress:
   # 1) /ingest — 외부 차단(LAN 전용). 404 로 즉시 종결.
