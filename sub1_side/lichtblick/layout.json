@@ -15,7 +15,7 @@
           "label": "Spot Robot",
           "instanceId": "spot-urdf",
           "type": "foxglove.URDFLayer",
-          "url": "http://192.168.10.105:3000/spot_isaac.urdf"
+          "url": "param://robot_state_publisher/robot_description"
         }
       },
       "cameraState": {
