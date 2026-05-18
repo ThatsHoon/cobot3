@@ -7,6 +7,7 @@ import MapTrack from "@/components/MapTrack";
 import OpsLedger, { LedgerItem } from "@/components/OpsLedger";
 import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import EngagementConsole from "@/components/EngagementConsole";
+import TeleopPad from "@/components/TeleopPad";
 import ThreatBar, { Contact } from "@/components/ThreatBar";
 import { C2Event, getJSON, ROBOT_ID, useEvents } from "@/lib/api";
 
@@ -135,7 +136,10 @@ export default function Page() {
             <div className="flex-1 min-h-[340px]">
               <VideoWall detCount={contacts.length} contact={active} />
             </div>
-            <EngagementConsole contact={active} wsOk={wsOk} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <EngagementConsole contact={active} wsOk={wsOk} />
+              <TeleopPad />
+            </div>
           </div>
           <div className="flex flex-col gap-3 min-h-0">
             <div className="flex-1 min-h-[200px]">
