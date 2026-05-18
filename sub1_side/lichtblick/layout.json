@@ -1,13 +1,14 @@
 {
   "configById": {
     "3D!spot": {
-      "followTf": "odom",
+      "followTf": "base",
       "followMode": "follow-pose",
       "scene": { "enableStats": false },
       "transforms": {},
       "topics": {
         "/tf": { "visible": true },
-        "/robot/odom": { "visible": true }
+        "/robot/odom": { "visible": true },
+        "/robot_description": { "visible": true }
       },
       "layers": {},
       "cameraState": {

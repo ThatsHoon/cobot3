@@ -1,6 +1,6 @@
 """standalone RealSense 카메라 퍼블리셔 (MCP/GUI 비의존, 결정적).
 
-씬 USD 를 열고(없으면 최소 구성), Spot 팔 끝(arm0_link_wr1) 의 RealSense
+씬 USD 를 열고(없으면 최소 구성), Spot 팔 끝(arm0_link_fngr) 의 RealSense
 Camera 를 보장한 뒤, OG sensor_bridge(OnTick→ROS2Context(domain 130)→
 CreateRenderProduct→ROS2CameraHelper rgb)를 만들고 시뮬을 계속 step 하여
 `/cam/realsense/rgb` 를 발행한다. 같은 그래프에서 ROS2 정공 텔레메트리
@@ -39,10 +39,10 @@ SCENE = os.environ.get(
     # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결.
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "gp_scene.usd"),
 )
-CAM_PATH = "/World/Robot/arm0_link_wr1/realsense"
+CAM_PATH = "/World/Robot/arm0_link_fngr/realsense"
 SPOT_PRIM = "/World/Robot"
 BASE_PRIM = "/World/Robot/base"
-WRIST_PRIM = "/World/Robot/arm0_link_wr1"
+WRIST_PRIM = "/World/Robot/arm0_link_fngr"
 GRAPH = "/World/Graphs/sensor_bridge"
 TOPIC = "/cam/realsense/rgb"
 DOMAIN = int(os.environ.get("ROS_DOMAIN_ID", "130"))
@@ -78,8 +78,14 @@ else:
 stage = ctx.get_stage()
 
 # 2) RealSense 카메라 보장 ---------------------------------------------------
-# 구조: arm0_link_wr1/realsense (Xform + rsd455.usd 참조 = 시각 메시)
-#       arm0_link_wr1/realsense/Camera (UsdGeom.Camera = OG 렌더 타깃)
+# 구조: arm0_link_fngr/realsense (Xform + rsd455.usd 참조 = 시각 메시)
+#       arm0_link_fngr/realsense/Camera (UsdGeom.Camera = OG 렌더 타깃)
+# 이전 arm0_link_wr1/realsense prim 정리 (링크 변경 시 잔존 방지)
+_old_rs = "/World/Robot/arm0_link_wr1/realsense"
+if stage.GetPrimAtPath(_old_rs).IsValid():
+    stage.RemovePrim(_old_rs)
+    log(f"이전 realsense prim 제거: {_old_rs}")
+
 _RS_USD = ("https://omniverse-content-production.s3-us-west-2.amazonaws.com"
            "/Assets/Isaac/5.1/Isaac/Sensors/Intel/RealSense/rsd455.usd")
 _rs_base = (WRIST_PRIM + "/realsense"
@@ -101,10 +107,12 @@ else:
     log(f"RealSense Xform 있음: {_rs_base}")
 
 # 항상 transform 갱신 — 자동저장 씬에 이전 회전값 잔존 방지
-# rotateXYZ(0,-90,0): 카메라 기본 look(-Z)이 wrist +X(전방)으로 향하도록
+# arm0_link_fngr 기준: +X = 팔 전방(그리퍼 끝이 향하는 방향)
+# translate(0.15,0,0): 그리퍼 팁 15cm 앞쪽 배치 — 메시 완전 외부
+# rotateXYZ(0,-90,0): 카메라 기본 look(-Z)이 fngr +X(전방)으로 향하도록
 xf = UsdGeom.Xformable(xp)
 xf.ClearXformOpOrder()
-xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
+xf.AddTranslateOp().Set(Gf.Vec3f(0.15, 0, 0))
 xf.AddRotateXYZOp().Set(Gf.Vec3f(0, -90, 0))
 
 # PhysicsAPI 제거는 항상 실행 — 씬 자동저장 후 재로드 시에도 rsd455 physics 잔존 방지
@@ -197,6 +205,7 @@ if _TELEM:
         ("LegJS", "isaacsim.ros2.bridge.ROS2PublishJointState"),
         ("Odo", "isaacsim.core.nodes.IsaacComputeOdometry"),
         ("OdoPub", "isaacsim.ros2.bridge.ROS2PublishOdometry"),
+        ("TF", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
     ]
     _SV += [
         ("ArmJS.inputs:targetPrim", ARM_PRIM),
@@ -210,6 +219,8 @@ if _TELEM:
         ("OdoPub.inputs:odomFrameId", "odom"),
         ("OdoPub.inputs:chassisFrameId", "base_link"),
         ("OdoPub.inputs:qosProfile", _REL_QOS),
+        ("TF.inputs:targetPrims", [SPOT_PRIM]),
+        ("TF.inputs:qosProfile", _SENSOR_QOS),
     ]
     _CC += [
         ("OnTick.outputs:tick", "ArmJS.inputs:execIn"),
@@ -226,6 +237,9 @@ if _TELEM:
         ("Odo.outputs:orientation", "OdoPub.inputs:orientation"),
         ("Odo.outputs:linearVelocity", "OdoPub.inputs:linearVelocity"),
         ("Odo.outputs:angularVelocity", "OdoPub.inputs:angularVelocity"),
+        ("OnTick.outputs:tick", "TF.inputs:execIn"),
+        ("Ctx.outputs:context", "TF.inputs:context"),
+        ("SimTime.outputs:simulationTime", "TF.inputs:timeStamp"),
     ]
 if _CMD:
     # SubCmd 는 메인 OG 단일 빌드에 통합(증분 edit = OmniGraphError)
@@ -241,7 +255,7 @@ og.Controller.edit(
 )
 log(f"OG {GRAPH} fresh 생성 완료 → {TOPIC} (domain {DOMAIN})")
 if _TELEM:
-    log(f"OG 텔레메트리 발행: {ARM_TOPIC}, {LEG_TOPIC}, {ODOM_TOPIC} "
+    log(f"OG 텔레메트리 발행: {ARM_TOPIC}, {LEG_TOPIC}, {ODOM_TOPIC}, /tf "
         f"(RELIABLE) — gps/state 는 telemetry_bridge_node 가 odom 에서 파생")
 if _CMD:
     log(f"다운링크 ON: ROS2SubscribeTwist ← {CMD_TOPIC} (RELIABLE)")
