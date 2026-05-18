@@ -16,10 +16,11 @@ export default function VideoWall({
     "connecting"
   );
 
-  // mode가 webrtc로 바뀐 뒤 video 엘리먼트가 마운트되면 srcObject 연결
+  // mode가 webrtc로 바뀐 뒤 video 엘리먼트가 마운트되면 srcObject 연결 + play()
   useEffect(() => {
     if (mode === "webrtc" && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
     }
   }, [mode]);
 
@@ -37,9 +38,13 @@ export default function VideoWall({
         pc.onconnectionstatechange = () =>
           console.info("[C2/webrtc] state:", pc?.connectionState);
         pc.ontrack = (e) => {
-          console.info("[C2/webrtc] ✓ track 수신 — 영상 스트림 연결됨");
-          streamRef.current = e.streams[0];
-          if (videoRef.current) videoRef.current.srcObject = e.streams[0];
+          console.info("[C2/webrtc] ✓ track 수신 — 영상 스트림 연결됨", e.streams.length);
+          const stream = e.streams[0] ?? new MediaStream([e.track]);
+          streamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play().catch(() => {});
+          }
         };
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
