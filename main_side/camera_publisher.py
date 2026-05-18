@@ -101,22 +101,23 @@ if not xp.IsValid():
     xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
     xf.AddRotateXYZOp().Set(Gf.Vec3f(0, 90, 0))
     log(f"RealSense Xform+rsd455 생성: {_rs_base}")
-    # rsd455.usd 내 PhysicsAPI 완전 제거 (비주얼 전용 — arm 계층 충돌 방지)
-    # rigidBodyEnabled=False 로는 schema 플러그인 경고가 남으므로 API 자체를 제거.
-    try:
-        for desc in Usd.PrimRange(xp):
-            removed = []
-            for api in ("PhysicsRigidBodyAPI", "PhysicsCollisionAPI",
-                        "PhysicsMassAPI", "PhysicsArticulationRootAPI"):
-                if api in desc.GetAppliedSchemas():
-                    desc.RemoveAppliedSchema(api)
-                    removed.append(api)
-            if removed:
-                log(f"  RealSense physics 제거: {desc.GetPath()} {removed}")
-    except Exception as e:
-        log(f"  RealSense physics 제거 스킵: {e!r}")
 else:
     log(f"RealSense Xform 있음: {_rs_base}")
+
+# PhysicsAPI 제거는 항상 실행 — 씬 자동저장 후 재로드 시에도 rsd455 physics 잔존 방지
+# (rigidBodyEnabled=False 로는 schema 경고가 남으므로 API 자체를 제거)
+try:
+    for desc in Usd.PrimRange(xp):
+        removed = []
+        for api in ("PhysicsRigidBodyAPI", "PhysicsCollisionAPI",
+                    "PhysicsMassAPI", "PhysicsArticulationRootAPI"):
+            if api in desc.GetAppliedSchemas():
+                desc.RemoveAppliedSchema(api)
+                removed.append(api)
+        if removed:
+            log(f"  RealSense physics 제거: {desc.GetPath()} {removed}")
+except Exception as e:
+    log(f"  RealSense physics 제거 스킵: {e!r}")
 
 cam_prim = stage.GetPrimAtPath(_cam_path)
 if not cam_prim.IsValid():
