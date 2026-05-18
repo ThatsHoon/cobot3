@@ -78,32 +78,42 @@ else:
 stage = ctx.get_stage()
 
 # 2) RealSense 카메라 보장 ---------------------------------------------------
-cam_prim = stage.GetPrimAtPath(CAM_PATH)
-if not cam_prim.IsValid():
-    found = None
-    rp = stage.GetPrimAtPath("/World/Robot")
-    if rp.IsValid():
-        for p in Usd.PrimRange(rp):
-            if p.GetName() == "realsense":
-                found = str(p.GetPath())
-                break
-    target = found or (WRIST_PRIM + "/realsense"
-                       if stage.GetPrimAtPath(WRIST_PRIM).IsValid()
-                       else CAM_PATH)
-    cam = UsdGeom.Camera.Define(stage, target)
-    W, H, F, HA, VA = 1280, 720, 24.0, 20.955, 11.787
-    cam.GetFocalLengthAttr().Set(F)
-    cam.GetHorizontalApertureAttr().Set(HA)
-    cam.GetVerticalApertureAttr().Set(VA)
-    cam.GetClippingRangeAttr().Set(Gf.Vec2f(0.05, 100.0))
-    xf = UsdGeom.Xformable(cam.GetPrim())
+# 구조: arm0_link_wr1/realsense (Xform + rsd455.usd 참조 = 시각 메시)
+#       arm0_link_wr1/realsense/Camera (UsdGeom.Camera = OG 렌더 타깃)
+_RS_USD = ("https://omniverse-content-production.s3-us-west-2.amazonaws.com"
+           "/Assets/Isaac/5.1/Isaac/Sensors/Intel/RealSense/rsd455.usd")
+_rs_base = (WRIST_PRIM + "/realsense"
+            if stage.GetPrimAtPath(WRIST_PRIM).IsValid() else CAM_PATH)
+_cam_path = _rs_base + "/Camera"
+
+xp = stage.GetPrimAtPath(_rs_base)
+if not xp.IsValid():
+    xp = UsdGeom.Xform.Define(stage, _rs_base).GetPrim()
+    xp.GetReferences().AddReference(_RS_USD)
+    xf = UsdGeom.Xformable(xp)
     xf.ClearXformOpOrder()
     xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
     xf.AddRotateXYZOp().Set(Gf.Vec3f(0, 90, 0))
-    CAM_PATH = target
-    log(f"created RealSense camera at {CAM_PATH}")
+    log(f"RealSense Xform+rsd455 생성: {_rs_base}")
+elif xp.GetTypeName() == "Camera":
+    # 구버전: Camera 가 realsense 직하에 있음 → 그대로 사용
+    _cam_path = _rs_base
+    log(f"RealSense camera (구버전 직접 정의): {_cam_path}")
 else:
-    log(f"RealSense camera present: {CAM_PATH}")
+    log(f"RealSense Xform 있음: {_rs_base}")
+
+cam_prim = stage.GetPrimAtPath(_cam_path)
+if not cam_prim.IsValid():
+    cam = UsdGeom.Camera.Define(stage, _cam_path)
+    cam.GetFocalLengthAttr().Set(24.0)
+    cam.GetHorizontalApertureAttr().Set(20.955)
+    cam.GetVerticalApertureAttr().Set(11.787)
+    cam.GetClippingRangeAttr().Set(Gf.Vec2f(0.05, 100.0))
+    log(f"RealSense Camera prim 생성: {_cam_path}")
+else:
+    log(f"RealSense Camera prim 있음: {_cam_path}")
+CAM_PATH = _cam_path
+log(f"CAM_PATH → {CAM_PATH}")
 
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
