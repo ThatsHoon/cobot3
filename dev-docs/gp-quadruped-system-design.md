@@ -488,14 +488,14 @@ C2 맵 클릭(x,y) → POST /robots/{id}/goto → /robot/nav/goal (PoseStamped)
 | telemetry_logger_node | Main | 전 토픽 | (DB write) | - |
 | web_server | C2 | 전 토픽 + rgb | FastAPI:8000 REST/WS + aiortc WebRTC + YOLO | - |
 
-> **구현 현황(2026-05-17)**: `locomotion_node`(다운링크 명령 소비)는 미구현
-> (`main_side/FASTDDS.md` §6). 업링크 텔레메트리 정공 경로는 구현됨 —
-> arm/leg `JointState`·`/robot/odom` 은 `camera_publisher.py` 의 **OG ROS2
-> 노드**가 직접 발행하고(설계의 `gps_node` 역할 포함), `/robot/gps`·
-> `/robot/state` 는 odom 에서 `telemetry_bridge_node.py` 가 파생한다.
-> rclpy 를 Isaac(py3.11)에서 못 쓰는 제약 때문에 발행을 OG(영상·관절·odom)
-> 와 시스템 노드(gps·state)로 분리한 것이 설계 표의 단일 노드들과의 차이.
-> D-확장 HTTP `/ingest` 경로는 이와 무관하게 병행(`Appendix-D`).
+> **구현 현황(2026-05-18)**: `locomotion_node` 역할은 **`SpotController`**
+> (`main_side/spot_controller.py`)로 구현됨. `camera_publisher.py` 가
+> `world.add_physics_callback("spot_ctrl", ctrl.on_physics_step)` 으로 등록,
+> `SpotFlatTerrainPolicy`(RL 보행) + arm DOF stow/aim 제어. `/robot/cmd_vel`
+> 수신 → `ctrl.set_cmd_vel` → 보행 정책 적용(teleop 0.5s 타임아웃 → nav_goal
+> P-제어 → idle). 업링크 텔레메트리: arm/leg `JointState`·`/robot/odom` 은
+> OG ROS2 노드 발행, `/robot/gps`·`/robot/state` 는 `telemetry_bridge_node.py`
+> 가 파생. HTTP `/ingest` 경로는 제거 — ROS2 정공 단일 경로.
 
 ### 12.2 토픽·QoS 매트릭스
 

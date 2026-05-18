@@ -115,36 +115,26 @@ cobot3-cobot3_web-restart_full          # ~/.bashrc 함수
 #   headless:     ~/dev_ws/isaac_sim/cobot3/main_side/run_camera_pub.sh
 
 # (C) 확인
-curl -s localhost:8000/healthz ; curl -s localhost:8000/ingest/stats
+curl -s localhost:8000/healthz
 #   브라우저: http://localhost:3000  (영상벽 WebRTC + 상태/맵/관절/GPS)
 ```
-> robot_state 의 mode/battery/waypoint 는 보행 FSM 미구현이라 비어있음
-> (전송수단 무관 — locomotion 노드 구현 시 채워짐).
+> robot_state 의 mode/battery/waypoint 는 SpotController 가 `GP_SPOT_CONTROL=1`
+> 로 구동 중에 채워짐. 보행 RL 정책 init 은 첫 physics step 에서 발생.
 
 ### 5.2 2-PC 실배포 워크드 예시
 
 **IP 단일소스(SSOT) = `common/site.env`** — 배포지 변경 시 여기만 수정하면
-양측(C2_INGEST_URL·FastDDS 프로파일) 자동 반영. 아래는 현장 검증 예시값:
+양측(FastDDS 프로파일) 자동 반영. 현장 검증 예시값:
 `MAIN_SIDE_IP=192.168.10.94`(Isaac), `SUB1_SIDE_IP=192.168.10.16`(C2/웹),
 같은 LAN(`192.168.10.0/24`), `ROS_DOMAIN_ID=130`, `rmw_fastrtps_cpp`.
 
-**영상·텔레메트리 (D-확장 — 검증·운용중, 권장)**
-
-| 측 | 설정 |
-|---|---|
-| main_side | **IP 단일소스 = `common/site.env`** (`MAIN_SIDE_IP`/`SUB1_SIDE_IP`). 런처가 `common/site.sh` 로 `C2_INGEST_URL`(=`http://$SUB1_SIDE_IP:8000`) 자동 파생 — bashrc·repo 하드코딩 없음. 배포지 변경 시 site.env 만 수정 |
-| sub1_side | **추가 설정 없음** — `/ingest/*` 무인증, web_server `--host 0.0.0.0`(run.sh 기본). `cobot3-cobot3_web-restart_full` 로 가동만. 방화벽 :8000 은 도달 검증됨(`/healthz`·`/ingest/stats`=200) |
-| 확인 | main 로그 `uplink ok/err` 의 ok 증가 / `curl http://192.168.10.16:8000/ingest/stats` 카운트 증가 / C2 ros_bridge `ingest=LIVE` |
-
-**C2→시뮬 명령 토픽 (ROS2 정공 — 전송 prep, 미완)**
+**영상·텔레메트리 + 명령 다운링크 (ROS2 정공 — 구현·검증됨)**
 
 | 측 | 설정 | 문서 |
 |---|---|---|
-| main_side | FastDDS 크로스호스트: 런처가 `common/site.env` 로 `fastdds_main.xml` 치환본을 `~/.config/cobot3/` 에 자동 생성(`cobot3_fastdds_profile main`) + OS 버퍼 + 방화벽 | `main_side/FASTDDS.md` |
-| sub1_side | `common/site.sh`+`cobot3_fastdds_profile web` 로 `fastdds_web.xml` 자동 치환본 + OS 버퍼 + 방화벽 | `sub1_side/FASTDDS.md` |
-| **한계** | 전송이 열려도 **Isaac 측 명령 구독·실행 노드 미구현** → 토픽이 DDS 까지 가도 시뮬이 실행 안 함. 별도 구현 필요(설정 문제 아님) | `main_side/FASTDDS.md §6` |
-
-> 두 경로는 **병행 가능**: 영상은 D-확장 그대로, 제어는 ROS2 추가.
+| main_side | `run_camera_pub*.sh` 기동. FastDDS: `common/site.sh` 로 `fastdds_main.xml` 치환본 자동 생성 + OS 버퍼 + 방화벽 | `main_side/FASTDDS.md` |
+| sub1_side | `server/run.sh` 기동. `cobot3_fastdds_profile web` 으로 `fastdds_web.xml` 자동 치환본 + OS 버퍼 + 방화벽 | `sub1_side/FASTDDS.md` |
+| 확인 | C2: `ros2 topic hz /robot/odom`(63Hz 기대) / 웹 `POST /robots/gp0/cmd_vel {"linear":0.3}` → Spot 전진 |
 
 ---
 

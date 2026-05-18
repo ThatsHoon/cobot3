@@ -4,10 +4,9 @@
 (자체호스팅 **Lichtblick**)로 로봇 텔레메트리/영상을 렌더(참고 스크린샷 =
 3D 패널 + Plot 스택 + Image).
 
-> 상태: **구현 완료(임시 같은-PC 모드)**. 텔레메트리·영상 ROS2 발행은
-> 이미 코드에 있고(아래 S1), 같은-PC 시각화는 `ros_bridge.py` 의
-> ingest→ROS2 **재발행**으로 동작한다. 권위 설계: `../dev-docs/
-> gp-quadruped-system-design.md`, 통신 전제: `FASTDDS.md`, 공개: `CLOUDFLARE.md`.
+> 상태: **구현 완료(2-PC 정공 모드)**. 텔레메트리·영상 ROS2 발행은
+> 이미 코드에 있고, 2-PC 시각화는 Isaac 실토픽을 `foxglove_bridge` 가 직접 구독.
+> 권위 설계: `../dev-docs/gp-quadruped-system-design.md`, 통신 전제: `FASTDDS.md`, 공개: `CLOUDFLARE.md`.
 
 확정 결정: 데이터 = ROS2(`foxglove_bridge`) · 3D = 1단계 메시 없음
 (TF/odom 축 + JointState) · 표시 = 기존 Next.js 앱 `/debug` iframe ·
@@ -17,63 +16,32 @@
 
 ## 0. ⚠ 전제 / 제약 (먼저 읽을 것)
 
-**(P1) 같은-PC 직결 DDS 는 불통 — 그래서 ingest 재발행으로 우회한다.**
-`foxglove_bridge` 는 시스템 ROS2(py3.10). Isaac 번들 ROS2(py3.11) ↔ 시스템
-ROS2 는 같은 PC 에서 DDS 디스커버리 불통(불변식 #8). **돌파구**: Isaac 은
-이미 영상·텔레메트리를 `web_server`(py3.10) `/ingest/*` 로 HTTP POST 한다.
-`ros_bridge.py` 가 `C2_INGEST_REPUBLISH=1` 일 때 그 데이터를 ROS2 로
-**재발행** → 같은-PC `foxglove_bridge`(동일 py3.10)가 정상 수신. 즉
-Isaac↔시스템 DDS 홉이 HTTP 로 대체되고, 유일한 DDS 홉(web_server →
-foxglove_bridge)은 동일구현·같은-PC라 OK. **2-PC 정식 운용 시에는 이
-재발행 OFF(기본)**, C2 PC 의 foxglove_bridge 가 Isaac 실토픽을 LAN 으로
-직접 본다(§"2-PC 정식").
+**(P1) 2-PC 정공이 기본 — foxglove_bridge 가 Isaac 실토픽 직접 구독.**
+`foxglove_bridge` 는 시스템 ROS2(py3.10). Isaac 은 OG 내부 ROS2 브리지로
+영상·텔레메트리를 발행하고, C2 PC 의 foxglove_bridge 가 LAN FastDDS 로
+직접 수신. 재발행(C2_INGEST_REPUBLISH)은 제거됨.
 
-**(P2) S1(Isaac→ROS2 텔레메트리 발행)은 이미 구현됨.** `main_side/
-camera_publisher.py` 의 OG 가 `/cam/realsense/rgb`·`/dsr01/joint_states`·
-`/robot/leg_joint_states`·`/robot/odom` 을, `main_side/
-telemetry_bridge_node.py` 가 `/robot/gps`·`/robot/state` 를 발행한다(rclpy
-를 Isaac py3.11 에서 못 쓰므로 **OG 내부 ROS2 브리지**로만 — `FASTDDS.md
-§3.1`). 같은-PC 시각화는 이 토픽을 직접 보는 게 아니라 위 (P1) 재발행으로
-확보한다(같은-PC 직결 불가이므로).
+**(P2) 텔레메트리 발행 구현됨.** `main_side/camera_publisher.py` 의 OG 가
+`/cam/realsense/rgb`·`/dsr01/joint_states`·`/robot/leg_joint_states`·
+`/robot/odom` 을, `main_side/telemetry_bridge_node.py` 가 `/robot/gps`·
+`/robot/state` 를 발행(`FASTDDS.md §3.1`).
 
-**(P3) D-확장 HTTP `/ingest` 경로는 깨지 않는다.** 재발행은 `/ingest`
-핸들러·DB·WS 를 건드리지 않는 **읽기 미러**다. `C2_INGEST_REPUBLISH`
-미설정(기본)이면 `ros_bridge.py` 는 종전과 바이트 동일(구독만, 신규
-publisher/타이머 없음) — 2-PC·현 대시보드 무영향.
-
-**(P4) 로봇 = spot_with_arm(단일 아티큘레이션).** anymal+m0609 2-아티큘
-레이션은 폐기. Foxglove 는 USD 를 못 읽으므로 3D 로봇 메시는 1단계에서
-**생략**(TF/odom 축 + JointState Plot). Spot URDF/glTF 메시는 후속 단계.
+**(P3) 로봇 = spot_with_arm(단일 아티큘레이션).** Foxglove 는 USD 를 못
+읽으므로 3D 로봇 메시는 **생략**(TF/odom 축 + JointState Plot).
+Spot URDF/glTF 메시는 후속 단계.
 
 ---
 
-## 1. 종단 아키텍처 (2 모드)
-
-### M1 — 임시 같은-PC (현재 구현·"일단 동작")
-
-```
-[같은 PC] Isaac camera_publisher.py(py3.11)
-   └─ HTTP POST /ingest/{frame,telemetry} ─▶ web_server :8000 (py3.10)
-                                              ros.latest / ros._video_frame
-        C2_INGEST_REPUBLISH=1 → ros_bridge._C2Node 가 10Hz 재발행:
-          /robot/state /robot/gps /robot/odom /tf
-          /dsr01/joint_states /robot/leg_joint_states /c2/video/compressed
-                                              │ 시스템 ROS2(py3.10) DDS
-                                              ▼ (같은구현·같은-PC OK)
-   foxglove_bridge :8765 ──ws──▶ Lichtblick :8080 ──iframe──▶ Next.js /debug :3000
-```
-
-### M2 — 2-PC 정식 (재발행 OFF, 기본)
+## 1. 종단 아키텍처 (2-PC 정공)
 
 ```
 [Main PC] Isaac OG/telemetry_bridge ── ROS2/FastDDS domain130 ──┐ LAN
-[C2 PC]  video_degrade_node /cam/realsense/rgb→/c2/video/compressed
-[C2 PC]  foxglove_bridge :8765 (Isaac 실토픽 직접 구독) → Lichtblick → /debug
+[C2 PC]   video_degrade_node /cam/realsense/rgb→/c2/video/compressed
+[C2 PC]   foxglove_bridge :8765 (Isaac 실토픽 직접 구독) → Lichtblick → /debug
    브라우저 ──TLS── Cloudflare(Access) ── (CLOUDFLARE.md)
 ```
 
-`foxglove_bridge` 는 화이트리스트 없이 전 토픽 노출 → 어느 모드든 layout
-변경 불필요(토픽명 동일).
+`foxglove_bridge` 는 화이트리스트 없이 전 토픽 노출.
 
 ---
 
