@@ -113,15 +113,20 @@ class SpotController:
                 self._policy.initialize(set_gains=False, set_limits=False)
                 self._setup_dof_layout()
                 self._patch_arm_gains()
-                self._reset_to_standing()
-                self._initialized = True
-                _log(f"ready — {self._n_dofs} DOFs "
-                     f"(legs={len(self._leg_idx)}, arm={len(self._arm_idx)})")
+                # _initialized = True 는 physics view 준비 확인 후 설정
+                # (play() 직후 첫 callback 에서 psv 아직 미준비 → _try_connect_view 에서 처리)
             except Exception as exc:
                 _log(f"initialize failed: {exc!r}")
             return
 
         if not self._initialized:
+            # physics sim view 준비될 때까지 매 스텝 재시도
+            if self._try_connect_view():
+                self._patch_arm_gains()
+                self._reset_to_standing()
+                self._initialized = True
+                _log(f"ready — {self._n_dofs} DOFs "
+                     f"(legs={len(self._leg_idx)}, arm={len(self._arm_idx)})")
             return
 
         base_cmd = self._arbitrate()
@@ -129,6 +134,33 @@ class SpotController:
         self._handle_events()
 
     # ── internals ────────────────────────────────────────────────────────
+
+    def _try_connect_view(self) -> bool:
+        """physics sim view 가 준비된 시점에 ArticulationView 를 연결.
+        play() 직후 첫 callback 에서는 psv 가 None 이므로 매 스텝 재시도."""
+        try:
+            from isaacsim.core.simulation_context import SimulationContext
+            ctx = SimulationContext.instance()
+            if ctx is None:
+                return False
+            psv = None
+            for attr in ("_physics_sim_view", "physics_sim_view"):
+                psv = getattr(ctx, attr, None)
+                if psv is not None:
+                    break
+            if psv is None:
+                return False
+            view = self._policy.robot._articulation_view
+            if view is None:
+                return False
+            view.initialize(physics_sim_view=psv)
+            ok = view.is_physics_handle_valid()
+            if ok:
+                _log("physics view 연결 완료")
+            return ok
+        except Exception as exc:
+            _log(f"_try_connect_view 실패: {exc!r}")
+            return False
 
     def _reset_to_standing(self) -> None:
         """서있는 자세로 teleport — gp_scene.usd 자동저장으로 넘어진 채 저장된 경우 대비."""
