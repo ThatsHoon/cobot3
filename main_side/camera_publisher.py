@@ -87,6 +87,12 @@ _rs_base = (WRIST_PRIM + "/realsense"
 _cam_path = _rs_base + "/Camera"
 
 xp = stage.GetPrimAtPath(_rs_base)
+if xp.IsValid() and xp.GetTypeName() == "Camera":
+    # 구버전 Camera prim → 제거 후 Xform+rsd455 로 재구성 (비주얼 메시 연결)
+    stage.RemovePrim(_rs_base)
+    xp = stage.GetPrimAtPath(_rs_base)  # RemovePrim 후 재확인
+    log(f"RealSense 구버전 Camera prim 제거: {_rs_base}")
+
 if not xp.IsValid():
     xp = UsdGeom.Xform.Define(stage, _rs_base).GetPrim()
     xp.GetReferences().AddReference(_RS_USD)
@@ -95,10 +101,20 @@ if not xp.IsValid():
     xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
     xf.AddRotateXYZOp().Set(Gf.Vec3f(0, 90, 0))
     log(f"RealSense Xform+rsd455 생성: {_rs_base}")
-elif xp.GetTypeName() == "Camera":
-    # 구버전: Camera 가 realsense 직하에 있음 → 그대로 사용
-    _cam_path = _rs_base
-    log(f"RealSense camera (구버전 직접 정의): {_cam_path}")
+    # rsd455.usd 내 PhysicsAPI 완전 제거 (비주얼 전용 — arm 계층 충돌 방지)
+    # rigidBodyEnabled=False 로는 schema 플러그인 경고가 남으므로 API 자체를 제거.
+    try:
+        for desc in Usd.PrimRange(xp):
+            removed = []
+            for api in ("PhysicsRigidBodyAPI", "PhysicsCollisionAPI",
+                        "PhysicsMassAPI", "PhysicsArticulationRootAPI"):
+                if api in desc.GetAppliedSchemas():
+                    desc.RemoveAppliedSchema(api)
+                    removed.append(api)
+            if removed:
+                log(f"  RealSense physics 제거: {desc.GetPath()} {removed}")
+    except Exception as e:
+        log(f"  RealSense physics 제거 스킵: {e!r}")
 else:
     log(f"RealSense Xform 있음: {_rs_base}")
 
