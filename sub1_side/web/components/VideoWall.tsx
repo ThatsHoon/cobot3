@@ -11,9 +11,17 @@ export default function VideoWall({
   contact: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [mode, setMode] = useState<"connecting" | "webrtc" | "mjpeg">(
     "connecting"
   );
+
+  // mode가 webrtc로 바뀐 뒤 video 엘리먼트가 마운트되면 srcObject 연결
+  useEffect(() => {
+    if (mode === "webrtc" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [mode]);
 
   useEffect(() => {
     let pc: RTCPeerConnection | null = null;
@@ -30,6 +38,7 @@ export default function VideoWall({
           console.info("[C2/webrtc] state:", pc?.connectionState);
         pc.ontrack = (e) => {
           console.info("[C2/webrtc] ✓ track 수신 — 영상 스트림 연결됨");
+          streamRef.current = e.streams[0];
           if (videoRef.current) videoRef.current.srcObject = e.streams[0];
         };
         const offer = await pc.createOffer();
