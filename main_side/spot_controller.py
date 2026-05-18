@@ -113,6 +113,7 @@ class SpotController:
                 self._policy.initialize(set_gains=False, set_limits=False)
                 self._setup_dof_layout()
                 self._patch_arm_gains()
+                self._reset_to_standing()
                 self._initialized = True
                 _log(f"ready — {self._n_dofs} DOFs "
                      f"(legs={len(self._leg_idx)}, arm={len(self._arm_idx)})")
@@ -128,6 +129,35 @@ class SpotController:
         self._handle_events()
 
     # ── internals ────────────────────────────────────────────────────────
+
+    def _reset_to_standing(self) -> None:
+        """서있는 자세로 teleport — gp_scene.usd 자동저장으로 넘어진 채 저장된 경우 대비."""
+        try:
+            robot = self._policy.robot
+            default_q = np.zeros(self._n_dofs, dtype=float)
+            pol_def = np.asarray(self._policy.default_pos, dtype=float)
+            if len(pol_def) == len(self._leg_idx):
+                for idx, val in zip(self._leg_idx, pol_def):
+                    default_q[idx] = val
+            else:
+                default_q[self._leg_idx] = pol_def[self._leg_idx]
+            for i, name in zip(self._arm_idx, self._arm_names):
+                if name in _STOW:
+                    default_q[i] = _STOW[name]
+            robot.set_joint_positions(default_q)
+            robot.set_joint_velocities(np.zeros(self._n_dofs))
+            robot.set_linear_velocity(np.zeros(3))
+            robot.set_angular_velocity(np.zeros(3))
+            pos, ori = robot.get_world_pose()
+            if float(pos[2]) < 0.4:
+                robot.set_world_pose(
+                    position=np.array([float(pos[0]), float(pos[1]), 0.55]),
+                    orientation=ori,
+                )
+                _log(f"base Z 조정: {float(pos[2]):.3f} → 0.55")
+            _log("서있는 자세 초기화 완료")
+        except Exception as exc:
+            _log(f"서있는 자세 초기화 실패: {exc!r}")
 
     def _setup_dof_layout(self) -> None:
         names = list(self._policy.robot.dof_names or [])

@@ -96,13 +96,16 @@ if xp.IsValid() and xp.GetTypeName() == "Camera":
 if not xp.IsValid():
     xp = UsdGeom.Xform.Define(stage, _rs_base).GetPrim()
     xp.GetReferences().AddReference(_RS_USD)
-    xf = UsdGeom.Xformable(xp)
-    xf.ClearXformOpOrder()
-    xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
-    xf.AddRotateXYZOp().Set(Gf.Vec3f(0, 90, 0))
     log(f"RealSense Xform+rsd455 생성: {_rs_base}")
 else:
     log(f"RealSense Xform 있음: {_rs_base}")
+
+# 항상 transform 갱신 — 자동저장 씬에 이전 회전값 잔존 방지
+# rotateXYZ(0,-90,0): 카메라 기본 look(-Z)이 wrist +X(전방)으로 향하도록
+xf = UsdGeom.Xformable(xp)
+xf.ClearXformOpOrder()
+xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
+xf.AddRotateXYZOp().Set(Gf.Vec3f(0, -90, 0))
 
 # PhysicsAPI 제거는 항상 실행 — 씬 자동저장 후 재로드 시에도 rsd455 physics 잔존 방지
 # (rigidBodyEnabled=False 로는 schema 경고가 남으므로 API 자체를 제거)
