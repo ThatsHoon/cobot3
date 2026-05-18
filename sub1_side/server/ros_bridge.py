@@ -24,7 +24,7 @@ try:
     from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
     from sensor_msgs.msg import NavSatFix, JointState, CompressedImage
     from nav_msgs.msg import Odometry
-    from geometry_msgs.msg import PoseStamped, TransformStamped
+    from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
     from tf2_msgs.msg import TFMessage
     from std_msgs.msg import String
     from rcl_interfaces.msg import Log
@@ -54,7 +54,6 @@ class RosBridge:
         }
         self._video_lock = threading.Lock()
         self._video_frame: np.ndarray | None = None  # BGR ndarray (최신 1장)
-        self.ingest_ts = 0.0         # D-확장 직결 ingest 마지막 수신(epoch)
         self._loop = None
         self._db = None
         self._ev_cb = None           # asyncio: 이벤트 브로드캐스트 콜백
@@ -63,10 +62,6 @@ class RosBridge:
         self._exec = None
         self._thread = None
         self._js_last_log = 0.0      # joint_snapshots 10Hz 다운샘플 타이머
-        # 같은-PC 임시: Isaac OG(py3.11) 토픽이 시스템 ROS2(py3.10)로 디스커버리
-        # 불가 → /ingest(HTTP) 로 받은 데이터를 이 노드가 ROS2 로 재발행해
-        # 같은-PC foxglove_bridge 가 보게 한다. 기본 OFF(2-PC 무영향).
-        self._republish = False
 
     # ---- 생명주기 -----------------------------------------------------
     def start(self, loop, db, event_cb, yolo=None):
@@ -74,12 +69,6 @@ class RosBridge:
 
         # 통신 설정 자가점검 (요청) — stdout + 브라우저 콘솔(WS)
         import os
-        self._republish = os.environ.get(
-            "C2_INGEST_REPUBLISH", "0").strip().lower() in ("1", "true", "yes")
-        if self._republish:
-            log.info("C2_INGEST_REPUBLISH=ON — /ingest 데이터를 ROS2 로 "
-                     "재발행(같은-PC foxglove_bridge 용). 텔레메트리/비디오 "
-                     "구독은 비활성(중복 방지). 2-PC 기본은 OFF.")
         env = {k: os.environ.get(k, "<UNSET>") for k in
                ("ROS_DOMAIN_ID", "RMW_IMPLEMENTATION", "ROS_LOCALHOST_ONLY")}
         log.info("==== web_server ROS 설정 점검 ====")
@@ -135,6 +124,10 @@ class RosBridge:
             self._video_frame = bgr
 
     # ---- 업링크 (C2 → 로봇) ------------------------------------------
+    def pub_cmd_vel(self, lin: float, ang: float):
+        if self._node:
+            self._node.pub_cmd_vel(lin, ang)
+
     def publish_goal(self, x: float, y: float):
         if self._node:
             self._node.pub_goal(x, y)
@@ -169,142 +162,27 @@ if RCLPY_OK:
                 reliability=ReliabilityPolicy.RELIABLE,
                 history=HistoryPolicy.KEEP_LAST, depth=RELIABLE_QOS_DEPTH)
             T = config.TOPICS
-            self._rep = br._republish
-            # ---- 다운링크 구독 ----
-            # republish 모드(같은-PC): 이 노드가 같은 토픽을 발행하므로 동일
-            # 토픽 구독 시 자기발행 수신 → DB/WS 이중처리. 같은-PC 에선 Isaac
-            # canonical 토픽이 어차피 도달 불가라 구독해도 데이터 0 → 구독을
-            # 생성하지 않는다(/ingest 가 유일 DB/WS 소스 유지). /rosout 은
-            # 시스템 토픽(재발행 대상 아님) → 그대로 유지.
-            if not self._rep:
-                self.create_subscription(String, T["state"], self._on_state, rel_qos)
-                self.create_subscription(NavSatFix, T["gps"], self._on_gps, rel_qos)
-                self.create_subscription(Odometry, T["odom"], self._on_odom, rel_qos)
-                self.create_subscription(JointState, T["arm_joint"], self._on_arm, rel_qos)
-                self.create_subscription(JointState, T["leg_joint"], self._on_leg, rel_qos)
-                self.create_subscription(CompressedImage, T["video"],
-                                         self._on_video, sensor_qos)
+            # ---- 다운링크 구독 (항상 활성 — 정공 단일 경로) ----
+            self.create_subscription(String, T["state"], self._on_state, rel_qos)
+            self.create_subscription(NavSatFix, T["gps"], self._on_gps, rel_qos)
+            self.create_subscription(Odometry, T["odom"], self._on_odom, rel_qos)
+            self.create_subscription(JointState, T["arm_joint"], self._on_arm, rel_qos)
+            self.create_subscription(JointState, T["leg_joint"], self._on_leg, rel_qos)
+            self.create_subscription(CompressedImage, T["video"],
+                                     self._on_video, sensor_qos)
             self.create_subscription(Log, T["rosout"], self._on_rosout, rel_qos)
             # ---- 업링크 발행/클라이언트 ----
+            self._cmd_pub  = self.create_publisher(Twist, T["cmd_vel"], rel_qos)
             self._goal_pub = self.create_publisher(PoseStamped, T["nav_goal"], rel_qos)
-            self._spk_pub = self.create_publisher(String, T["speaker"], rel_qos)
+            self._spk_pub  = self.create_publisher(String, T["speaker"], rel_qos)
             self._fire_cli = self.create_client(Trigger, T["fire_srv"])
-            # ---- (같은-PC 임시) /ingest → ROS2 재발행 publisher ----
-            if self._rep:
-                self._rp_state = self.create_publisher(String, T["state"], rel_qos)
-                self._rp_gps = self.create_publisher(NavSatFix, T["gps"], rel_qos)
-                self._rp_odom = self.create_publisher(Odometry, T["odom"], rel_qos)
-                self._rp_arm = self.create_publisher(
-                    JointState, T["arm_joint"], rel_qos)
-                self._rp_leg = self.create_publisher(
-                    JointState, T["leg_joint"], rel_qos)
-                self._rp_video = self.create_publisher(
-                    CompressedImage, T["video"], sensor_qos)
-                self._rp_tf = self.create_publisher(TFMessage, "/tf", rel_qos)
-                self.create_timer(0.1, self._republish_tick)   # ≈10Hz
-            # ---- 진단 카운터 + 주기 헬스(브라우저 콘솔 가시) ----
+            # ---- 진단 카운터 + 주기 헬스 ----
             self._rx = {"state": 0, "gps": 0, "video": 0,
                         "arm": 0, "leg": 0, "rosout": 0}
             self.create_timer(5.0, self._health)
             self.get_logger().info(
-                ("재발행 모드: /ingest → ROS2(state/gps/odom/arm/leg/video/tf) "
-                 "— 텔레메트리 구독 비활성"
-                 if self._rep else
-                 "구독 생성: state/gps/odom/arm/leg/rosout/video")
-                + " — 5초 주기 헬스 진단 활성")
-
-        # 같은-PC 임시: /ingest 로 받아 br.latest/_video_frame 에 있는 최신
-        # 텔레메트리를 ROS2 로 재발행 → 같은-PC foxglove_bridge 가 수신.
-        # ingest 신선도(<10s) 일 때만 발행(스테일 스팸 방지). 각 항목 독립
-        # try/except — 한 채널 실패가 타이머를 죽이지 않게.
-        _LEG_NAMES = [f"{s}_{j}" for s in ("fl", "fr", "hl", "hr")
-                      for j in ("hx", "hy", "kn")]
-
-        def _republish_tick(self):
-            if (time.time() - self.br.ingest_ts) >= 10.0:
-                return
-            now = self.get_clock().now().to_msg()
-            L = self.br.latest
-            try:
-                st = L.get("state") or {}
-                if st:
-                    m = String()
-                    m.data = json.dumps(st)
-                    self._rp_state.publish(m)
-            except Exception:
-                pass
-            try:
-                g = L.get("gps") or {}
-                if g.get("lat") is not None:
-                    m = NavSatFix()
-                    m.header.stamp = now
-                    m.header.frame_id = "gps"
-                    m.latitude = float(g["lat"])
-                    m.longitude = float(g.get("lon") or 0.0)
-                    m.altitude = float(g.get("alt") or 0.0)
-                    self._rp_gps.publish(m)
-            except Exception:
-                pass
-            try:
-                o = L.get("odom") or {}
-                if o:
-                    x = float(o.get("x") or 0.0)
-                    y = float(o.get("y") or 0.0)
-                    z = float(o.get("z") or 0.0)
-                    od = Odometry()
-                    od.header.stamp = now
-                    od.header.frame_id = "odom"
-                    od.child_frame_id = "base"
-                    od.pose.pose.position.x = x
-                    od.pose.pose.position.y = y
-                    od.pose.pose.position.z = z
-                    od.pose.pose.orientation.w = 1.0
-                    self._rp_odom.publish(od)
-                    tfs = TransformStamped()
-                    tfs.header.stamp = now
-                    tfs.header.frame_id = "odom"
-                    tfs.child_frame_id = "base"
-                    tfs.transform.translation.x = x
-                    tfs.transform.translation.y = y
-                    tfs.transform.translation.z = z
-                    tfs.transform.rotation.w = 1.0
-                    self._rp_tf.publish(TFMessage(transforms=[tfs]))
-            except Exception:
-                pass
-            try:
-                q = list(L.get("arm_q") or [])
-                if q:
-                    js = JointState()
-                    js.header.stamp = now
-                    js.name = [f"arm0_j{i}" for i in range(len(q))]
-                    js.position = [float(v) for v in q]
-                    self._rp_arm.publish(js)
-            except Exception:
-                pass
-            try:
-                q = list(L.get("leg_q") or [])
-                if q:
-                    js = JointState()
-                    js.header.stamp = now
-                    js.name = self._LEG_NAMES[:len(q)]
-                    js.position = [float(v) for v in q]
-                    self._rp_leg.publish(js)
-            except Exception:
-                pass
-            try:
-                bgr = self.br.get_video_frame()
-                if bgr is not None:
-                    ok, buf = cv2.imencode(
-                        ".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-                    if ok:
-                        ci = CompressedImage()
-                        ci.header.stamp = now
-                        ci.header.frame_id = "realsense"
-                        ci.format = "jpeg"
-                        ci.data = buf.tobytes()
-                        self._rp_video.publish(ci)
-            except Exception:
-                pass
+                "구독 생성: state/gps/odom/arm/leg/rosout/video — "
+                "업링크: cmd_vel/nav_goal/speaker/fire — 5초 주기 헬스 진단 활성")
 
         def _health(self):
             T = config.TOPICS
@@ -314,14 +192,9 @@ if RCLPY_OK:
                 "arm":   self.count_publishers(T["arm_joint"]),
             }
             L = self.get_logger()
-            ingest_live = (time.time() - self.br.ingest_ts) < 10.0
-            L.info(f"HEALTH rx={self.br._node._rx} | publishers={pubs} | "
-                   f"ingest={'LIVE' if ingest_live else 'off'}")
+            L.info(f"HEALTH rx={self._rx} | publishers={pubs}")
             hint = None
-            if ingest_live:
-                # D-확장 직결 ingest 가 데이터 공급 중 → ROS2 경로 0 은 정상(우회)
-                hint = "ingest 활성(ROS2 우회) — 영상/텔레메트리는 /ingest 로 수신 중"
-            elif self._rx["video"] == 0:
+            if self._rx["video"] == 0:
                 hint = (f"{T['video']} 수신 0 — "
                         + ("publisher 0: degrade/Isaac 미발행"
                            if pubs["video"] == 0
@@ -329,8 +202,7 @@ if RCLPY_OK:
                 L.warn("  ⚠ " + hint)
             self.br._emit({"type": "diag", "ts": _now_iso(),
                            "src": "ros_bridge", "rx": dict(self._rx),
-                           "publishers": pubs, "ingest": ingest_live,
-                           "hint": hint})
+                           "publishers": pubs, "hint": hint})
 
         # ---- 콜백 ----
         def _on_state(self, msg):
@@ -419,6 +291,12 @@ if RCLPY_OK:
             self.br._set_video_frame(bgr)
 
         # ---- 업링크 ----
+        def pub_cmd_vel(self, lin: float, ang: float):
+            m = Twist()
+            m.linear.x = float(lin)
+            m.angular.z = float(ang)
+            self._cmd_pub.publish(m)
+
         def pub_goal(self, x, y):
             m = PoseStamped()
             m.header.stamp = self.get_clock().now().to_msg()

@@ -1,24 +1,22 @@
 """standalone RealSense 카메라 퍼블리셔 (MCP/GUI 비의존, 결정적).
 
-isaac-sim-mcp 스킬 원칙: MCP 가 불능일 때 python.sh standalone 사용.
 씬 USD 를 열고(없으면 최소 구성), Spot 팔 끝(arm0_link_wr1) 의 RealSense
 Camera 를 보장한 뒤, OG sensor_bridge(OnTick→ROS2Context(domain 130)→
 CreateRenderProduct→ROS2CameraHelper rgb)를 만들고 시뮬을 계속 step 하여
 `/cam/realsense/rgb` 를 발행한다. 같은 그래프에서 ROS2 정공 텔레메트리
 (Spot 단일 아티큘레이션 JointState + base Odometry)도 OG 노드로 발행
-(GP_ROS2_TELEM=1, gps/state 는 시스템측 telemetry_bridge_node 가 odom 에서
-파생). 로봇은 spot_with_arm(4족+팔 단일 아티큘레이션) — 과거 m0609+ANYmal
-2-아티큘레이션이 아니라, arm/leg 분리는 _gather 에서 조인트명 prefix 로
-수행한다. D-확장 HTTP /ingest 경로는 그대로 병행. RMW 는 환경 설정.
+(GP_ROS2_TELEM=1). 다운링크(/robot/cmd_vel) 는 OG ROS2SubscribeTwist 로 수신 →
+SpotController.set_cmd_vel 로 전달 → RL 보행 정책에 반영.
+HTTP /ingest 경로 제거 — ROS2 정공 단일 경로.
 
 실행: main_side/run_camera_pub.sh
 """
 import os
+import time
 
 from isaacsim import SimulationApp
 
-# GP_HEADLESS=0 → GUI 창 표시(사용자가 직접 봄), 1 → headless(웹 전송 전용).
-# 둘 다 렌더링 동작(카메라 render product 생성·발행).
+# GP_HEADLESS=0 → GUI 창 표시, 1 → headless(웹 전송 전용).
 _HEADLESS = os.environ.get("GP_HEADLESS", "0") == "1"
 simulation_app = SimulationApp(
     {"headless": _HEADLESS, "renderer": "RayTracedLighting"}
@@ -27,36 +25,35 @@ simulation_app = SimulationApp(
 import omni.usd
 import omni.timeline
 import omni.graph.core as og
-from pxr import UsdGeom, Usd, Gf
+from pxr import UsdGeom, Usd, Gf, Sdf
 from isaacsim.core.api import World
 from isaacsim.core.utils.extensions import enable_extension
 
-# ROS2 bridge 확장은 standalone 앱에 자동 로드되지 않음 → 명시 enable
+# ROS2 bridge 확장 명시 enable (standalone 앱에 자동 로드 안 됨)
 enable_extension("isaacsim.ros2.bridge")
 for _ in range(60):              # 노드 타입 등록될 때까지 app 펌프
     simulation_app.update()
 
 SCENE = os.environ.get(
     "GP_SCENE",
-    # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결
-    # 로컬화 씬(terrain/fence/textures 동봉, Spot 만 공개 S3 URL 레퍼런스).
+    # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결.
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "gp_scene.usd"),
 )
-# Spot 팔 끝(손목) 의 RealSense — gp_scene.usd 에 이미 저장돼 있음.
 CAM_PATH = "/World/Robot/arm0_link_wr1/realsense"
-SPOT_PRIM = "/World/Robot"                 # spot_with_arm 단일 아티큘레이션 루트
-BASE_PRIM = "/World/Robot/base"            # Spot 몸체(odom·sim-GPS 기준)
-WRIST_PRIM = "/World/Robot/arm0_link_wr1"  # 카메라 부모(없을 때 생성 위치)
+SPOT_PRIM = "/World/Robot"
+BASE_PRIM = "/World/Robot/base"
+WRIST_PRIM = "/World/Robot/arm0_link_wr1"
 GRAPH = "/World/Graphs/sensor_bridge"
 TOPIC = "/cam/realsense/rgb"
 DOMAIN = int(os.environ.get("ROS_DOMAIN_ID", "130"))
+_SPOT_CTRL = os.environ.get("GP_SPOT_CONTROL", "1") == "1"
 
 
 def log(m):
     print(f"[camera_pub] {m}", flush=True)
 
 
-# ── 통신 설정 자가점검 (요청: ROS_DOMAIN_ID 등 맞는지) ──────────────────
+# ── 통신 설정 자가점검 ────────────────────────────────────────────────────
 log("==== ENV / ROS 설정 점검 ====")
 for k in ("ROS_DOMAIN_ID", "RMW_IMPLEMENTATION", "ROS_LOCALHOST_ONLY",
           "ROS_DISTRO", "AMENT_PREFIX_PATH"):
@@ -70,7 +67,7 @@ log(f"  GP_SCENE={SCENE}")
 log("=============================")
 
 
-# 1) 씬 열기 ---------------------------------------------------------------
+# 1) 씬 열기 ----------------------------------------------------------------
 ctx = omni.usd.get_context()
 if os.path.isfile(SCENE):
     ctx.open_stage(SCENE)
@@ -80,12 +77,9 @@ else:
     log(f"scene not found, empty stage: {SCENE}")
 stage = ctx.get_stage()
 
-# 2) RealSense 카메라 보장 -------------------------------------------------
-# gp_scene.usd 에 Spot 손목(arm0_link_wr1/realsense) 으로 이미 저장됨. 없을
-# 때만(구 씬 등) 손목 자식으로 재생성 — Spot 팔 끝에 전방 hand-eye 로.
+# 2) RealSense 카메라 보장 ---------------------------------------------------
 cam_prim = stage.GetPrimAtPath(CAM_PATH)
 if not cam_prim.IsValid():
-    # 'realsense' 프림 탐색(경로 변형 대비), 없으면 손목 하위 생성
     found = None
     rp = stage.GetPrimAtPath("/World/Robot")
     if rp.IsValid():
@@ -104,7 +98,6 @@ if not cam_prim.IsValid():
     cam.GetClippingRangeAttr().Set(Gf.Vec2f(0.05, 100.0))
     xf = UsdGeom.Xformable(cam.GetPrim())
     xf.ClearXformOpOrder()
-    # Spot 손목 로컬: 전방(+X) 으로 0.06 이동 후 -Z→+X 로 회전(전방 주시)
     xf.AddTranslateOp().Set(Gf.Vec3f(0.06, 0, 0))
     xf.AddRotateXYZOp().Set(Gf.Vec3f(0, 90, 0))
     CAM_PATH = target
@@ -112,8 +105,7 @@ if not cam_prim.IsValid():
 else:
     log(f"RealSense camera present: {CAM_PATH}")
 
-# 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 --------
-# 노드 타입 등록 확인 (ros2.bridge enable 가 실제 반영됐는지) — 방어적
+# 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
     import omni.graph.tools.ogn as _ogn  # noqa
     for nt in ("isaacsim.ros2.bridge.ROS2CameraHelper",
@@ -121,7 +113,7 @@ try:
         ok = nt in og.GraphRegistry().get_node_types()
         log(f"nodetype {nt}: registered={ok}")
 except Exception as e:
-    log(f"nodetype 등록확인 스킵({e!r}) — enable_extension 후 진행")
+    log(f"nodetype 등록확인 스킵({e!r})")
 
 if stage.GetPrimAtPath(GRAPH).IsValid():
     stage.RemovePrim(GRAPH)
@@ -129,25 +121,21 @@ if stage.GetPrimAtPath(GRAPH).IsValid():
         simulation_app.update()
     log(f"기존 {GRAPH} 제거 (fresh 재생성 위해)")
 
-# ── ROS2 정공 텔레메트리 발행 (OG, py3.11↔3.10 경계 안전) ─────────────────
-# rclpy 를 Isaac(py3.11) 에서 import 하면 시스템 ROS2(py3.10) 와 ABI 충돌 →
-# run_camera_pub.sh 가 의도적으로 시스템 ROS scrub. 따라서 텔레메트리도
-# video(/cam/realsense/rgb) 와 동일하게 **OG 내부 ROS2 브리지**로만 발행한다.
-# Spot 은 단일 아티큘레이션(arm0_*+다리 한 몸) — ROS2PublishJointState 는
-# 아티큘레이션 단위라 arm/leg 를 OG 에서 못 가른다. 두 토픽 모두 Spot 전체
-# JointState 를 싣고(C2 는 토픽명 불변·유효 데이터 수신), arm/leg 의미 분리는
-# 라이브 경로인 HTTP _gather 가 조인트명 prefix 로 수행(아래 §_gather).
-# base=Odometry. gps(NavSatFix)/state(String) 는 OG 정규노드가 없어 시스템측
-# telemetry_bridge_node.py 가 /robot/odom 에서 파생. C2 ros_bridge 는
-# RELIABLE 구독 → 발행도 RELIABLE 명시. HTTP /ingest 경로는 그대로 병행(무손상).
+# ── ROS2 정공 설정 ────────────────────────────────────────────────────────
+# Isaac ROS2 bridge qosProfile JSON 파서는 8키 전부 요구 (FASTDDS.md §3).
 _TELEM = os.environ.get("GP_ROS2_TELEM", "1") == "1"
-_REL_QOS = ('{"history":"keepLast","depth":10,'
-            '"reliability":"reliable","durability":"volatile"}')
-# Spot 단일 아티큘레이션 → arm/leg JointState·Odom 모두 같은 루트 대상.
+_REL_QOS = ('{"history":"keepLast","depth":10,"reliability":"reliable",'
+            '"durability":"volatile","deadline":0.0,"lifespan":0.0,'
+            '"liveliness":"systemDefault","leaseDuration":0.0}')
+_SENSOR_QOS = ('{"history":"keepLast","depth":5,"reliability":"bestEffort",'
+               '"durability":"volatile","deadline":0.0,"lifespan":0.0,'
+               '"liveliness":"systemDefault","leaseDuration":0.0}')
+_CMD = os.environ.get("GP_ROS2_CMD", "1") == "1"
+CMD_TOPIC = os.environ.get("GP_CMD_TOPIC", "/robot/cmd_vel")
 ARM_PRIM, LEG_PRIM = SPOT_PRIM, SPOT_PRIM
-ARM_TOPIC = "/dsr01/joint_states"          # C2 config.TOPICS["arm_joint"]
-LEG_TOPIC = "/robot/leg_joint_states"      # C2 config.TOPICS["leg_joint"]
-ODOM_TOPIC = "/robot/odom"                 # C2 config.TOPICS["odom"]
+ARM_TOPIC = "/dsr01/joint_states"
+LEG_TOPIC = "/robot/leg_joint_states"
+ODOM_TOPIC = "/robot/odom"
 
 K = og.Controller.Keys
 _CN = [
@@ -164,13 +152,12 @@ _SV = [
     ("CamRGB.inputs:topicName", TOPIC),
     ("CamRGB.inputs:frameId", "realsense"),
     ("CamRGB.inputs:type", "rgb"),
-    ("CamRGB.inputs:qosProfile", "sensor_data"),
+    ("CamRGB.inputs:qosProfile", _SENSOR_QOS),
 ]
 _CC = [
     ("OnTick.outputs:tick", "CreateRP.inputs:execIn"),
     ("CreateRP.outputs:execOut", "CamRGB.inputs:execIn"),
-    ("CreateRP.outputs:renderProductPath",
-     "CamRGB.inputs:renderProductPath"),
+    ("CreateRP.outputs:renderProductPath", "CamRGB.inputs:renderProductPath"),
     ("Ctx.outputs:context", "CamRGB.inputs:context"),
 ]
 if _TELEM:
@@ -188,7 +175,7 @@ if _TELEM:
         ("LegJS.inputs:targetPrim", LEG_PRIM),
         ("LegJS.inputs:topicName", LEG_TOPIC),
         ("LegJS.inputs:qosProfile", _REL_QOS),
-        ("Odo.inputs:chassisPrim", BASE_PRIM),   # Spot 몸체 rigid body
+        ("Odo.inputs:chassisPrim", BASE_PRIM),
         ("OdoPub.inputs:topicName", ODOM_TOPIC),
         ("OdoPub.inputs:odomFrameId", "odom"),
         ("OdoPub.inputs:chassisFrameId", "base_link"),
@@ -210,6 +197,13 @@ if _TELEM:
         ("Odo.outputs:linearVelocity", "OdoPub.inputs:linearVelocity"),
         ("Odo.outputs:angularVelocity", "OdoPub.inputs:angularVelocity"),
     ]
+if _CMD:
+    # SubCmd 는 메인 OG 단일 빌드에 통합(증분 edit = OmniGraphError)
+    _CN += [("SubCmd", "isaacsim.ros2.bridge.ROS2SubscribeTwist")]
+    _SV += [("SubCmd.inputs:topicName", CMD_TOPIC),
+            ("SubCmd.inputs:qosProfile", _REL_QOS)]
+    _CC += [("OnTick.outputs:tick", "SubCmd.inputs:execIn"),
+            ("Ctx.outputs:context", "SubCmd.inputs:context")]
 
 og.Controller.edit(
     {"graph_path": GRAPH, "evaluator_name": "execution"},
@@ -219,188 +213,75 @@ log(f"OG {GRAPH} fresh 생성 완료 → {TOPIC} (domain {DOMAIN})")
 if _TELEM:
     log(f"OG 텔레메트리 발행: {ARM_TOPIC}, {LEG_TOPIC}, {ODOM_TOPIC} "
         f"(RELIABLE) — gps/state 는 telemetry_bridge_node 가 odom 에서 파생")
-else:
-    log("GP_ROS2_TELEM=0 → ROS2 텔레메트리 발행 비활성(HTTP /ingest 만)")
+if _CMD:
+    log(f"다운링크 ON: ROS2SubscribeTwist ← {CMD_TOPIC} (RELIABLE)")
 
-# 4) 시뮬 구동 — OnPlaybackTick 이 틱하도록 계속 step -----------------------
-world = World(stage_units_in_meters=1.0)
+# 4) 시뮬 구동 ---------------------------------------------------------------
+# physics_dt=1/500 → SpotFlatTerrainPolicy 요구 주기(spot_env.yaml dt=0.002).
+# rendering_dt=1/50 → 카메라 50Hz (OG CameraHelper 기준).
+import numpy as _np
+
+world = World(stage_units_in_meters=1.0, physics_dt=1/500, rendering_dt=1/50)
 world.reset()
 omni.timeline.get_timeline_interface().play()
 log("simulation playing — Ctrl+C to stop")
 
-# ── D-확장 직결 uplink (ROS2 우회: in-process 캡처 → web_server POST) ──────
-import json as _json
-import queue as _queue
-import threading as _threading
-import urllib.request as _ul
-import numpy as _np
-
-C2 = os.environ.get("C2_INGEST_URL", "http://localhost:8000")
-# D-확장 HTTP /ingest 업링크 토글 (GP_ROS2_TELEM 과 대칭, 기본 ON).
-# 2-PC 정공(B/M2)에선 C2 가 ROS2 로 수신하므로 HTTP 까지 보내면 C2 가
-# 동일 데이터를 ROS2·HTTP 두 경로로 받아 DB 이중 적재·WS 이중 emit.
-# → 정공 운용 시 GP_HTTP_UPLINK=0 으로 HTTP 경로를 꺼 단일 소스화.
-# 같은-PC(M1)는 ROS2 디스커버리 불가라 HTTP 가 유일 경로 → 1(기본) 유지.
-_HTTP_UPLINK = os.environ.get("GP_HTTP_UPLINK", "1") == "1"
-LAT0, LON0, ALT0 = 38.30, 127.50, 200.0     # sim 원점 기준점(설계 §S5 sim-GPS)
-_OW, _OH = 640, 360
-
-# rgb/depth 어노테이터 (render product 에 attach — 첫 rp 확보 후 지연 attach)
-_rep = None
-try:
-    import omni.replicator.core as _rep
-    log("uplink: omni.replicator.core 로드 OK")
-except Exception as e:
-    log(f"uplink: replicator 로드 실패 {e!r} — 영상 캡처 제한")
-_ann = {"rgb": None, "depth": None, "rp": None}
-
-# Spot 단일 아티큘레이션 핸들 + 조인트명(arm/leg 분리에 사용)
-_arts = {}
-_SPOT_DOF = []          # dof 이름 순서 (get_joint_positions 와 동일 순서)
-try:
-    from isaacsim.core.prims import Articulation as _Art
+# ── 다운링크: SubCmd OG 출력 attr 핸들 ──────────────────────────────────
+_cmd_state = {"lin": (0.0, 0.0, 0.0), "ang": (0.0, 0.0, 0.0),
+              "rx": 0, "last_log": 0.0}
+_cmd_lin_attr = _cmd_ang_attr = None
+if _CMD:
     try:
-        a = _Art(SPOT_PRIM)
-        a.initialize()
-        _arts["spot"] = a
-        try:
-            _SPOT_DOF = [str(n) for n in (a.dof_names or [])]
-        except Exception:
-            _SPOT_DOF = []
-        log(f"uplink: articulation spot ({SPOT_PRIM}) init OK "
-            f"(dof={len(_SPOT_DOF)})")
+        _cmd_lin_attr = og.Controller.attribute(
+            f"{GRAPH}/SubCmd.outputs:linearVelocity")
+        _cmd_ang_attr = og.Controller.attribute(
+            f"{GRAPH}/SubCmd.outputs:angularVelocity")
+        log("다운링크 SubCmd attr 핸들 OK")
     except Exception as e:
-        log(f"uplink: articulation spot init 실패 {e!r}")
-except Exception as e:
-    log(f"uplink: Articulation API 로드 실패 {e!r} — joint 미수집")
-
-_xc = UsdGeom.XformCache(Usd.TimeCode.Default())
-_q: "_queue.Queue" = _queue.Queue(maxsize=2)
-_ustat = {"frame_ok": 0, "frame_err": 0, "tele_ok": 0, "tele_err": 0}
-
-
-def _resize_rgb(a):
-    """cv2 없이 HxWx(3|4) → 360x640x3 RGB (스트라이드 다운샘플)."""
-    if a is None or a.ndim < 3:
-        return None
-    h, w = a.shape[0], a.shape[1]
-    ri = _np.linspace(0, h - 1, _OH).astype(_np.int32)
-    ci = _np.linspace(0, w - 1, _OW).astype(_np.int32)
-    return _np.ascontiguousarray(a[ri][:, ci, :3]).astype(_np.uint8)
-
-
-def _sim_gps(x, y, z):
-    import math
-    dlat = (y / 6378137.0) * (180.0 / math.pi)
-    dlon = (x / (6378137.0 * math.cos(math.radians(LAT0)))) * (180.0 / math.pi)
-    return {"lat": LAT0 + dlat, "lon": LON0 + dlon, "alt": ALT0 + float(z)}
-
-
-def _uplink_worker():
-    while True:
-        item = _q.get()
-        if item is None:
-            return
-        frame, tele = item
-        if tele is not None:
-            try:
-                r = _ul.Request(f"{C2}/ingest/telemetry",
-                                data=_json.dumps(tele).encode(),
-                                headers={"Content-Type": "application/json"},
-                                method="POST")
-                _ul.urlopen(r, timeout=2).read()
-                _ustat["tele_ok"] += 1
-            except Exception:
-                _ustat["tele_err"] += 1
-        if frame is not None:
-            try:
-                r = _ul.Request(
-                    f"{C2}/ingest/frame?w={_OW}&h={_OH}&enc=rgb",
-                    data=frame.tobytes(),
-                    headers={"Content-Type": "application/octet-stream"},
-                    method="POST")
-                _ul.urlopen(r, timeout=2).read()
-                _ustat["frame_ok"] += 1
-            except Exception:
-                _ustat["frame_err"] += 1
-
-
-if _HTTP_UPLINK:
-    _uth = _threading.Thread(target=_uplink_worker, daemon=True)
-    _uth.start()
-    log(f"uplink: worker 시작 → {C2} (ingest/frame, ingest/telemetry)")
+        log(f"다운링크 SubCmd 핸들 실패 {e!r} — 명령 수신 비활성")
+        _CMD = False
 else:
-    log("GP_HTTP_UPLINK=0 → HTTP /ingest 업링크 비활성 "
-        "(2-PC 정공: C2 는 ROS2 단일 경로로 수신, 이중수신 차단)")
+    log("GP_ROS2_CMD=0 → 다운링크(명령 수신) 비활성")
 
-
-def _attach_annotators():
-    """첫 render product 확보 시 1회 rgb/depth 어노테이터 attach."""
-    if _ann["rp"] or _rep is None:
-        return
+# ── SpotController (RL 보행 정책, in-process) ────────────────────────────
+_ctrl = None
+if _SPOT_CTRL:
     try:
-        rp = og.Controller.attribute(
-            f"{GRAPH}/CreateRP.outputs:renderProductPath").get()
-    except Exception:
-        rp = None
-    if not rp:
-        return
-    try:
-        ra = _rep.AnnotatorRegistry.get_annotator("rgb")
-        da = _rep.AnnotatorRegistry.get_annotator("distance_to_image_plane")
-        ra.attach([rp])
-        da.attach([rp])
-        _ann.update(rgb=ra, depth=da, rp=rp)
-        log(f"uplink: annotator attach OK (rp={rp})")
+        from spot_controller import SpotController
+        _ctrl = SpotController(SPOT_PRIM)
+        world.add_physics_callback("spot_ctrl", _ctrl.on_physics_step)
+        log("SpotController 등록 — physics_callback 활성")
     except Exception as e:
-        log(f"uplink: annotator attach 실패 {e!r}")
+        log(f"SpotController 초기화 실패 {e!r} — 보행 제어 비활성")
+else:
+    log("GP_SPOT_CONTROL=0 → SpotController 비활성(관측 전용)")
 
 
-def _gather():
-    """현재 sim 상태 in-process 수집 → 큐 적재(비차단)."""
-    tele = {"ts": None}
-    # Spot 단일 아티큘레이션 → 조인트명 prefix 로 arm/leg 분리
-    # (arm0_* = 팔, fl_/fr_/hl_/hr_ = 4족 다리). dof명 없으면 전체를 arm_q.
+def _apply_cmd():
+    """OG SubCmd 출력을 읽어 SpotController 에 전달(비차단).
+    nonzero 명령일 때만 set_cmd_vel 호출 → 0.5s 타임아웃이 정상 작동."""
+    if not _CMD or _cmd_lin_attr is None:
+        return
     try:
-        a = _arts.get("spot")
-        if a is not None:
-            jp = [float(v) for v in _np.ravel(a.get_joint_positions())]
-            if _SPOT_DOF and len(_SPOT_DOF) == len(jp):
-                arm = [v for n, v in zip(_SPOT_DOF, jp)
-                       if n.startswith("arm0_")]
-                leg = [v for n, v in zip(_SPOT_DOF, jp)
-                       if n[:3] in ("fl_", "fr_", "hl_", "hr_")]
-                tele["arm_q"], tele["leg_q"] = arm[:8], leg[:12]
-            else:
-                tele["arm_q"] = jp[:8]
+        lin = _np.asarray(_cmd_lin_attr.get()).astype(float).ravel().tolist()
+        ang = _np.asarray(_cmd_ang_attr.get()).astype(float).ravel().tolist()
     except Exception:
-        pass
-    try:
-        _xc.SetTime(Usd.TimeCode.Default())
-        _st = omni.usd.get_context().get_stage()
-        bp = _st.GetPrimAtPath(BASE_PRIM)
-        if not (bp and bp.IsValid()):
-            bp = _st.GetPrimAtPath(SPOT_PRIM)
-        m = _xc.GetLocalToWorldTransform(bp)
-        tr = m.ExtractTranslation()
-        x, y, z = float(tr[0]), float(tr[1]), float(tr[2])
-        tele["odom"] = {"x": x, "y": y, "z": z}
-        tele["gps"] = _sim_gps(x, y, z)
-    except Exception:
-        pass
-    frame = None
-    if _ann["rgb"] is not None:
-        try:
-            d = _ann["rgb"].get_data()
-            frame = _resize_rgb(_np.asarray(d))
-        except Exception:
-            pass
-    try:
-        _q.put_nowait((frame, tele))
-    except _queue.Full:
-        pass
+        return
+    if len(lin) < 3 or len(ang) < 3:
+        return
+    _cmd_state["lin"], _cmd_state["ang"] = tuple(lin), tuple(ang)
+    nonzero = any(abs(v) > 1e-6 for v in (*lin, *ang))
+    if nonzero:
+        _cmd_state["rx"] += 1
+        if _ctrl is not None:
+            _ctrl.set_cmd_vel(lin[0], lin[1], ang[2])
+    now = time.time()
+    if nonzero and now - _cmd_state["last_log"] > 1.0:
+        _cmd_state["last_log"] = now
+        log(f"[cmd] RX lin={[round(v,3) for v in lin]} "
+            f"ang={[round(v,3) for v in ang]} (총 {_cmd_state['rx']}회)")
 
-# 자가검증: 몇 스텝 후 OG 가 render product 를 실제로 만들었는지 확인
+
 def _diag():
     try:
         rp = og.Controller.attribute(
@@ -409,35 +290,24 @@ def _diag():
             f"{GRAPH}/CreateRP.inputs:cameraPrim").get()
         log(f"DIAG cameraPrim={cp} renderProduct={rp!r}")
         if not rp:
-            log("  ⚠ renderProductPath 비어있음 → 카메라 프레임 생성 안 됨 "
-                "(publisher 0 의 직접 원인). cameraPrim 경로/렌더 확인 필요")
+            log("  ⚠ renderProductPath 비어있음 → 카메라 프레임 생성 안 됨")
     except Exception as e:
         log(f"DIAG 실패: {e!r}")
+
 
 n = 0
 try:
     while simulation_app.is_running():
         world.step(render=True)
         n += 1
-        if _HTTP_UPLINK:                       # HTTP /ingest 전용 수집 경로
-            if _ann["rp"] is None and n % 30 == 0:
-                _attach_annotators()
-            if n % 12 == 0:                   # ≈ uplink 5Hz
-                _gather()
+        _apply_cmd()
         if n in (60, 150):
             _diag()
         if n % 300 == 0:
             t = omni.timeline.get_timeline_interface().get_current_time()
-            log(f"stepped {n} | simTime={t:.2f} | uplink "
-                f"frame ok/err={_ustat['frame_ok']}/{_ustat['frame_err']} "
-                f"tele ok/err={_ustat['tele_ok']}/{_ustat['tele_err']} "
-                f"ann={'Y' if _ann['rp'] else 'N'} arts={list(_arts)}")
+            log(f"stepped {n} | simTime={t:.2f} | cmd_rx={_cmd_state['rx']}")
             _diag()
 except KeyboardInterrupt:
     log("중지(Ctrl+C)")
 finally:
-    try:
-        _q.put_nowait(None)
-    except Exception:
-        pass
     simulation_app.close()

@@ -39,6 +39,7 @@ TOPICS = {
     "nav_goal":  "/robot/nav/goal",         # geometry_msgs/PoseStamped
     "speaker":   "/robot/speaker/audio",    # std_msgs/String (JSON: preset/pcm-b64)
     "fire_srv":  "/robot/weapon/fire",      # std_srvs/Trigger (간이) — 설계 §10.2
+    "cmd_vel":   "/robot/cmd_vel",          # geometry_msgs/Twist (RELIABLE) — C2→로봇
 }
 
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)

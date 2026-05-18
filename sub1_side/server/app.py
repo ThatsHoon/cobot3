@@ -9,7 +9,6 @@
 """
 import asyncio
 import contextlib
-import json
 import logging
 from datetime import datetime, timezone
 
@@ -19,7 +18,6 @@ def _now_iso():
 
 import asyncpg
 import cv2
-import numpy as np
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from fastapi import (Depends, FastAPI, Header, HTTPException, Request,
                      WebSocket, WebSocketDisconnect)
@@ -204,96 +202,19 @@ async def fire(rid: str, body: dict):
     return {"ok": True, **res}
 
 
+@app.post("/robots/{rid}/cmd_vel", dependencies=[Depends(require_key)])
+async def cmd_vel(rid: str, body: dict):
+    """body: {"linear": 0.6, "angular": 0.0} — /robot/cmd_vel Twist (RELIABLE)."""
+    ros.pub_cmd_vel(float(body.get("linear", 0.0)),
+                    float(body.get("angular", 0.0)))
+    return {"ok": True}
+
+
 @app.post("/robots/{rid}/speaker", dependencies=[Depends(require_key)])
 async def speaker(rid: str, body: dict):
     # body: {"preset": "엎드려"} 또는 {"pcm_b64": "...", "rate": 16000}
     ros.send_speaker(body)
     return {"ok": True}
-
-
-# ── D-확장 직결 ingest (임시 같은-PC: ROS2 우회, Isaac in-process → 여기로) ──
-# 기존 UI 무변경: ros.latest / 비디오 프레임 / WS 이벤트 / DB 를 ROS 콜백과
-# 동일하게 채운다. rclpy 불필요(이 경로는 ros_bridge 와 독립).
-import time as _t
-_ingest = {"frame": 0, "tele": 0, "last": _t.time()}
-
-
-@app.post("/ingest/frame")
-async def ingest_frame(req: Request, w: int = 640, h: int = 360,
-                       enc: str = "rgb"):
-    """Isaac in-process 캡처 프레임(raw HxWx3 uint8). WebRTC/MJPEG 가 그대로 소비."""
-    raw = await req.body()
-    arr = np.frombuffer(raw, dtype=np.uint8)
-    if arr.size < w * h * 3:
-        raise HTTPException(400, f"frame size {arr.size} < {w*h*3}")
-    img = arr[: w * h * 3].reshape(h, w, 3)
-    bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) if enc == "rgb" else img.copy()
-    # 서버측 YOLO(선택) → bbox 오버레이 + 탐지 emit/기록
-    if yolo.enabled:
-        for d in yolo.infer(bgr):
-            x, y, ww, hh = d["bbox"]
-            cv2.rectangle(bgr, (int(x), int(y)),
-                          (int(x + ww), int(y + hh)), (0, 0, 255), 2)
-            cv2.putText(bgr, f'{d["class_name"]} {d["conf"]:.2f}',
-                        (int(x), int(y) - 5), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, (0, 0, 255), 1)
-            db.put("intruder_detections",
-                   (config.ROBOT_ID, _now_iso(), d["class_name"], d["conf"],
-                    x, y, ww, hh, None, None, None, None, "realsense"))
-            _broadcast({"type": "detection", "ts": _now_iso(), "items": [d]})
-    ros._set_video_frame(bgr)
-    ros.ingest_ts = _t.time()
-    _ingest["frame"] += 1
-    return {"ok": True, "n": _ingest["frame"]}
-
-
-@app.post("/ingest/telemetry")
-async def ingest_telemetry(body: dict):
-    """Isaac in-process 텔레메트리(joint/gps/odom/state/logs) — ROS 콜백과 동일 처리."""
-    ts = body.get("ts") or _now_iso()
-    rid = config.ROBOT_ID
-    arm_q = body.get("arm_q") or []
-    leg_q = body.get("leg_q") or []
-    gps = body.get("gps") or {}
-    odom = body.get("odom") or {}
-    st = body.get("state") or {}
-
-    if arm_q:
-        ros.latest["arm_q"] = arm_q
-    if leg_q:
-        ros.latest["leg_q"] = leg_q
-    if odom:
-        ros.latest["odom"] = odom
-    if gps:
-        ros.latest["gps"] = gps
-        db.put("gps_track", (rid, ts, gps.get("lat"), gps.get("lon"),
-                             float(gps.get("alt") or 0.0),
-                             odom.get("x"), odom.get("y")))
-        _broadcast({"type": "gps", "ts": ts, "data": gps})
-    if st:
-        ros.latest["state"] = st
-        db.put("robot_state_log", (rid, ts, st.get("mode"), st.get("gait"),
-                                   st.get("battery"), st.get("waypoint"),
-                                   json.dumps(st.get("extra", {}))))
-        _broadcast({"type": "state", "ts": ts, "data": {**st, "odom": odom}})
-    if arm_q or leg_q:
-        db.put("joint_snapshots", (rid, ts, arm_q, leg_q))
-    for lg in body.get("logs", []):
-        lvl = int(lg.get("level", 30))
-        if lvl >= config.ROSOUT_WARN_LEVEL:
-            db.put("rosout_warn", (ts, lvl, lg.get("name", "isaac"),
-                                   lg.get("msg", "")))
-            _broadcast({"type": "log", "ts": ts, "level": lvl,
-                        "name": lg.get("name", "isaac"),
-                        "msg": lg.get("msg", "")})
-    ros.ingest_ts = _t.time()
-    _ingest["tele"] += 1
-    return {"ok": True, "n": _ingest["tele"]}
-
-
-@app.get("/ingest/stats")
-async def ingest_stats():
-    return {"frame": _ingest["frame"], "tele": _ingest["tele"]}
 
 
 if __name__ == "__main__":

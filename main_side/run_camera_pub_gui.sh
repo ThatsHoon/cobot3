@@ -13,26 +13,19 @@
 #       /home/rokey/dev_ws/isaac-sim-mcp/isaac_mcp/server.py
 set -e
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# 사이트 IP 단일소스(SSOT): common/site.env → C2_INGEST_URL·FastDDS 자동 파생
+# 사이트 IP 단일소스(SSOT): common/site.env → FastDDS 자동 파생
 [ -f "$_HERE/../common/site.sh" ] && source "$_HERE/../common/site.sh"
 
-# ── ★ 시스템 ROS 환경 스크럽 (핵심 수정) ───────────────────────────────
-# `!` 실행 시 셸의 ~/.bashrc 가 /opt/ros/humble(py3.10) 를 소싱 → Isaac(py3.11)
-# 이 시스템 rclpy 를 만나 "Could not import rclpy" → bridge internal 모드 파손
-# → json parse 스팸 + ROS2 미노출. Isaac 은 자체 번들 ROS2 만 써야 하므로
-# 시스템 ROS 가 넣은 PYTHONPATH/AMENT/LD 항목을 제거한다.
-unset AMENT_PREFIX_PATH AMENT_CURRENT_PREFIX COLCON_PREFIX_PATH
-unset ROS_VERSION ROS_PYTHON_VERSION PYTHONPATH
-# LD_LIBRARY_PATH 에서 ros/IsaacSim-ros_workspaces 토큰 제거
-_clean_ld=""
-IFS=':' read -ra _parts <<< "${LD_LIBRARY_PATH}"
-for _p in "${_parts[@]}"; do
-  case "$_p" in
-    */opt/ros/*|*IsaacSim-ros_workspaces*|"") ;;
-    *) _clean_ld="${_clean_ld:+$_clean_ld:}$_p" ;;
-  esac
-done
-
+# ── ★ 시스템 ROS2 Humble 소싱 (no-scrub — 정공 핵심 수정) ──────────────
+# camera_publisher.py 는 rclpy 를 import 하지 않음(순수 OG C++ 브리지) →
+# 과거 scrub 의 전제(Isaac py3.11 ↔ 시스템 py3.10 rclpy 충돌)가 이
+# 프로세스엔 적용되지 않는다. scrub 는 오히려 Isaac C++ 브리지가 시스템
+# fastrtps 2.6.11(= C2 와 동일·와이어 호환) 대신 internal/엉뚱한 libs 를
+# 쓰게 만든 자해였음(이전 "정공 불가" 오진의 핵심). no-scrub 로 시스템
+# 2.6.11 로드 → 시스템 ROS2 와 양방향 정공. (검증: odom 63Hz, cmd_vel
+# 다운링크 RX, FASTDDS.md §6.) `!` 실행 시 ~/.bashrc 가 humble 을 이미
+# 소싱하지만, 명시 소싱으로 비대화형 경로에서도 보장한다.
+source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # FastDDS 프로파일: env 지정 > site.env 로 자동 치환본(2-PC) > 기본 UDP-only.
 if [ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ]; then
@@ -44,15 +37,9 @@ fi
 export ROS_DOMAIN_ID=130
 export ROS_LOCALHOST_ONLY=0
 export ROS_DISTRO=humble
-# Isaac 번들 humble/cyclone lib 를 LD_LIBRARY_PATH 선두에 (스크럽된 경로 위)
-_ISAAC_BR=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/exts/isaacsim.ros2.bridge/humble/lib
-export LD_LIBRARY_PATH="$_ISAAC_BR${_clean_ld:+:$_clean_ld}"
 export GP_HEADLESS=0          # ← GUI 창 표시
 # 동봉 이식 씬(스크립트 상대 — 하드코딩 제거; camera_publisher 기본과 일치)
 export GP_SCENE="${GP_SCENE:-$_HERE/scene/gp_scene.usd}"
-# D-확장 업링크 대상. 같은-PC=localhost. 2-PC=C2 PC IP 로 (env 또는
-# bashrc cobot3-isaacSim-gui 에서 지정 — 사이트값은 repo 에 하드코딩 안 함).
-export C2_INGEST_URL="${C2_INGEST_URL:-$(cobot3_c2_ingest_url 2>/dev/null || echo http://localhost:8000)}"
 ISAAC=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release
 # 전체 raw 출력은 $LOG 에 전량 보존(tee). 콘솔에서는 standalone+OG
 # 렌더프로덕트의 알려진-양성 2종(omni.usd-abi getRenderSettings stage-id

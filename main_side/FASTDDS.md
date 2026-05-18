@@ -4,28 +4,27 @@
 > 이 PC 는 카메라/텔레메트리를 내보내고(D-확장 또는 ROS2), 2-PC 정공
 > 시 C2 명령 토픽을 받는다. 환경/기동 총괄: `../dev-docs/project_requirments.md`.
 
-## 0. 전송 경로 2종 (둘 다 main_side 에서 출발)
+## 0. 전송 경로 (ROS2 정공 단일 경로)
 
 | 경로 | 용도 | main_side 설정 |
 |---|---|---|
-| **D-확장 HTTP** (검증·운용중) | Isaac → C2 **영상·텔레메트리 관측**(단방향) | `C2_INGEST_URL` 만 C2 PC 로 (§1) |
-| **ROS2 정공 — 업링크** (발행측 구현됨) | Isaac → C2 영상·텔레메트리 토픽 | OG+노드 발행(§3.1) + FastDDS 크로스호스트(§2~§5) |
-| **ROS2 정공 — 다운링크** (미구현) | C2 → Isaac **명령 토픽** | 전송(§2~§5) 가능하나 **소비자 노드(§6) 미구현** |
+| **ROS2 정공 — 업링크** (구현·검증됨) | Isaac → C2 영상·텔레메트리 토픽 | OG+노드 발행(§3.1) + FastDDS(§2~§5). no-scrub 필수(§6.1) |
+| **ROS2 정공 — 다운링크** (✅ 구현·검증됨) | C2 → Isaac **명령 토픽 → SpotController(RL 보행)** | OG `ROS2SubscribeTwist` → `SpotController.set_cmd_vel`(§6.2). `GP_SPOT_CONTROL` 토글(§6.3) |
 
-업링크 텔레메트리는 D-확장(HTTP)·ROS2 정공 **둘 다 동작**(병행, §3.1).
-영상만 관측하면 D-확장으로 충분. 단 C2 가 시뮬로 **명령 토픽 발송**(다운링크)
-하려면 전송설정(§2~5)만으로는 부족하고 Isaac 측 **명령 구독·실행
-노드(§6)** 가 있어야 실제 반영된다 — 이 부분은 여전히 미구현.
+HTTP `/ingest` 경로는 제거됨 — ROS2 정공 단일 경로(이중수신 문제 구조적 소멸).
+다운링크(C2→Isaac) **양방향 정공 실증 완료 + SpotController(RL 보행 정책) 구현**.
+ROS2 정공은 **no-scrub + 완전 8키 qosProfile + render=True** 가 필수(§6.1).
 
-## 1. D-확장 업링크 대상 (영상 경로 — 현 운용)
+## 1. ROS2 정공 단일 경로 개요
 
-`C2_INGEST_URL` = C2 웹서버. 같은-PC=localhost / 2-PC=C2 PC IP.
-- **IP 단일소스 = `../common/site.env`**(`SUB1_SIDE_IP`). 런처가
-  `../common/site.sh` 의 `cobot3_c2_ingest_url` 로 `http://$SUB1_SIDE_IP:8000`
-  **자동 파생**(bashrc·repo 하드코딩 없음). env 로 직접 주면 그 값 최우선.
-- 배포지 변경 시 `common/site.env` 두 줄만 수정 → 양측 자동 반영.
-- 검증: Isaac PC 에서 `curl -s http://$SUB1_SIDE_IP:8000/ingest/stats` 의
-  `frame`/`tele` 카운트 증가 + 메인 로그 `uplink ok/err` 의 ok 증가.
+HTTP `/ingest` 업링크 제거 — 영상·텔레메트리·명령 모두 ROS2 정공 단일 경로:
+- **업링크** (Isaac → C2): OG `ROS2CameraHelper`(`/cam/realsense/rgb`) +
+  OG `PublishJointState`·`PublishOdometry`(텔레메트리). `run_camera_pub*.sh` 기동.
+- **다운링크** (C2 → Isaac): C2 `POST /robots/{rid}/cmd_vel` →
+  `ros_bridge.pub_cmd_vel` → `/robot/cmd_vel`(Twist) →
+  Isaac OG `ROS2SubscribeTwist` → `SpotController.set_cmd_vel` → RL 보행 정책.
+- **IP/프로파일 단일소스**: `../common/site.env` → `common/site.sh` 로
+  FastDDS 치환본 자동 생성. 배포지 변경 시 두 줄만 수정.
 
 ## 2. 환경변수 (Isaac PC, camera_publisher 프로세스)
 
@@ -74,26 +73,12 @@ env 로 `FASTRTPS_DEFAULT_PROFILES_FILE` 를 직접 주면 그 값이 최우선.
 | `/robot/state` | std_msgs/String(JSON) | `telemetry_bridge_node` (mode/gait/battery/waypoint 합성) | `extra.synthetic=true` |
 
 - 토글: `GP_ROS2_TELEM`(기본 `1`) — `0` 이면 OG 텔레메트리 노드 미생성.
-  `GP_HTTP_UPLINK`(기본 `1`) — `0` 이면 HTTP `/ingest` 업링크(`_uplink_
-  worker`/`_gather`/annotator) 미가동. **두 토글로 경로 단일화**:
-  · 1-PC(M1, ROS2 디스커버리 불가): `GP_ROS2_TELEM=0`+`GP_HTTP_UPLINK=1`
-  · 2-PC 정공(B/M2): `GP_ROS2_TELEM=1`+**`GP_HTTP_UPLINK=0`** (C2 는 ROS2
-    단일 경로 수신 → 이중수신 원천 차단). 영상 OG 는 토글 무관 항상 발행.
+  HTTP `/ingest` 경로는 제거(이중수신 문제 구조적 소멸). 영상 OG 는 토글 무관 항상 발행.
 - QoS: C2 `ros_bridge` 가 state/gps/odom/arm/leg 를 **RELIABLE** 구독 →
   OG 발행·`telemetry_bridge` 발행 모두 RELIABLE 명시(매칭). 영상만 BEST_EFFORT.
-- sim-GPS 기준점(`LAT0/LON0/ALT0`)은 `camera_publisher._sim_gps` 와
-  `telemetry_bridge_node._sim_gps` 가 **동일**해야 HTTP·ROS2 좌표가 일치.
+- sim-GPS 기준점은 `telemetry_bridge_node._sim_gps` 와 동일 좌표계 유지.
 - 기동: `run_telemetry_bridge.sh`(`run_degrade.sh` 형제, 시스템 ROS2).
   `cobot3-cobot3_web-restart_full` 가 degrade 와 함께 자동 기동.
-- D-확장 HTTP `/ingest` 경로(`_gather`/`_uplink_worker`)는 **무손상 병행** —
-  같은-PC(디스커버리 불가) 환경에서도 영상/텔레메트리는 계속 HTTP 로 수신.
-- ⚠ **2-PC 정공 이중수신 차단(필수·강제됨)**: ROS2 정공 성립 시 HTTP `/ingest`
-  까지 C2 로 가면 C2 가 동일 데이터를 ROS2·HTTP 두 경로로 받아 DB 이중
-  적재·WS 이중 emit. `run_camera_pub*.sh` 는 `C2_INGEST_URL` 을 항상
-  자동설정하므로 **`GP_HTTP_UPLINK=0` 으로 HTTP 발신 자체를 끄는 것이
-  유일한 확실한 차단**(C2_INGEST_REPUBLISH OFF 만으로는 ingest 핸들러
-  vs ROS2 구독 이중을 못 막음). `cobot3-start_all_2`(MAIN 역할)이 이를
-  자동 적용. 같은-PC(M1)는 ROS2 0 이라 무관(`GP_HTTP_UPLINK=1` 유지).
 
 ## 4. OS 커널 버퍼 (Isaac PC, 1회·영구)
 
@@ -113,13 +98,53 @@ DDS UDP 포트는 도메인 기반 가변 → C2 서브넷 허용.
 echo 'rokey1234' | sudo -S ufw allow from 192.168.10.0/24
 ```
 
-## 6. ⚠ 명령 다운링크 소비자 — 미구현 (한계 명시)
+## 6. 명령 다운링크 소비자 — ✅ 구현·검증됨 (양방향 정공 성립)
 
-§2~5 로 **전송**은 열려도, 현재 `camera_publisher.py` 는 카메라 발행만
-하고 `/robot/nav/goal`·`/robot/speaker`·`/robot/fire` 등 **명령 토픽을
-구독하지 않는다**. locomotion/명령 처리 노드(보행 FSM 포함)가 미구현이라
-C2 가 토픽을 보내도 시뮬에서 **아무도 실행하지 않는다**. ROS2 정공으로
-"C2→시뮬 제어"를 완성하려면 이 구독·실행 노드 구현이 별도로 필요.
+### 6.1 결론 — 이전 "정공 불가"는 오진, 근본원인 3종
+
+엄밀 실험(`test_ros2_bridge.py` + production `camera_publisher.py`)으로
+**시스템 ROS2 Humble ↔ Isaac 내부 OG 브리지 양방향 통신이 동작함을 실증**.
+DDS 버전(3.47/2.14)·Python 3.10/3.11 rclpy·CycloneDDS articulation 은
+**전부 무관**이었고, 진짜 원인은 다음 3가지:
+
+| # | 근본원인 | 수정 |
+|---|---|---|
+| 1 | 루프가 `world.step(render=False)` → 타임라인 동결 → OnPlaybackTick 펄스 미발생 → OG ROS2 노드가 write/read 자체를 안 함 | `render=True` (camera_publisher.py 는 원래 이미 적용; test 하네스만 오류였음) |
+| 2 | `run_camera_pub*.sh` 의 시스템 ROS scrub → C++ 브리지가 시스템 fastrtps 2.6.11(=C2 동일·와이어호환) 대신 internal/엉뚱 libs 사용(자해). camera_publisher.py 는 rclpy 미사용이라 scrub 전제가 성립 안 함 | 런처에서 scrub 제거, `source /opt/ros/humble/setup.bash` (no-scrub) |
+| 3 | Isaac qosProfile JSON 파서는 8키 전부 요구(history/depth/reliability/durability/deadline/lifespan/liveliness/leaseDuration). 부분 JSON `_REL_QOS`·문자열 `"sensor_data"` → 거부 → 엔드포인트 미생성 + 25k 파서 스팸 | 완전 8키 JSON `_REL_QOS`(reliable)·`_SENSOR_QOS`(bestEffort) |
+
+검증 수치(no-scrub + fastdds_no_shm.xml + domain 130, 같은 PC 2프로세스):
+`/robot/odom`·`/dsr01/joint_states` 업링크 **63Hz**, `/clock` 최소테스트
+**122Hz**, `/robot/cmd_vel` 다운링크 Isaac 측 **RX 637회/10s** 수신.
+
+### 6.2 구현된 다운링크 소비자 + SpotController
+
+`camera_publisher.py` 단일 OG 빌드에 `ROS2SubscribeTwist`(SubCmd) 통합
+(OnTick/Ctx 재사용; 증분 `og.Controller.edit` 는 그래프 재-wrap 실패하므로
+메인 빌드에 포함). 토글·동작:
+
+| env | 기본 | 효과 |
+|---|---|---|
+| `GP_ROS2_CMD` | `1` | `/robot/cmd_vel`(geometry_msgs/Twist) RELIABLE 구독 |
+| `GP_CMD_TOPIC` | `/robot/cmd_vel` | 구독 토픽명 |
+| `GP_SPOT_CONTROL` | `1` | `SpotController` (RL 보행 정책) 활성. 0=관측 전용 |
+
+매 스텝 `_apply_cmd()`: SubCmd 출력(lin/ang)을 읽어 `SpotController.
+set_cmd_vel(vx, vy, wz)` 로 전달. `SpotController` 는 physics_callback 에서
+`SpotFlatTerrainPolicy.forward(dt, [vx,vy,wz])` 로 RL 보행 정책 실행
+(teleop 0.5s 타임아웃 → nav_goal P-제어 → idle 순 우선순위 중재).
+팔(arm0_* DOFs) 은 stow/aim 포즈로 독립 제어.
+
+`World(physics_dt=1/500, rendering_dt=1/50)` — `spot_env.yaml` 요구 주기.
+
+### 6.3 SpotController 토글/확장
+
+| env | 기본 | 효과 |
+|---|---|---|
+| `GP_SPOT_CONTROL` | `1` | SpotController + physics_callback 활성 |
+| `GP_SPOT_CONTROL=0` | — | 보행 정책 비활성, 관측(OG 텔레메트리)만 동작 |
+
+nav_goal · speaker · fire 는 `SpotController.{set_nav_goal,set_speaker,trigger_fire}` API 로 확장 가능(현재 로그 출력 구현). OG Subscribe 추가 없이 camera_publisher 측 Python 코드에서 직접 호출하거나, PoseStamped/String OG 구독 노드 추가 후 핸들러에서 호출.
 
 ## 7. 카메라 장착 (Spot 기준)
 
@@ -136,10 +161,9 @@ GPS 표식도 같은 손목(`arm0_link_wr1`) 하위. camera_publisher 는 이
 
 | 증상 | 원인 | 조치 |
 |---|---|---|
-| C2 ros_bridge `ingest=LIVE`, 영상 OK | D-확장 정상 | 영상 경로 완료 |
-| 메인 `uplink ok/err=0/N` | `C2_INGEST_URL` 미설정/오설정 | §1 — C2 IP·:8000 도달성 확인 |
 | C2 `ros2 topic list` 에 Isaac 토픽 없음 | 멀티캐스트 차단/IP 오설정 | §3 initialPeers·interfaceWhiteList, §5 방화벽 |
-| 토픽은 보이나 명령 미반응 | 소비자 노드 미구현 | §6 — 구현 필요(설정 문제 아님) |
+| 토픽은 보이나 cmd_vel 미반응 | SpotController 미기동 또는 GP_SPOT_CONTROL=0 | 로그 `SpotController 등록` 확인, `[spot_ctrl] ready` 로그 확인 |
+| SpotController policy init 실패 | spot_policy.pt 다운로드 실패(최초 실행) | 네트워크 확인, `~/.cache/ov/asset` 캐시 확인 |
 | `last read: 's'`/`getRenderSettings` 폭주 | standalone+OG 양성 | 무해, 런처가 raw 보존+콘솔 필터(project_requirments §6) |
 
 ---
