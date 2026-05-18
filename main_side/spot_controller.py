@@ -107,7 +107,10 @@ class SpotController:
         if self._first_step:
             self._first_step = False
             try:
-                self._policy.initialize()
+                # set_gains/set_limits=False: spot_env.yaml 에는 12 leg DOF 만 있어서
+                # 19-DOF(spot_with_arm) articulation 에 그대로 넘기면 shape(12,) vs (1,19)
+                # broadcast 오류 발생. DOF 레이아웃 확인 후 수동으로 전체 게인을 설정한다.
+                self._policy.initialize(set_gains=False, set_limits=False)
                 self._setup_dof_layout()
                 self._patch_arm_gains()
                 self._initialized = True
@@ -139,23 +142,37 @@ class SpotController:
         self._mixed_dofs = (len(self._arm_idx) > 0)
 
     def _patch_arm_gains(self) -> None:
-        """Arm DOFs get stiffness=0 from spot_env.yaml (yaml lacks arm entries).
-        Restore to usable PD gains so position targets are tracked."""
-        if not self._mixed_dofs:
-            return
+        """19-DOF gain 전체를 설정: leg → yaml 값, arm → 커스텀 PD.
+        set_gains=False 로 initialize 했으므로 여기서 전체를 채워야 한다."""
         try:
-            view = self._policy.robot._articulation_view
-            gains = view.get_gains()
-            stiff = np.array(gains[0], dtype=float).ravel()
-            damp  = np.array(gains[1], dtype=float).ravel()
-            for i in self._arm_idx:
-                stiff[i] = _ARM_STIFFNESS
-                damp[i]  = _ARM_DAMPING
+            from isaacsim.robot.policy.examples.controllers.config_loader import (
+                get_robot_joint_properties,
+            )
+            view  = self._policy.robot._articulation_view
+            stiff = np.zeros(self._n_dofs, dtype=float)
+            damp  = np.zeros(self._n_dofs, dtype=float)
+
+            # Leg: yaml(spot_env.yaml)에 정의된 12-DOF 게인을 그대로 사용
+            leg_names = [self._policy.robot.dof_names[i] for i in self._leg_idx]
+            _, _, leg_stiff, leg_damp, _, _ = get_robot_joint_properties(
+                self._policy.policy_env_params, leg_names
+            )
+            stiff[self._leg_idx] = leg_stiff
+            damp[self._leg_idx]  = leg_damp
+
+            # Arm: yaml 에 없으므로 커스텀 PD 게인
+            if self._mixed_dofs:
+                stiff[self._arm_idx] = _ARM_STIFFNESS
+                damp[self._arm_idx]  = _ARM_DAMPING
+
             view.set_gains(stiff, damp)
-            _log(f"arm gain patch: K={_ARM_STIFFNESS} D={_ARM_DAMPING} "
-                 f"({len(self._arm_idx)} DOFs)")
+            _log(
+                f"gains OK — leg K={leg_stiff[0] if len(leg_stiff) else 0} "
+                f"D={leg_damp[0] if len(leg_damp) else 0} ×{len(self._leg_idx)}, "
+                f"arm K={_ARM_STIFFNESS} D={_ARM_DAMPING} ×{len(self._arm_idx)}"
+            )
         except Exception as exc:
-            _log(f"arm gain patch failed (arm may drift): {exc!r}")
+            _log(f"gain patch failed (may drift): {exc!r}")
 
     def _arbitrate(self) -> np.ndarray:
         """Teleop (0.5 s timeout) > nav_goal P-ctrl > idle zeros."""
