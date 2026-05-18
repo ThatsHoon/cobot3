@@ -250,7 +250,14 @@ class SpotController:
             policy._previous_action = action.copy()
             policy.action = action
 
-        all_pos = np.array(policy.robot.get_joint_positions(), dtype=float)
+        _raw = policy.robot.get_joint_positions()
+        if _raw is None:
+            policy._policy_counter += 1
+            return  # physics simulation view 미준비 — 다음 스텝까지 대기
+        all_pos = np.array(_raw, dtype=float)
+        if all_pos.ndim != 1 or len(all_pos) < self._n_dofs:
+            policy._policy_counter += 1
+            return
 
         if self._mixed_dofs:
             leg_def = np.asarray(policy.default_pos, dtype=float)[self._leg_idx]
@@ -274,8 +281,14 @@ class SpotController:
         ang_I = p.robot.get_angular_velocity()
         _, q  = p.robot.get_world_pose()
         R_BI  = quat_to_rot_matrix(q).T
-        all_pos = np.array(p.robot.get_joint_positions(), dtype=float)
-        all_vel = np.array(p.robot.get_joint_velocities(), dtype=float)
+        _rp = p.robot.get_joint_positions()
+        _rv = p.robot.get_joint_velocities()
+        if _rp is None or _rv is None:
+            return np.zeros(48)
+        all_pos = np.array(_rp, dtype=float)
+        all_vel = np.array(_rv, dtype=float)
+        if all_pos.ndim != 1 or all_vel.ndim != 1:
+            return np.zeros(48)
         leg_pos = all_pos[self._leg_idx]
         leg_vel = all_vel[self._leg_idx]
         leg_def = np.asarray(p.default_pos, dtype=float)[self._leg_idx]
