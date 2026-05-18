@@ -250,14 +250,18 @@ class SpotController:
             policy._previous_action = action.copy()
             policy.action = action
 
-        _raw = policy.robot.get_joint_positions()
-        if _raw is None:
-            policy._policy_counter += 1
-            return  # physics simulation view 미준비 — 다음 스텝까지 대기
-        all_pos = np.array(_raw, dtype=float)
-        if all_pos.ndim != 1 or len(all_pos) < self._n_dofs:
+        # SingleArticulation.get_joint_positions() 는 내부 _physics_sim_view 가
+        # 미초기화 시 None 반환. ArticulationView 를 직접 사용하면 우회 가능
+        # (gains 패치에서 이미 is_physics_handle_valid() 확인됨).
+        view = policy.robot._articulation_view
+        if view is None or not view.is_physics_handle_valid():
             policy._policy_counter += 1
             return
+        _pos_batch = view.get_joint_positions()   # shape (1, n_dofs)
+        if _pos_batch is None:
+            policy._policy_counter += 1
+            return
+        all_pos = np.array(_pos_batch[0], dtype=float)
 
         if self._mixed_dofs:
             leg_def = np.asarray(policy.default_pos, dtype=float)[self._leg_idx]
@@ -281,14 +285,15 @@ class SpotController:
         ang_I = p.robot.get_angular_velocity()
         _, q  = p.robot.get_world_pose()
         R_BI  = quat_to_rot_matrix(q).T
-        _rp = p.robot.get_joint_positions()
-        _rv = p.robot.get_joint_velocities()
-        if _rp is None or _rv is None:
+        view = p.robot._articulation_view
+        if view is None or not view.is_physics_handle_valid():
             return np.zeros(48)
-        all_pos = np.array(_rp, dtype=float)
-        all_vel = np.array(_rv, dtype=float)
-        if all_pos.ndim != 1 or all_vel.ndim != 1:
+        _pos_b = view.get_joint_positions()
+        _vel_b = view.get_joint_velocities()
+        if _pos_b is None or _vel_b is None:
             return np.zeros(48)
+        all_pos = np.array(_pos_b[0], dtype=float)
+        all_vel = np.array(_vel_b[0], dtype=float)
         leg_pos = all_pos[self._leg_idx]
         leg_vel = all_vel[self._leg_idx]
         leg_def = np.asarray(p.default_pos, dtype=float)[self._leg_idx]
