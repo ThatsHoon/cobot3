@@ -131,31 +131,22 @@ iframe 은 혼합콘텐츠로 차단됨. `NEXT_PUBLIC_*` 변경 시 `next dev` �
 
 ---
 
-## S5 — 같은-PC(M1) 런북 (일단 동작시키기)
+## S5 — 2-PC 런북
 
-`~/.bashrc` `cobot3-cobot3_web-restart_full` 이 이 결합 모드 = 같은-PC.
-**적용할 ~/.bashrc 편집(머신로컬, repo 아님 — 사용자가 적용)**:
+Isaac `main_side/run_camera_pub.sh`(Play) → C2 PC `server/run.sh` →
+foxglove_bridge → 브라우저 `http://C2_PC_IP:3000/debug`.
 
-1. web_server 기동 서브셸에 `export C2_INGEST_REPUBLISH=1` 추가.
-2. telemetry_bridge 기동 블록 뒤에 foxglove_bridge 기동:
-   `( cd "$SUB1" && setsid bash run_foxglove_bridge.sh </dev/null
-   >/tmp/cobot3_foxglove.log 2>&1 & )`
-3. 이어 Lichtblick: 위 S3 의 `sudo docker rm -f` → `sudo docker run` 2줄.
-4. 종료 함수 `cobot3-cobot3_web-down`: pkill 패턴에 `foxglove_bridge`
-   추가 + `sudo docker rm -f cobot3-lichtblick 2>/dev/null`.
+foxglove_bridge + Lichtblick 기동:
+```bash
+# C2 PC — foxglove_bridge
+source /opt/ros/humble/setup.bash && export ROS_DOMAIN_ID=130 && \
+  ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765 &
+# Lichtblick
+sudo docker run -d --name cobot3-lichtblick -p 8080:8080 \
+  ghcr.io/lichtblick-suite/lichtblick:latest
+```
 
-기동 순서: Isaac `main_side/run_camera_pub.sh`(Play) → `cobot3-cobot3_
-web-restart_full`(재발행 ON) → 브라우저 `http://localhost:3000/debug`.
-
----
-
-## 2-PC 정식 (재발행 OFF — 기본, 공개)
-
-별도 C2 PC 운용 시 `C2_INGEST_REPUBLISH` 미설정(기본 OFF):
-`ros_bridge.py` 는 종전대로 Isaac 실토픽을 **구독**, foxglove_bridge 를
-C2 PC 에서 띄우면 LAN 으로 Isaac 토픽 직접 노출. Cloudflare 공개는 전용
-호스트 권장 + **반드시 동일 Cloudflare Access 정책**(디버그=로봇 전상태
-노출):
+Cloudflare 공개는 전용 호스트 권장 + **반드시 동일 Cloudflare Access 정책**:
 
 ```yaml
 # cloudflared/config.yml ingress (CLOUDFLARE.md 확장)
@@ -172,32 +163,24 @@ iframe ds.url 을 `wss://cobot3-foxglove.thatshoon.com/ws` 로.
 
 ## 6. 검증
 
-**M1 같은-PC(재발행 ON)**:
-1. Isaac `run_camera_pub.sh` → Play. `curl -s localhost:8000/ingest/stats`
-   → frame/tele 증가.
-2. `ROS_DOMAIN_ID=130 ros2 topic list` → `/robot/{state,gps,odom}`,
-   `/dsr01/joint_states`,`/robot/leg_joint_states`,`/c2/video/compressed`,
-   `/tf`. `ros2 node info /c2_web_server` 에 이들이 **publisher**.
-3. `ros2 topic echo /robot/state --once` JSON, `ros2 topic hz
-   /c2/video/compressed`.
-4. `/tmp/cobot3_foxglove.log` listening 0.0.0.0:8765.
-5. `http://localhost:3000/debug` → 3D 축 이동, State/Plot 스트림, Image 영상.
-
-**2-PC 회귀(재발행 OFF 기본)**: `C2_INGEST_REPUBLISH` 없이 기동 →
-`ros2 node info /c2_web_server` 가 구독 + 업링크 pub(`/robot/nav/goal`,
-`/robot/speaker/audio`)만, 신규 publisher/타이머 없음. 텔레메트리 버스트
-후 `robot_state_log`/`gps_track`/`joint_snapshots` 중복행 0, WS 중복 0.
+**2-PC 정공**:
+1. Isaac `run_camera_pub.sh` → Play. `ros2 topic list` → Isaac 토픽 보임.
+2. `ros2 topic hz /robot/odom` → 63Hz, `ros2 topic hz /c2/video/compressed`.
+3. `/tmp/cobot3_foxglove.log` listening 0.0.0.0:8765.
+4. `http://C2_PC:3000/debug` → 3D 축 이동, State/Plot 스트림, Image 영상.
+5. `ros2 node info /c2_web_server` 가 구독 + 업링크 pub(`/robot/cmd_vel`,
+   `/robot/nav/goal`, `/robot/speaker/audio`). 텔레메트리 버스트 후
+   `robot_state_log`/`gps_track`/`joint_snapshots` 중복행 0.
 
 ## 7. 트러블슈팅
 
 | 증상 | 원인 | 조치 |
 |---|---|---|
-| Foxglove 토픽 0 | M1 인데 `C2_INGEST_REPUBLISH` 미설정 / Isaac 미Play | env=1 확인, ingest_stats 증가 확인 |
-| 토픽 보이나 0 메시지 | ingest 끊김(>10s) → 재발행 정지 | Isaac uplink·`/ingest/stats` 확인 |
-| Image 패널 빈값 | 영상 프레임 미수신 | `/c2/video/compressed hz`, ros._video_frame |
+| Foxglove 토픽 0 | Isaac 미Play 또는 FastDDS 불일치 | `FASTDDS.md §6` 확인, `ros2 topic list` |
+| 토픽 보이나 0 메시지 | QoS 불일치 | `FASTDDS.md §2` QoS 확인 |
+| Image 패널 빈값 | 영상 프레임 미수신 | `/c2/video/compressed hz`, degrade 동작 확인 |
 | iframe 빈 화면 | `NEXT_PUBLIC_*` 미주입 | `.env.local` 후 web 재빌드 |
-| 혼합콘텐츠 차단 | prod https + http Lichtblick | 임시는 localhost http 통일, 정식은 §2-PC Cloudflare |
-| DB/WS 중복 | 2-PC 인데 재발행 ON | `C2_INGEST_REPUBLISH` 해제(기본 OFF 유지) |
+| 혼합콘텐츠 차단 | prod https + http Lichtblick | 정식은 §S5 Cloudflare |
 | docker 권한 | 그룹 미반영 | 임시 런북은 `sudo docker` |
 
 ---
