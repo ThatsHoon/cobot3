@@ -7,10 +7,17 @@
       "transforms": {},
       "topics": {
         "/tf": { "visible": true },
-        "/robot/odom": { "visible": true },
-        "/robot_description": { "visible": true }
+        "/robot/odom": { "visible": true }
       },
-      "layers": {},
+      "layers": {
+        "spot-urdf": {
+          "visible": true,
+          "label": "Spot Robot",
+          "instanceId": "spot-urdf",
+          "type": "foxglove.URDFLayer",
+          "url": "http://192.168.10.105:3000/spot_isaac.urdf"
+        }
+      },
       "cameraState": {
         "distance": 6,
         "perspective": true,
