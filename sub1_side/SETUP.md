@@ -138,7 +138,9 @@ cobot3-sub1side-start_all() {
     echo "$_COBOT3_SUDO_PW" | sudo -S docker rm -f cobot3-lichtblick >/dev/null 2>&1 || true
     echo "$_COBOT3_SUDO_PW" | sudo -S docker run -d \
         --name cobot3-lichtblick --restart unless-stopped \
-        -p 8080:8080 ghcr.io/lichtblick/lichtblick:latest \
+        -p 8080:8080 \
+        -v "$SUB1/lichtblick/layout.json:/lichtblick/default-layout.json:ro" \
+        ghcr.io/lichtblick-suite/lichtblick:latest \
         && echo "[cobot3]   Lichtblick OK (http://localhost:8080)" \
         || echo "[cobot3]   ⚠ Lichtblick 기동 실패 — sudo docker logs cobot3-lichtblick"
 
