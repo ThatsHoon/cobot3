@@ -7,6 +7,8 @@
 set -e
 cd "$(dirname "$0")"
 source /opt/ros/humble/setup.bash
+# spot_description 패키지 경로 포함 — foxglove_bridge 가 package:// URI 를 해석할 수 있도록
+[ -f /home/hoon/dev_ws/cobot_ws/install/setup.bash ] && source /home/hoon/dev_ws/cobot_ws/install/setup.bash
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-130}"
 export ROS_LOCALHOST_ONLY=0
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
