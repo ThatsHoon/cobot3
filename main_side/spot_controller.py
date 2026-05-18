@@ -139,15 +139,8 @@ class SpotController:
         """physics sim view 가 준비된 시점에 ArticulationView 를 연결.
         play() 직후 첫 callback 에서는 psv 가 None 이므로 매 스텝 재시도."""
         try:
-            from isaacsim.core.simulation_context import SimulationContext
-            ctx = SimulationContext.instance()
-            if ctx is None:
-                return False
-            psv = None
-            for attr in ("_physics_sim_view", "physics_sim_view"):
-                psv = getattr(ctx, attr, None)
-                if psv is not None:
-                    break
+            from isaacsim.core.simulation_manager import SimulationManager
+            psv = SimulationManager.get_physics_sim_view()
             if psv is None:
                 return False
             view = self._policy.robot._articulation_view
