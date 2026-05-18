@@ -306,10 +306,6 @@ class SpotController:
         """48-dim observation using leg DOF positions/velocities only (12-DOF policy)."""
         from isaacsim.core.utils.rotations import quat_to_rot_matrix
         p = self._policy
-        lin_I = p.robot.get_linear_velocity()
-        ang_I = p.robot.get_angular_velocity()
-        _, q  = p.robot.get_world_pose()
-        R_BI  = quat_to_rot_matrix(q).T
         view = p.robot._articulation_view
         if view is None or not view.is_physics_handle_valid():
             return np.zeros(48)
@@ -321,6 +317,20 @@ class SpotController:
         all_vel = np.array(_vel_b[0], dtype=float)
         leg_pos = all_pos[self._leg_idx]
         leg_vel = all_vel[self._leg_idx]
+        # Root body velocities / pose via ArticulationView (SingleArticulation
+        # get_linear/angular_velocity uses a separate _physics_sim_view path)
+        try:
+            lin_I = np.array(view.get_linear_velocities()[0], dtype=float)
+            ang_I = np.array(view.get_angular_velocities()[0], dtype=float)
+        except Exception:
+            lin_I = np.zeros(3)
+            ang_I = np.zeros(3)
+        try:
+            pos_w, ori_w = view.get_world_poses()
+            q = np.array(ori_w[0], dtype=float)
+        except Exception:
+            _, q = p.robot.get_world_pose()
+        R_BI  = quat_to_rot_matrix(q).T
         leg_def = np.asarray(p.default_pos, dtype=float)[self._leg_idx]
         obs = np.zeros(48)
         obs[:3]   = R_BI @ lin_I
