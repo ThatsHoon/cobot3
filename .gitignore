@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+media/recordings/
+assets/raw/
+datasets/
+runs/
+models/
+*.bag/
+*.db3
+
+# IDE / tool config
+.claude/
+
+# generated files
+frames_*.pdf
+frames_*.gv
+*.pt
