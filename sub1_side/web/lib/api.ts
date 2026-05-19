@@ -1,8 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_C2_API || "http://localhost:8000";
+// 빌드타임 env가 있으면 그걸 쓰고, 없으면 런타임에 window.location.hostname 기반으로 계산.
+// 모듈 상수로 두면 SSR 시점(window 없음)에 "localhost"로 굳어버리므로 함수로 노출.
+const _STATIC_BASE = process.env.NEXT_PUBLIC_C2_API ?? "";
+export function getApiBase(): string {
+  if (_STATIC_BASE) return _STATIC_BASE;
+  return `http://${window.location.hostname}:8000`;
+}
+export const API_BASE = _STATIC_BASE || "http://localhost:8000"; // SSR 호환용 (fetch 직접 호출 시 fallback)
 export const ROBOT_ID = process.env.NEXT_PUBLIC_GP_ROBOT || "gp0";
 // 디버그(/debug) 페이지가 iframe 으로 임베드하는 Lichtblick(Foxglove) URL.
 // 같은-PC 임시: http://localhost:8080. NEXT_PUBLIC_* 는 빌드타임 주입.
@@ -15,13 +21,13 @@ export function apiKey(): string {
 }
 
 export async function getJSON<T>(path: string): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+  const r = await fetch(`${getApiBase()}${path}`, { cache: "no-store" });
   if (!r.ok) throw new Error(`${r.status} ${path}`);
   return r.json();
 }
 
 export async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(`${API_BASE}${path}`, {
+  const r = await fetch(`${getApiBase()}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-API-Key": apiKey() },
     body: JSON.stringify(body),
@@ -50,7 +56,7 @@ export function useEvents(onEvent: (e: C2Event) => void) {
     let closed = false;
 
     const connect = () => {
-      const url = API_BASE.replace(/^http/, "ws") + "/events";
+      const url = getApiBase().replace(/^http/, "ws") + "/events";
       console.info("[C2/ws] connecting →", url);
       ws = new WebSocket(url);
       ws.onopen = () => {

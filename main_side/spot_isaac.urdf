@@ -1,15 +1,14 @@
 <?xml version="1.0"?>
-<!-- Spot-with-arm URDF using Isaac Sim USD prim frame names.
+<!-- Spot URDF using Isaac Sim USD prim frame names (12-DOF legs, no arm).
      Link/joint names match ROS2PublishTransformTree TF output exactly.
-     Joint origins/meshes are taken verbatim from the official
-     spot_description package (rai-opensource/spot_description). -->
-<robot name="spot_with_arm">
+     Joint origins/meshes taken from spot_description (rai-opensource). -->
+<robot name="spot">
 
   <!-- ── Body ─────────────────────────────────────────────────────── -->
   <link name="base">
     <visual>
       <geometry>
-        <mesh filename="package://spot_description/meshes/base/visual/body.obj"/>
+        <mesh filename="package://spot_description/meshes/base_simple/visual/body.obj"/>
       </geometry>
     </visual>
   </link>
@@ -162,89 +161,5 @@
     </geometry></visual>
   </link>
 
-  <!-- ══ ARM ═══════════════════════════════════════════════════════ -->
-  <joint name="arm0_sh0" type="revolute">
-    <parent link="base"/><child link="arm0_link_sh0"/>
-    <origin xyz="0.292 0.0 0.188" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit effort="220" velocity="10.0" lower="-3.14159" upper="3.14159"/>
-  </joint>
-  <link name="arm0_link_sh0">
-    <visual><geometry>
-      <mesh filename="package://spot_description/meshes/arm/visual/arm_link_sh0.obj"/>
-    </geometry></visual>
-  </link>
-
-  <joint name="arm0_sh1" type="revolute">
-    <parent link="arm0_link_sh0"/><child link="arm0_link_sh1"/>
-    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="220" velocity="10.0" lower="-3.14159" upper="3.14159"/>
-  </joint>
-  <link name="arm0_link_sh1">
-    <visual><geometry>
-      <mesh filename="package://spot_description/meshes/arm/visual/arm_link_sh1.obj"/>
-    </geometry></visual>
-  </link>
-
-  <joint name="arm0_el0" type="revolute">
-    <parent link="arm0_link_sh1"/><child link="arm0_link_el0"/>
-    <origin xyz="0.3385 0.0 0.0" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="110" velocity="10.0" lower="-3.14159" upper="3.14159"/>
-  </joint>
-  <link name="arm0_link_el0">
-    <visual><geometry>
-      <mesh filename="package://spot_description/meshes/arm/visual/arm_link_el0.obj"/>
-    </geometry></visual>
-  </link>
-
-  <joint name="arm0_el1" type="revolute">
-    <parent link="arm0_link_el0"/><child link="arm0_link_el1"/>
-    <origin xyz="0.40330 0.0 0.0750" rpy="0 0 0"/>
-    <axis xyz="1 0 0"/>
-    <limit effort="30" velocity="10.0" lower="-3.14159" upper="3.14159"/>
-  </joint>
-  <link name="arm0_link_el1">
-    <visual><geometry>
-      <mesh filename="package://spot_description/meshes/arm/visual/arm_link_el1.obj"/>
-    </geometry></visual>
-  </link>
-
-  <joint name="arm0_wr0" type="revolute">
-    <parent link="arm0_link_el1"/><child link="arm0_link_wr0"/>
-    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit effort="30" velocity="10.0" lower="-3.14159" upper="3.14159"/>
-  </joint>
-  <link name="arm0_link_wr0">
-    <visual><geometry>
-      <mesh filename="package://spot_description/meshes/arm/visual/arm_link_wr0.obj"/>
-    </geometry></visual>
-  </link>
-
-  <joint name="arm0_wr1" type="revolute">
-    <parent link="arm0_link_wr0"/><child link="arm0_link_wr1"/>
-    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="30" velocity="10.0" lower="-3.14159" upper="3.14159"/>
-  </joint>
-  <link name="arm0_link_wr1">
-    <visual><geometry>
-      <mesh filename="package://spot_description/meshes/arm/visual/arm_link_wr1.obj"/>
-    </geometry></visual>
-  </link>
-
-  <joint name="arm0_f1x" type="revolute">
-    <parent link="arm0_link_wr1"/><child link="arm0_link_fngr"/>
-    <origin xyz="0.11745 0.0 0.014820" rpy="0 0 0"/>
-    <axis xyz="1 0 0"/>
-    <limit effort="30" velocity="10.0" lower="-1.5708" upper="0.0"/>
-  </joint>
-  <link name="arm0_link_fngr">
-    <visual><geometry>
-      <mesh filename="package://spot_description/meshes/arm/visual/arm_link_fngr.obj"/>
-    </geometry></visual>
-  </link>
 
 </robot>

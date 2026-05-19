@@ -1,12 +1,10 @@
-"""standalone RealSense 카메라 퍼블리셔 (MCP/GUI 비의존, 결정적).
+"""standalone 2-카메라 퍼블리셔 — Spot 몸통 앞뒤 RealSense (MCP/GUI 비의존, 결정적).
 
-씬 USD 를 열고(없으면 최소 구성), Spot 팔 끝(arm0_link_fngr) 의 RealSense
-Camera 를 보장한 뒤, OG sensor_bridge(OnTick→ROS2Context(domain 130)→
-CreateRenderProduct→ROS2CameraHelper rgb)를 만들고 시뮬을 계속 step 하여
-`/cam/realsense/rgb` 를 발행한다. 같은 그래프에서 ROS2 정공 텔레메트리
-(Spot 단일 아티큘레이션 JointState + base Odometry)도 OG 노드로 발행
-(GP_ROS2_TELEM=1). 다운링크(/robot/cmd_vel) 는 OG ROS2SubscribeTwist 로 수신 →
-SpotController.set_cmd_vel 로 전달 → RL 보행 정책에 반영.
+씬 USD 를 열고 robot prim 참조를 spot.usd 로 교체한 뒤, 몸통 앞뒤(base)에
+Camera 프림을 생성해 OG sensor_bridge 로 `/cam/front/rgb` `/cam/rear/rgb` 를
+발행한다. 같은 그래프에서 ROS2 정공 텔레메트리(Spot 12-DOF 다리 JointState +
+base Odometry + TF)도 발행(GP_ROS2_TELEM=1). 다운링크(/robot/cmd_vel) 는
+OG ROS2SubscribeTwist 로 수신 → SpotController.set_cmd_vel 로 전달 → RL 보행 정책.
 HTTP /ingest 경로 제거 — ROS2 정공 단일 경로.
 
 실행: main_side/run_camera_pub.sh
@@ -39,12 +37,11 @@ SCENE = os.environ.get(
     # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결.
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "gp_scene.usd"),
 )
-CAM_PATH = "/World/Robot/arm0_link_fngr/realsense"
-SPOT_PRIM = "/World/Robot"
-BASE_PRIM = "/World/Robot/base"
-WRIST_PRIM = "/World/Robot/arm0_link_fngr"
-GRAPH = "/World/Graphs/sensor_bridge"
-TOPIC = "/cam/realsense/rgb"
+SPOT_PRIM      = "/World/Robot"
+BASE_PRIM      = "/World/Robot/base"
+CAM_FRONT_PATH = "/World/Robot/base/camera_front"
+CAM_REAR_PATH  = "/World/Robot/base/camera_rear"
+GRAPH  = "/World/Graphs/sensor_bridge"
 DOMAIN = int(os.environ.get("ROS_DOMAIN_ID", "130"))
 _SPOT_CTRL = os.environ.get("GP_SPOT_CONTROL", "1") == "1"
 
@@ -77,71 +74,60 @@ else:
     log(f"scene not found, empty stage: {SCENE}")
 stage = ctx.get_stage()
 
-# 2) RealSense 카메라 보장 ---------------------------------------------------
-# 구조: arm0_link_fngr/realsense (Xform + rsd455.usd 참조 = 시각 메시)
-#       arm0_link_fngr/realsense/Camera (UsdGeom.Camera = OG 렌더 타깃)
-# 이전 arm0_link_wr1/realsense prim 정리 (링크 변경 시 잔존 방지)
-_old_rs = "/World/Robot/arm0_link_wr1/realsense"
-if stage.GetPrimAtPath(_old_rs).IsValid():
-    stage.RemovePrim(_old_rs)
-    log(f"이전 realsense prim 제거: {_old_rs}")
-
-_RS_USD = ("https://omniverse-content-production.s3-us-west-2.amazonaws.com"
-           "/Assets/Isaac/5.1/Isaac/Sensors/Intel/RealSense/rsd455.usd")
-_rs_base = (WRIST_PRIM + "/realsense"
-            if stage.GetPrimAtPath(WRIST_PRIM).IsValid() else CAM_PATH)
-_cam_path = _rs_base + "/Camera"
-
-xp = stage.GetPrimAtPath(_rs_base)
-if xp.IsValid() and xp.GetTypeName() == "Camera":
-    # 구버전 Camera prim → 제거 후 Xform+rsd455 로 재구성 (비주얼 메시 연결)
-    stage.RemovePrim(_rs_base)
-    xp = stage.GetPrimAtPath(_rs_base)  # RemovePrim 후 재확인
-    log(f"RealSense 구버전 Camera prim 제거: {_rs_base}")
-
-if not xp.IsValid():
-    xp = UsdGeom.Xform.Define(stage, _rs_base).GetPrim()
-    xp.GetReferences().AddReference(_RS_USD)
-    log(f"RealSense Xform+rsd455 생성: {_rs_base}")
-else:
-    log(f"RealSense Xform 있음: {_rs_base}")
-
-# 항상 transform 갱신 — 자동저장 씬에 이전 회전값 잔존 방지
-# arm0_link_fngr 기준: +X = 팔 전방(그리퍼 끝이 향하는 방향)
-# translate(0.15,0,0): 그리퍼 팁 15cm 앞쪽 배치 — 메시 완전 외부
-# rotateXYZ(0,-90,0): 카메라 기본 look(-Z)이 fngr +X(전방)으로 향하도록
-xf = UsdGeom.Xformable(xp)
-xf.ClearXformOpOrder()
-xf.AddTranslateOp().Set(Gf.Vec3f(0.15, 0, 0))
-xf.AddRotateXYZOp().Set(Gf.Vec3f(0, -90, 0))
-
-# PhysicsAPI 제거는 항상 실행 — 씬 자동저장 후 재로드 시에도 rsd455 physics 잔존 방지
-# (rigidBodyEnabled=False 로는 schema 경고가 남으므로 API 자체를 제거)
+# 2) 로봇 참조 교체(spot_with_arm → spot) + 앞뒤 카메라 생성 -------------------
 try:
-    for desc in Usd.PrimRange(xp):
-        removed = []
-        for api in ("PhysicsRigidBodyAPI", "PhysicsCollisionAPI",
-                    "PhysicsMassAPI", "PhysicsArticulationRootAPI"):
-            if api in desc.GetAppliedSchemas():
-                desc.RemoveAppliedSchema(api)
-                removed.append(api)
-        if removed:
-            log(f"  RealSense physics 제거: {desc.GetPath()} {removed}")
-except Exception as e:
-    log(f"  RealSense physics 제거 스킵: {e!r}")
+    from isaacsim.core.utils.nucleus import get_assets_root_path as _gar
+    _assets_root = _gar()
+except Exception:
+    _assets_root = ("https://omniverse-content-production.s3-us-west-2.amazonaws.com"
+                    "/Assets/Isaac/5.1")
+_SPOT_USD = _assets_root + "/Isaac/Robots/BostonDynamics/spot/spot.usd"
 
-cam_prim = stage.GetPrimAtPath(_cam_path)
-if not cam_prim.IsValid():
-    cam = UsdGeom.Camera.Define(stage, _cam_path)
-    cam.GetFocalLengthAttr().Set(24.0)
-    cam.GetHorizontalApertureAttr().Set(20.955)
-    cam.GetVerticalApertureAttr().Set(11.787)
-    cam.GetClippingRangeAttr().Set(Gf.Vec2f(0.05, 100.0))
-    log(f"RealSense Camera prim 생성: {_cam_path}")
+_robot_prim = stage.GetPrimAtPath(SPOT_PRIM)
+if _robot_prim.IsValid():
+    _refs = _robot_prim.GetReferences()
+    _refs.ClearReferences()
+    _refs.AddReference(_SPOT_USD)
+    log(f"로봇 참조 교체 → spot.usd")
 else:
-    log(f"RealSense Camera prim 있음: {_cam_path}")
-CAM_PATH = _cam_path
-log(f"CAM_PATH → {CAM_PATH}")
+    log(f"⚠ {SPOT_PRIM} prim 없음 — 씬 로드 확인 필요")
+
+for _ in range(10):
+    simulation_app.update()
+
+# 전방 카메라 (base 앞쪽 +X, 정방향 바라봄)
+# rotateXYZ(0,-90,0): 카메라 기본 look(-Z)이 +X(전방)으로 향하도록
+_cp_f = stage.GetPrimAtPath(CAM_FRONT_PATH)
+if not _cp_f.IsValid():
+    _cam_f = UsdGeom.Camera.Define(stage, CAM_FRONT_PATH)
+    _xf_f = UsdGeom.Xformable(_cam_f.GetPrim())
+    _xf_f.AddTranslateOp().Set(Gf.Vec3f(0.35, 0.0, 0.10))
+    _xf_f.AddRotateXYZOp().Set(Gf.Vec3f(0.0, -90.0, 0.0))
+    _cam_f.GetFocalLengthAttr().Set(1.93)
+    log(f"전방 카메라 생성: {CAM_FRONT_PATH}")
+else:
+    _xf_f = UsdGeom.Xformable(_cp_f)
+    _xf_f.ClearXformOpOrder()
+    _xf_f.AddTranslateOp().Set(Gf.Vec3f(0.35, 0.0, 0.10))
+    _xf_f.AddRotateXYZOp().Set(Gf.Vec3f(0.0, -90.0, 0.0))
+    log(f"전방 카메라 트랜스폼 갱신: {CAM_FRONT_PATH}")
+
+# 후방 카메라 (base 뒤쪽 -X, 후방 바라봄)
+# rotateXYZ(0,90,0): 카메라 기본 look(-Z)이 -X(후방)으로 향하도록
+_cp_r = stage.GetPrimAtPath(CAM_REAR_PATH)
+if not _cp_r.IsValid():
+    _cam_r = UsdGeom.Camera.Define(stage, CAM_REAR_PATH)
+    _xf_r = UsdGeom.Xformable(_cam_r.GetPrim())
+    _xf_r.AddTranslateOp().Set(Gf.Vec3f(-0.35, 0.0, 0.10))
+    _xf_r.AddRotateXYZOp().Set(Gf.Vec3f(0.0, 90.0, 0.0))
+    _cam_r.GetFocalLengthAttr().Set(1.93)
+    log(f"후방 카메라 생성: {CAM_REAR_PATH}")
+else:
+    _xf_r = UsdGeom.Xformable(_cp_r)
+    _xf_r.ClearXformOpOrder()
+    _xf_r.AddTranslateOp().Set(Gf.Vec3f(-0.35, 0.0, 0.10))
+    _xf_r.AddRotateXYZOp().Set(Gf.Vec3f(0.0, 90.0, 0.0))
+    log(f"후방 카메라 트랜스폼 갱신: {CAM_REAR_PATH}")
 
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
@@ -169,77 +155,82 @@ _SENSOR_QOS = ('{"history":"keepLast","depth":5,"reliability":"bestEffort",'
                '"durability":"volatile","deadline":0.0,"lifespan":0.0,'
                '"liveliness":"systemDefault","leaseDuration":0.0}')
 _CMD = os.environ.get("GP_ROS2_CMD", "1") == "1"
-CMD_TOPIC = os.environ.get("GP_CMD_TOPIC", "/robot/cmd_vel")
-ARM_PRIM, LEG_PRIM = SPOT_PRIM, SPOT_PRIM
-ARM_TOPIC = "/dsr01/joint_states"
-LEG_TOPIC = "/robot/leg_joint_states"
+CMD_TOPIC  = os.environ.get("GP_CMD_TOPIC", "/robot/cmd_vel")
+LEG_PRIM   = SPOT_PRIM
+LEG_TOPIC  = "/robot/leg_joint_states"
 ODOM_TOPIC = "/robot/odom"
 
 K = og.Controller.Keys
 _CN = [
-    ("OnTick", "omni.graph.action.OnPlaybackTick"),
-    ("Ctx", "isaacsim.ros2.bridge.ROS2Context"),
-    ("CreateRP", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
-    ("CamRGB", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+    ("OnTick",   "omni.graph.action.OnPlaybackTick"),
+    ("Ctx",      "isaacsim.ros2.bridge.ROS2Context"),
+    ("RPFront",  "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+    ("CamFront", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+    ("RPRear",   "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+    ("CamRear",  "isaacsim.ros2.bridge.ROS2CameraHelper"),
 ]
 _SV = [
-    ("Ctx.inputs:domain_id", DOMAIN),
-    ("CreateRP.inputs:cameraPrim", CAM_PATH),
-    ("CreateRP.inputs:width", 1280),
-    ("CreateRP.inputs:height", 720),
-    ("CamRGB.inputs:topicName", TOPIC),
-    ("CamRGB.inputs:frameId", "realsense"),
-    ("CamRGB.inputs:type", "rgb"),
-    ("CamRGB.inputs:qosProfile", _SENSOR_QOS),
+    ("Ctx.inputs:domain_id",        DOMAIN),
+    ("RPFront.inputs:cameraPrim",   CAM_FRONT_PATH),
+    ("RPFront.inputs:width",        640),
+    ("RPFront.inputs:height",       360),
+    ("CamFront.inputs:topicName",   "/cam/front/rgb"),
+    ("CamFront.inputs:frameId",     "camera_front"),
+    ("CamFront.inputs:type",        "rgb"),
+    ("CamFront.inputs:qosProfile",  _SENSOR_QOS),
+    ("RPRear.inputs:cameraPrim",    CAM_REAR_PATH),
+    ("RPRear.inputs:width",         640),
+    ("RPRear.inputs:height",        360),
+    ("CamRear.inputs:topicName",    "/cam/rear/rgb"),
+    ("CamRear.inputs:frameId",      "camera_rear"),
+    ("CamRear.inputs:type",         "rgb"),
+    ("CamRear.inputs:qosProfile",   _SENSOR_QOS),
 ]
 _CC = [
-    ("OnTick.outputs:tick", "CreateRP.inputs:execIn"),
-    ("CreateRP.outputs:execOut", "CamRGB.inputs:execIn"),
-    ("CreateRP.outputs:renderProductPath", "CamRGB.inputs:renderProductPath"),
-    ("Ctx.outputs:context", "CamRGB.inputs:context"),
+    ("OnTick.outputs:tick",              "RPFront.inputs:execIn"),
+    ("RPFront.outputs:execOut",          "CamFront.inputs:execIn"),
+    ("RPFront.outputs:renderProductPath","CamFront.inputs:renderProductPath"),
+    ("Ctx.outputs:context",              "CamFront.inputs:context"),
+    ("OnTick.outputs:tick",              "RPRear.inputs:execIn"),
+    ("RPRear.outputs:execOut",           "CamRear.inputs:execIn"),
+    ("RPRear.outputs:renderProductPath", "CamRear.inputs:renderProductPath"),
+    ("Ctx.outputs:context",              "CamRear.inputs:context"),
 ]
 if _TELEM:
     _CN += [
         ("SimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-        ("ArmJS", "isaacsim.ros2.bridge.ROS2PublishJointState"),
-        ("LegJS", "isaacsim.ros2.bridge.ROS2PublishJointState"),
-        ("Odo", "isaacsim.core.nodes.IsaacComputeOdometry"),
-        ("OdoPub", "isaacsim.ros2.bridge.ROS2PublishOdometry"),
-        ("TF", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
+        ("LegJS",   "isaacsim.ros2.bridge.ROS2PublishJointState"),
+        ("Odo",     "isaacsim.core.nodes.IsaacComputeOdometry"),
+        ("OdoPub",  "isaacsim.ros2.bridge.ROS2PublishOdometry"),
+        ("TF",      "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
     ]
     _SV += [
-        ("ArmJS.inputs:targetPrim", ARM_PRIM),
-        ("ArmJS.inputs:topicName", ARM_TOPIC),
-        ("ArmJS.inputs:qosProfile", _REL_QOS),
-        ("LegJS.inputs:targetPrim", LEG_PRIM),
-        ("LegJS.inputs:topicName", LEG_TOPIC),
-        ("LegJS.inputs:qosProfile", _REL_QOS),
-        ("Odo.inputs:chassisPrim", BASE_PRIM),
-        ("OdoPub.inputs:topicName", ODOM_TOPIC),
-        ("OdoPub.inputs:odomFrameId", "odom"),
-        ("OdoPub.inputs:chassisFrameId", "base_link"),
-        ("OdoPub.inputs:qosProfile", _REL_QOS),
-        ("TF.inputs:targetPrims", [SPOT_PRIM]),
-        ("TF.inputs:qosProfile", _SENSOR_QOS),
+        ("LegJS.inputs:targetPrim",        LEG_PRIM),
+        ("LegJS.inputs:topicName",         LEG_TOPIC),
+        ("LegJS.inputs:qosProfile",        _REL_QOS),
+        ("Odo.inputs:chassisPrim",         BASE_PRIM),
+        ("OdoPub.inputs:topicName",        ODOM_TOPIC),
+        ("OdoPub.inputs:odomFrameId",      "odom"),
+        ("OdoPub.inputs:chassisFrameId",   "base_link"),
+        ("OdoPub.inputs:qosProfile",       _REL_QOS),
+        ("TF.inputs:targetPrims",          [SPOT_PRIM]),
+        ("TF.inputs:qosProfile",           _SENSOR_QOS),
     ]
     _CC += [
-        ("OnTick.outputs:tick", "ArmJS.inputs:execIn"),
-        ("OnTick.outputs:tick", "LegJS.inputs:execIn"),
-        ("OnTick.outputs:tick", "Odo.inputs:execIn"),
-        ("Odo.outputs:execOut", "OdoPub.inputs:execIn"),
-        ("Ctx.outputs:context", "ArmJS.inputs:context"),
-        ("Ctx.outputs:context", "LegJS.inputs:context"),
-        ("Ctx.outputs:context", "OdoPub.inputs:context"),
-        ("SimTime.outputs:simulationTime", "ArmJS.inputs:timeStamp"),
-        ("SimTime.outputs:simulationTime", "LegJS.inputs:timeStamp"),
-        ("SimTime.outputs:simulationTime", "OdoPub.inputs:timeStamp"),
-        ("Odo.outputs:position", "OdoPub.inputs:position"),
-        ("Odo.outputs:orientation", "OdoPub.inputs:orientation"),
-        ("Odo.outputs:linearVelocity", "OdoPub.inputs:linearVelocity"),
-        ("Odo.outputs:angularVelocity", "OdoPub.inputs:angularVelocity"),
-        ("OnTick.outputs:tick", "TF.inputs:execIn"),
-        ("Ctx.outputs:context", "TF.inputs:context"),
-        ("SimTime.outputs:simulationTime", "TF.inputs:timeStamp"),
+        ("OnTick.outputs:tick",                "LegJS.inputs:execIn"),
+        ("OnTick.outputs:tick",                "Odo.inputs:execIn"),
+        ("Odo.outputs:execOut",                "OdoPub.inputs:execIn"),
+        ("Ctx.outputs:context",                "LegJS.inputs:context"),
+        ("Ctx.outputs:context",                "OdoPub.inputs:context"),
+        ("SimTime.outputs:simulationTime",     "LegJS.inputs:timeStamp"),
+        ("SimTime.outputs:simulationTime",     "OdoPub.inputs:timeStamp"),
+        ("Odo.outputs:position",               "OdoPub.inputs:position"),
+        ("Odo.outputs:orientation",            "OdoPub.inputs:orientation"),
+        ("Odo.outputs:linearVelocity",         "OdoPub.inputs:linearVelocity"),
+        ("Odo.outputs:angularVelocity",        "OdoPub.inputs:angularVelocity"),
+        ("OnTick.outputs:tick",                "TF.inputs:execIn"),
+        ("Ctx.outputs:context",                "TF.inputs:context"),
+        ("SimTime.outputs:simulationTime",     "TF.inputs:timeStamp"),
     ]
 if _CMD:
     # SubCmd 는 메인 OG 단일 빌드에 통합(증분 edit = OmniGraphError)
@@ -253,9 +244,9 @@ og.Controller.edit(
     {"graph_path": GRAPH, "evaluator_name": "execution"},
     {K.CREATE_NODES: _CN, K.SET_VALUES: _SV, K.CONNECT: _CC},
 )
-log(f"OG {GRAPH} fresh 생성 완료 → {TOPIC} (domain {DOMAIN})")
+log(f"OG {GRAPH} fresh 생성 완료 → /cam/front/rgb, /cam/rear/rgb (domain {DOMAIN})")
 if _TELEM:
-    log(f"OG 텔레메트리 발행: {ARM_TOPIC}, {LEG_TOPIC}, {ODOM_TOPIC}, /tf "
+    log(f"OG 텔레메트리 발행: {LEG_TOPIC}, {ODOM_TOPIC}, /tf "
         f"(RELIABLE) — gps/state 는 telemetry_bridge_node 가 odom 에서 파생")
 if _CMD:
     log(f"다운링크 ON: ROS2SubscribeTwist ← {CMD_TOPIC} (RELIABLE)")
@@ -329,12 +320,12 @@ def _apply_cmd():
 def _diag():
     try:
         rp = og.Controller.attribute(
-            f"{GRAPH}/CreateRP.outputs:renderProductPath").get()
+            f"{GRAPH}/RPFront.outputs:renderProductPath").get()
         cp = og.Controller.attribute(
-            f"{GRAPH}/CreateRP.inputs:cameraPrim").get()
-        log(f"DIAG cameraPrim={cp} renderProduct={rp!r}")
+            f"{GRAPH}/RPFront.inputs:cameraPrim").get()
+        log(f"DIAG front cameraPrim={cp} renderProduct={rp!r}")
         if not rp:
-            log("  ⚠ renderProductPath 비어있음 → 카메라 프레임 생성 안 됨")
+            log("  ⚠ front renderProductPath 비어있음 → 카메라 프레임 생성 안 됨")
     except Exception as e:
         log(f"DIAG 실패: {e!r}")
 

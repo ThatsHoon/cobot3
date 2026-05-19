@@ -1,14 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
-// 디버그 전용 페이지 — Lichtblick(Foxglove) 뷰어를 iframe 으로 임베드한다.
-// URL 을 window.location.hostname 기준으로 동적 구성 → LAN 어느 PC 에서든
-// C2 PC(Lichtblick:8080, foxglove_bridge:8765)를 정확히 가리킴.
+const SpotSurroundView = dynamic(
+  () => import("@/components/SpotSurroundView"),
+  { ssr: false, loading: () => <div className="w-full h-full grid place-items-center text-dim text-xs tracking-[0.3em]">LOADING 3D…</div> }
+);
+
 export default function DebugPage() {
   const [src, setSrc] = useState<string>("");
   const [lichtblickUrl, setLichtblickUrl] = useState("");
   const [wsUrl, setWsUrl] = useState("");
+  const [apiBase, setApiBase] = useState("");
 
   useEffect(() => {
     const host = window.location.hostname;
@@ -17,6 +21,7 @@ export default function DebugPage() {
     setLichtblickUrl(lb);
     setWsUrl(ws);
     setSrc(`${lb}/?ds=foxglove-websocket&ds.url=${encodeURIComponent(ws)}`);
+    setApiBase(`http://${host}:8000`);
   }, []);
 
   return (
@@ -41,6 +46,24 @@ export default function DebugPage() {
         </div>
       </header>
 
+      {/* 3D Surround View */}
+      <div className="panel flex-shrink-0 flex flex-col overflow-hidden" style={{ height: "280px" }}>
+        <div className="panel-hd flex-shrink-0">
+          <span>SPOT · 3D SURROUND VIEW</span>
+          <span className="text-phos">LIVE YAW</span>
+        </div>
+        <div className="flex-1 min-h-0 bg-[#080c10]">
+          {apiBase ? (
+            <SpotSurroundView apiBase={apiBase} />
+          ) : (
+            <div className="w-full h-full grid place-items-center text-dim text-xs tracking-[0.3em]">
+              INITIALIZING…
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Lichtblick iframe */}
       <div className="panel flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="panel-hd flex-shrink-0">
           <span>VIEWER</span>

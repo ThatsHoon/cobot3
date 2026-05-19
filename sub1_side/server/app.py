@@ -94,8 +94,7 @@ async def healthz():
 @app.get("/robots/{rid}/state")
 async def get_state(rid: str):
     return {"robot_id": rid, "state": ros.latest["state"],
-            "odom": ros.latest["odom"],
-            "arm_q": ros.latest["arm_q"], "leg_q": ros.latest["leg_q"]}
+            "odom": ros.latest["odom"], "leg_q": ros.latest["leg_q"]}
 
 
 @app.get("/robots/{rid}/gps")

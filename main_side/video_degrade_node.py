@@ -17,8 +17,8 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, CompressedImage
 import cv2
 
-IN_RGB = "/cam/realsense/rgb"          # Isaac OG ROS2CameraHelper (rgb)
-OUT_RGB = "/c2/video/compressed"       # → web_server
+IN_RGB  = os.environ.get("DEGRADE_IN",  "/cam/front/rgb")   # Isaac OG ROS2CameraHelper
+OUT_RGB = os.environ.get("DEGRADE_OUT", "/c2/front/compressed")  # → web_server
 TARGET_FPS = 5.0
 OUT_W, OUT_H = 640, 360
 JPEG_Q = 50

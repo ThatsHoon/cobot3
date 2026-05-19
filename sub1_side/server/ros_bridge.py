@@ -7,6 +7,7 @@ asyncio 와는 loop.call_soon_threadsafe 로 안전 연결 (server-bridge.md 패
 """
 import json
 import logging
+import math
 import threading
 import time
 from datetime import datetime, timezone
@@ -50,10 +51,11 @@ class RosBridge:
     def __init__(self):
         self.latest = {              # REST GET 캐시
             "state": {}, "gps": {}, "odom": {},
-            "arm_q": [], "leg_q": [],
+            "leg_q": [],
         }
         self._video_lock = threading.Lock()
-        self._video_frame: np.ndarray | None = None  # BGR ndarray (최신 1장)
+        self._video_front: np.ndarray | None = None  # BGR ndarray 전방 카메라
+        self._video_rear:  np.ndarray | None = None  # BGR ndarray 후방 카메라
         self._loop = None
         self._db = None
         self._ev_cb = None           # asyncio: 이벤트 브로드캐스트 콜백
@@ -115,13 +117,17 @@ class RosBridge:
             self._loop.call_soon_threadsafe(self._ev_cb, event)
 
     # ---- 영상 프레임 (WebRTC/MJPEG 가 읽음) ---------------------------
-    def get_video_frame(self):
+    def get_video_frame(self, camera: str = "front"):
         with self._video_lock:
-            return None if self._video_frame is None else self._video_frame.copy()
+            frame = self._video_front if camera == "front" else self._video_rear
+            return None if frame is None else frame.copy()
 
-    def _set_video_frame(self, bgr):
+    def _set_video_frame(self, bgr, camera: str = "front"):
         with self._video_lock:
-            self._video_frame = bgr
+            if camera == "front":
+                self._video_front = bgr
+            else:
+                self._video_rear = bgr
 
     # ---- 업링크 (C2 → 로봇) ------------------------------------------
     def pub_cmd_vel(self, lin: float, ang: float):
@@ -166,10 +172,11 @@ if RCLPY_OK:
             self.create_subscription(String, T["state"], self._on_state, rel_qos)
             self.create_subscription(NavSatFix, T["gps"], self._on_gps, rel_qos)
             self.create_subscription(Odometry, T["odom"], self._on_odom, rel_qos)
-            self.create_subscription(JointState, T["arm_joint"], self._on_arm, rel_qos)
             self.create_subscription(JointState, T["leg_joint"], self._on_leg, rel_qos)
-            self.create_subscription(CompressedImage, T["video"],
-                                     self._on_video, sensor_qos)
+            self.create_subscription(CompressedImage, T["video_front"],
+                                     lambda m: self._on_video(m, "front"), sensor_qos)
+            self.create_subscription(CompressedImage, T["video_rear"],
+                                     lambda m: self._on_video(m, "rear"), sensor_qos)
             self.create_subscription(Log, T["rosout"], self._on_rosout, rel_qos)
             # ---- 업링크 발행/클라이언트 ----
             self._cmd_pub  = self.create_publisher(Twist, T["cmd_vel"], rel_qos)
@@ -177,27 +184,28 @@ if RCLPY_OK:
             self._spk_pub  = self.create_publisher(String, T["speaker"], rel_qos)
             self._fire_cli = self.create_client(Trigger, T["fire_srv"])
             # ---- 진단 카운터 + 주기 헬스 ----
-            self._rx = {"state": 0, "gps": 0, "video": 0,
-                        "arm": 0, "leg": 0, "rosout": 0}
+            self._rx = {"state": 0, "gps": 0,
+                        "video_front": 0, "video_rear": 0,
+                        "leg": 0, "rosout": 0}
             self.create_timer(5.0, self._health)
             self.get_logger().info(
-                "구독 생성: state/gps/odom/arm/leg/rosout/video — "
+                "구독 생성: state/gps/odom/leg/rosout/video_front/video_rear — "
                 "업링크: cmd_vel/nav_goal/speaker/fire — 5초 주기 헬스 진단 활성")
 
         def _health(self):
             T = config.TOPICS
             pubs = {
-                "video": self.count_publishers(T["video"]),
-                "state": self.count_publishers(T["state"]),
-                "arm":   self.count_publishers(T["arm_joint"]),
+                "video_front": self.count_publishers(T["video_front"]),
+                "video_rear":  self.count_publishers(T["video_rear"]),
+                "state":       self.count_publishers(T["state"]),
             }
             L = self.get_logger()
             L.info(f"HEALTH rx={self._rx} | publishers={pubs}")
             hint = None
-            if self._rx["video"] == 0:
-                hint = (f"{T['video']} 수신 0 — "
+            if self._rx["video_front"] == 0:
+                hint = (f"{T['video_front']} 수신 0 — "
                         + ("publisher 0: degrade/Isaac 미발행"
-                           if pubs["video"] == 0
+                           if pubs["video_front"] == 0
                            else "publisher 있음: QoS/RMW 불일치 의심"))
                 L.warn("  ⚠ " + hint)
             self.br._emit({"type": "diag", "ts": _now_iso(),
@@ -231,26 +239,21 @@ if RCLPY_OK:
 
         def _on_odom(self, msg):
             p = msg.pose.pose.position
-            self.br.latest["odom"] = {"x": p.x, "y": p.y, "z": p.z}
-
-        def _on_arm(self, msg):
-            self._rx["arm"] += 1
-            self.br.latest["arm_q"] = list(msg.position)
-            self._maybe_log_joints()
+            q = msg.pose.pose.orientation
+            siny = 2.0 * (q.w * q.z + q.x * q.y)
+            cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+            yaw = math.atan2(siny, cosy)
+            self.br.latest["odom"] = {"x": p.x, "y": p.y, "z": p.z, "yaw": yaw}
 
         def _on_leg(self, msg):
             self._rx["leg"] += 1
             self.br.latest["leg_q"] = list(msg.position)
-            self._maybe_log_joints()
-
-        def _maybe_log_joints(self):
             now = time.monotonic()
-            if now - self.br._js_last_log < 0.1:   # 10 Hz 다운샘플
-                return
-            self.br._js_last_log = now
-            self.br._db and self.br._db.put("joint_snapshots", (
-                config.ROBOT_ID, _now_iso(),
-                self.br.latest["arm_q"], self.br.latest["leg_q"]))
+            if now - self.br._js_last_log >= 0.1:   # 10 Hz 다운샘플
+                self.br._js_last_log = now
+                self.br._db and self.br._db.put("joint_snapshots", (
+                    config.ROBOT_ID, _now_iso(),
+                    [], self.br.latest["leg_q"]))
 
         def _on_rosout(self, msg):
             self._rx["rosout"] += 1
@@ -262,18 +265,18 @@ if RCLPY_OK:
             self.br._emit({"type": "log", "ts": ts, "level": int(msg.level),
                            "name": msg.name, "msg": msg.msg})
 
-        def _on_video(self, msg):
-            self._rx["video"] += 1
-            if self._rx["video"] == 1:
+        def _on_video(self, msg, camera: str = "front"):
+            key = f"video_{camera}"
+            self._rx[key] += 1
+            if self._rx[key] == 1:
                 self.get_logger().info(
-                    f"✓ 첫 영상 프레임 수신({len(msg.data)}B) — "
+                    f"✓ 첫 {camera} 영상 프레임 수신({len(msg.data)}B) — "
                     f"degrade↔web_server 통신 OK")
             arr = np.frombuffer(bytes(msg.data), dtype=np.uint8)
             bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if bgr is None:
                 return
-            # 서버측 YOLO (선택) → bbox 오버레이 + 탐지 기록/emit
-            if self.br._yolo is not None:
+            if self.br._yolo is not None and camera == "front":
                 dets = self.br._yolo.infer(bgr)
                 if dets:
                     ts = _now_iso()
@@ -286,9 +289,9 @@ if RCLPY_OK:
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
                         self.br._db and self.br._db.put("intruder_detections", (
                             config.ROBOT_ID, ts, d["class_name"], d["conf"],
-                            x, y, w, h, None, None, None, None, "realsense"))
+                            x, y, w, h, None, None, None, None, "realsense_front"))
                     self.br._emit({"type": "detection", "ts": ts, "items": dets})
-            self.br._set_video_frame(bgr)
+            self.br._set_video_frame(bgr, camera)
 
         # ---- 업링크 ----
         def pub_cmd_vel(self, lin: float, ang: float):

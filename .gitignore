@@ -21,3 +21,10 @@ sub1_side/server/*.pt
 # 로그/임시
 *.log
 /tmp/
+
+# 씬 에셋 백업/패치 (대용량 바이너리)
+*.usdz.bak
+*_patch.usdz
+
+# TypeScript 빌드 캐시
+*.tsbuildinfo

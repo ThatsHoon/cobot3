@@ -10,10 +10,9 @@ DB_URL = os.environ.get("COBOT3_DB_URL", "postgresql:///cobot3")
 # 변경계열 REST 인증 (설계 §4.3) — 사격/확성기/goto/mode
 API_KEY = os.environ.get("ISAAC_SIM_API_KEY", "")
 
-# CORS allowlist = C2 Next.js 오리진
-WEB_ORIGINS = os.environ.get(
-    "C2_WEB_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
-).split(",")
+# CORS allowlist — env 미설정 시 LAN 전체 허용 (개발모드)
+_raw_origins = os.environ.get("C2_WEB_ORIGINS", "")
+WEB_ORIGINS: list[str] = _raw_origins.split(",") if _raw_origins else ["*"]
 
 # 단일 로봇 (확장 시 r{N})
 ROBOT_ID = os.environ.get("GP_ROBOT_ID", "gp0")
@@ -27,14 +26,14 @@ DB_QUEUE_MAX = int(os.environ.get("C2_DB_QUEUE_MAX", "20000"))
 
 # 토픽 규약 (설계 §12.2)
 TOPICS = {
-    "state":     "/robot/state",            # std_msgs/String (JSON)
-    "gps":       "/robot/gps",              # sensor_msgs/NavSatFix
-    "odom":      "/robot/odom",             # nav_msgs/Odometry
-    "arm_joint": "/dsr01/joint_states",     # sensor_msgs/JointState (Spot arm0)
-    "leg_joint": "/robot/leg_joint_states", # sensor_msgs/JointState (Spot legs)
-    "rosout":    "/rosout",                 # rcl_interfaces/Log (level>=30 필터)
-    "video":     "/c2/video/compressed",    # sensor_msgs/CompressedImage (degrade rgb)
-    "depth":     "/c2/depth/compressed",    # sensor_msgs/CompressedImage
+    "state":       "/robot/state",            # std_msgs/String (JSON)
+    "gps":         "/robot/gps",              # sensor_msgs/NavSatFix
+    "odom":        "/robot/odom",             # nav_msgs/Odometry
+    "leg_joint":   "/robot/leg_joint_states", # sensor_msgs/JointState (Spot 12-DOF legs)
+    "rosout":      "/rosout",                 # rcl_interfaces/Log (level>=30 필터)
+    "video_front": "/c2/front/compressed",    # sensor_msgs/CompressedImage (전방 카메라)
+    "video_rear":  "/c2/rear/compressed",     # sensor_msgs/CompressedImage (후방 카메라)
+    "depth":       "/c2/depth/compressed",    # sensor_msgs/CompressedImage
     # 업링크 (C2 → 로봇)
     "nav_goal":  "/robot/nav/goal",         # geometry_msgs/PoseStamped
     "speaker":   "/robot/speaker/audio",    # std_msgs/String (JSON: preset/pcm-b64)

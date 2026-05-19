@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { API_BASE } from "@/lib/api";
+import { getApiBase } from "@/lib/api";
 
 /** WebRTC(aiortc) 우선, 실패 시 MJPEG 폴백 — 설계 D7/§9.1 */
 export default function VideoWall({
@@ -30,7 +30,7 @@ export default function VideoWall({
 
     (async () => {
       try {
-        console.info("[C2/webrtc] negotiating →", `${API_BASE}/c2/webrtc/offer`);
+        console.info("[C2/webrtc] negotiating →", `${getApiBase()}/c2/webrtc/offer`);
         pc = new RTCPeerConnection();
         pc.addTransceiver("video", { direction: "recvonly" });
         pc.oniceconnectionstatechange = () =>
@@ -48,7 +48,7 @@ export default function VideoWall({
         };
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        const r = await fetch(`${API_BASE}/c2/webrtc/offer`, {
+        const r = await fetch(`${getApiBase()}/c2/webrtc/offer`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -88,7 +88,7 @@ export default function VideoWall({
         {mode === "mjpeg" ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={`${API_BASE}/c2/video/mjpeg`}
+            src={`${getApiBase()}/c2/video/mjpeg`}
             alt="feed"
             className="absolute inset-0 w-full h-full object-contain"
           />
@@ -119,7 +119,7 @@ export default function VideoWall({
             </div>
           )}
           <div className="absolute bottom-2 left-3 text-[10px] text-phos/70 tracking-widest">
-            5 FPS · DEGRADED · {API_BASE.replace(/^https?:\/\//, "")}
+            5 FPS · DEGRADED · {getApiBase().replace(/^https?:\/\//, "")}
           </div>
         </div>
         {mode === "connecting" && (

@@ -12,19 +12,29 @@
       "layers": {
         "spot-urdf": {
           "visible": true,
+          "frameLocked": true,
           "label": "Spot Robot",
           "instanceId": "spot-urdf",
-          "type": "foxglove.URDFLayer",
-          "url": "param://robot_state_publisher/robot_description"
+          "layerId": "foxglove.Urdf",
+          "sourceType": "url",
+          "url": "http://192.168.10.94:8766/spot_isaac.urdf",
+          "filePath": "",
+          "parameter": "",
+          "topic": "",
+          "framePrefix": "",
+          "displayMode": "auto",
+          "fallbackColor": "#ffffff",
+          "order": 1
         }
       },
       "cameraState": {
-        "distance": 6,
+        "distance": 2,
         "perspective": true,
-        "phi": 60,
+        "phi": 70,
         "thetaOffset": 45,
         "target": [0, 0, 0],
         "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
         "fovy": 45,
         "near": 0.01,
         "far": 5000
@@ -32,14 +42,6 @@
     },
     "RawMessages!state": {
       "topicPath": "/robot/state"
-    },
-    "Plot!arm": {
-      "title": "arm0 joints",
-      "paths": [
-        { "value": "/dsr01/joint_states.position[:]", "enabled": true, "timestampMethod": "receiveTime" }
-      ],
-      "xAxisVal": "timestamp",
-      "showLegend": true
     },
     "Plot!leg": {
       "title": "leg joints",
@@ -49,8 +51,14 @@
       "xAxisVal": "timestamp",
       "showLegend": true
     },
-    "Image!cam": {
-      "cameraTopic": "/c2/video/compressed",
+    "Image!cam_front": {
+      "cameraTopic": "/c2/front/compressed",
+      "transformMarkers": false,
+      "synchronize": false,
+      "mode": "fit"
+    },
+    "Image!cam_rear": {
+      "cameraTopic": "/c2/rear/compressed",
       "transformMarkers": false,
       "synchronize": false,
       "mode": "fit"
@@ -67,11 +75,11 @@
       "first": "RawMessages!state",
       "second": {
         "direction": "column",
-        "first": "Plot!arm",
+        "first": "Plot!leg",
         "second": {
           "direction": "column",
-          "first": "Plot!leg",
-          "second": "Image!cam",
+          "first": "Image!cam_front",
+          "second": "Image!cam_rear",
           "splitPercentage": 50
         },
         "splitPercentage": 40
