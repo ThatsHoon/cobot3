@@ -7,6 +7,29 @@
 
 ## 2026-05-19
 
+### 듀얼 카메라 MJPEG 스트림 + GP 씬 에셋 추가
+
+**변경 파일:** `sub1_side/web/components/VideoWall.tsx` (수정)
+- WebRTC/MJPEG 폴백 로직 제거 → 전방·후방 MJPEG 이미지 직접 렌더링으로 단순화
+- `/c2/video/mjpeg?camera=front` (메인 패널) + `?camera=rear` (하단 1/3 패널) 듀얼 레이아웃
+
+**변경 파일:** `sub1_side/server/app.py` (수정)
+- `GET /c2/video/mjpeg` 에 `camera: str = "front"` 쿼리 파라미터 추가 (front|rear)
+
+**변경 파일:** `sub1_side/server/ros_bridge.py` (수정)
+- DB 저장 시 waypoint 타입 안전 처리: `isinstance(wp, int)` 체크 후 None 폴백
+
+**변경 파일:** `main_side/scene/gp_scene.usd` (수정), `gp_scene2.usd`, `terrain_hellokitty.usd` (신규)
+- GP 씬 업데이트 및 헬로키티 터레인 추가
+
+**변경 파일:** `main_side/scene/assets/dmz_scene_flat.usda`, `assets/materials/`, `assets/props/` (신규)
+- DMZ 씬 에셋, Ground 재질 텍스처, 펜스/탑 프롭 추가
+
+**변경 파일:** `main_side/go2_wtw_mcp.py` (신규)
+- Go2 WTW MCP 제어 스크립트 추가
+
+---
+
 ### Next.js API 호스트 고정 버그 수정 (SSR freeze)
 
 **변경 파일:** `sub1_side/web/lib/api.ts` (수정)

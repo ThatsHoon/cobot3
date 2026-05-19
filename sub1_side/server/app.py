@@ -172,10 +172,11 @@ async def webrtc_offer(req: Request):
 
 # ---- 영상: MJPEG 폴백 (저대역) ------------------------------------------
 @app.get("/c2/video/mjpeg")
-async def mjpeg():
+async def mjpeg(camera: str = "front"):
+    cam = camera if camera in ("front", "rear") else "front"
     async def gen():
         while True:
-            f = ros.get_video_frame()
+            f = ros.get_video_frame(cam)
             if f is not None:
                 ok, jpg = cv2.imencode(".jpg", f,
                                        [cv2.IMWRITE_JPEG_QUALITY, 50])

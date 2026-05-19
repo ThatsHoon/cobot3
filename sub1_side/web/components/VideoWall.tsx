@@ -1,8 +1,7 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
 import { getApiBase } from "@/lib/api";
 
-/** WebRTC(aiortc) 우선, 실패 시 MJPEG 폴백 — 설계 D7/§9.1 */
+/** 전방·후방 MJPEG 듀얼 카메라 패널 */
 export default function VideoWall({
   detCount,
   contact,
@@ -10,98 +9,25 @@ export default function VideoWall({
   detCount: number;
   contact: boolean;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const [mode, setMode] = useState<"connecting" | "webrtc" | "mjpeg">(
-    "connecting"
-  );
-
-  // mode가 webrtc로 바뀐 뒤 video 엘리먼트가 마운트되면 srcObject 연결 + play()
-  useEffect(() => {
-    if (mode === "webrtc" && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [mode]);
-
-  useEffect(() => {
-    let pc: RTCPeerConnection | null = null;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        console.info("[C2/webrtc] negotiating →", `${getApiBase()}/c2/webrtc/offer`);
-        pc = new RTCPeerConnection();
-        pc.addTransceiver("video", { direction: "recvonly" });
-        pc.oniceconnectionstatechange = () =>
-          console.debug("[C2/webrtc] ICE:", pc?.iceConnectionState);
-        pc.onconnectionstatechange = () =>
-          console.info("[C2/webrtc] state:", pc?.connectionState);
-        pc.ontrack = (e) => {
-          console.info("[C2/webrtc] ✓ track 수신 — 영상 스트림 연결됨", e.streams.length);
-          const stream = e.streams[0] ?? new MediaStream([e.track]);
-          streamRef.current = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play().catch(() => {});
-          }
-        };
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        const r = await fetch(`${getApiBase()}/c2/webrtc/offer`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sdp: pc.localDescription!.sdp,
-            type: pc.localDescription!.type,
-          }),
-        });
-        if (!r.ok) throw new Error(`offer ${r.status}`);
-        const ans = await r.json();
-        await pc.setRemoteDescription(ans);
-        if (!cancelled) {
-          setMode("webrtc");
-          console.info("[C2/webrtc] ✓ SDP 교환 완료 (영상 트랙 대기)");
-        }
-      } catch (err) {
-        console.warn("[C2/webrtc] 실패 → MJPEG 폴백:", err);
-        if (!cancelled) setMode("mjpeg");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      pc?.close();
-    };
-  }, []);
+  const api = getApiBase();
 
   return (
     <div className="panel h-full flex flex-col">
       <div className="panel-hd">
-        <span>FEED · REALSENSE RGB-D</span>
+        <span>FEED · FRONT / REAR</span>
         <span className="flex items-center gap-3">
-          <span className="text-phos">{mode.toUpperCase()}</span>
+          <span className="text-phos">MJPEG</span>
           <span className="text-alert">DET {detCount}</span>
         </span>
       </div>
+      {/* 상단: 전방 카메라 (HUD 레티클 포함) */}
       <div className="relative flex-1 bg-black overflow-hidden">
-        {mode === "mjpeg" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`${getApiBase()}/c2/video/mjpeg`}
-            alt="feed"
-            className="absolute inset-0 w-full h-full object-contain"
-          />
-        ) : (
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="absolute inset-0 w-full h-full object-contain"
-          />
-        )}
-        {/* HUD 조준 레티클 — 접촉 시 적색 + 경고 */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${api}/c2/video/mjpeg?camera=front`}
+          alt="front"
+          className="absolute inset-0 w-full h-full object-contain"
+        />
         <div className="absolute inset-0 pointer-events-none">
           <div
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 border"
@@ -119,14 +45,21 @@ export default function VideoWall({
             </div>
           )}
           <div className="absolute bottom-2 left-3 text-[10px] text-phos/70 tracking-widest">
-            5 FPS · DEGRADED · {getApiBase().replace(/^https?:\/\//, "")}
+            FRONT · 5 FPS · {api.replace(/^https?:\/\//, "")}
           </div>
         </div>
-        {mode === "connecting" && (
-          <div className="absolute inset-0 grid place-items-center text-dim text-xs tracking-[0.3em]">
-            ESTABLISHING LINK…
-          </div>
-        )}
+      </div>
+      {/* 하단: 후방 카메라 */}
+      <div className="relative h-1/3 bg-black overflow-hidden border-t border-dim/30">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${api}/c2/video/mjpeg?camera=rear`}
+          alt="rear"
+          className="absolute inset-0 w-full h-full object-contain"
+        />
+        <div className="absolute bottom-2 left-3 text-[10px] text-phos/50 tracking-widest pointer-events-none">
+          REAR · 5 FPS
+        </div>
       </div>
     </div>
   );

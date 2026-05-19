@@ -221,9 +221,10 @@ if RCLPY_OK:
                 d = {"raw": msg.data}
             self.br.latest["state"] = d
             ts = _now_iso()
+            wp = d.get("waypoint")
             self.br._db and self.br._db.put("robot_state_log", (
                 config.ROBOT_ID, ts, d.get("mode"), d.get("gait"),
-                d.get("battery"), d.get("waypoint"),
+                d.get("battery"), wp if isinstance(wp, int) else None,
                 json.dumps(d.get("extra", {}))))
             self.br._emit({"type": "state", "ts": ts, "data": d})
 

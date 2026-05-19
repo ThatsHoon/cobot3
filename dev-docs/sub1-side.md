@@ -46,7 +46,7 @@
 | Method | Path | 설명 |
 |--------|------|------|
 | POST | `/c2/webrtc/offer` | SDP 교환 (aiortc) |
-| GET | `/c2/video/mjpeg` | multipart/x-mixed-replace 5fps JPEG 스트림 |
+| GET | `/c2/video/mjpeg?camera=front\|rear` | multipart/x-mixed-replace 5fps JPEG 스트림 (기본: front) |
 
 ---
 
@@ -147,7 +147,7 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 
 | 컴포넌트 | props | 기능 |
 |---------|-------|------|
-| `VideoWall` | detCount, contact | WebRTC(aiortc) + MJPEG 폴백, HUD 레티클 |
+| `VideoWall` | detCount, contact | 전방(front)/후방(rear) 듀얼 MJPEG 패널, 전방 HUD 레티클 |
 | `ThreatBar` | contact, lastTs | 위협 상태 표시 (8s TTL) |
 | `ReadinessStrip` | state, wsOk | MODE/BATTERY/LINK/WAYPOINT/GPS 타일 |
 | `MapTrack` | track[], cur | ±60m 캔버스 전술 지도, 더블클릭→goto |
