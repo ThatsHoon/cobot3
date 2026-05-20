@@ -53,8 +53,8 @@ export default function DualSenseStatus() {
           <span>R-stick L/R</span><span className="text-ink">좌/우 회전</span>
           <span>D-pad ↑↓</span>   <span className="text-ink">전후진</span>
           <span>D-pad ←→</span>   <span className="text-ink">좌우 평행</span>
-          <span>L2 hold</span>    <span className="text-ink">속도 −</span>
-          <span>R2 hold</span>    <span className="text-ink">속도 +</span>
+          <span>L2 hold</span>    <span className="text-ink">INSPECT zoom in</span>
+          <span>R2 hold</span>    <span className="text-ink">INSPECT zoom out</span>
           <span>× (Cross)</span>  <span className="text-ink">정지/재개 토글</span>
           <span>△ (Triangle)</span><span className="text-ink">출격</span>
           <span>○ (Circle)</span> <span className="text-ink">복귀</span>

@@ -101,8 +101,8 @@ class DualSenseService:
                 "right_stick_L/R": "yaw left/right",
                 "dpad_up/down":    "forward/back",
                 "dpad_left/right": "strafe left/right",
-                "L2_hold":         "speed -",
-                "R2_hold":         "speed +",
+                "L2_hold":         "inspect zoom in",
+                "R2_hold":         "inspect zoom out",
                 "cross":           "stop / resume toggle",
                 "triangle":        "sortie",
                 "circle":          "home",
@@ -257,16 +257,23 @@ class DualSenseService:
                         pass
                     self._last_inspect_t = now_t
 
-                # ── L2/R2 hold → speed_scale step ──
+                # ── L2/R2 hold → inspect camera zoom in/out (사용자 사양 2026-05-20) ──
+                # L2 = zoom in (focal +, 0.2s 마다 ×1.1), R2 = zoom out (×0.9)
                 l2 = (j.get_axis(AXIS_L2) + 1.0) * 0.5 if nax > AXIS_L2 else 0.0
                 r2 = (j.get_axis(AXIS_R2) + 1.0) * 0.5 if nax > AXIS_R2 else 0.0
                 now = time.monotonic()
                 if l2 >= TRIGGER_THRESHOLD and now >= self._l2_next_fire_t:
-                    self._speed_scale = max(SPEED_MIN, self._speed_scale - SPEED_STEP)
-                    self._l2_next_fire_t = now + SPEED_STEP_PERIOD_S
+                    try:
+                        self._ros.pub_inspect_cmd({"zoom": 1.10, "absolute": False})
+                    except Exception:
+                        pass
+                    self._l2_next_fire_t = now + 0.20
                 if r2 >= TRIGGER_THRESHOLD and now >= self._r2_next_fire_t:
-                    self._speed_scale = min(SPEED_MAX, self._speed_scale + SPEED_STEP)
-                    self._r2_next_fire_t = now + SPEED_STEP_PERIOD_S
+                    try:
+                        self._ros.pub_inspect_cmd({"zoom": 0.90, "absolute": False})
+                    except Exception:
+                        pass
+                    self._r2_next_fire_t = now + 0.20
 
                 # ── cmd_vel 결정 ──
                 # 우선순위: D-pad (제자리) > R-stick (yaw). 동시 입력 시 D-pad 우선.

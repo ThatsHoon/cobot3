@@ -2,18 +2,15 @@
 import { useCallback, useEffect, useState } from "react";
 import StatusHeader from "@/components/StatusHeader";
 import TelemetryStrip from "@/components/TelemetryStrip";
-import DualCameraView from "@/components/DualCameraView";
+import ImmersiveCameraView from "@/components/ImmersiveCameraView";
 import MapTrack from "@/components/MapTrack";
 import PatrolControls from "@/components/PatrolControls";
 import InspectorCameraPanel from "@/components/InspectorCameraPanel";
 import AlertsLog from "@/components/AlertsLog";
 import AnimalAlertsLog from "@/components/AnimalAlertsLog";
-import EventLog from "@/components/EventLog";
-import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import TeleopPad from "@/components/TeleopPad";
 import BaseMovementPanel from "@/components/BaseMovementPanel";
 import NpcSpawnButton from "@/components/NpcSpawnButton";
-import DualSenseStatus from "@/components/DualSenseStatus";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
   LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
@@ -106,13 +103,13 @@ export default function Page() {
           patrol={patrolState}
         />
 
-        {/* HERO: cameras + map | CONTROLS column (1 viewport row) */}
+        {/* HERO: ImmersiveCamera + MapTrack + Controls — 1 viewport row */}
         <section
           className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3"
           aria-label="hero">
-          {/* 좌측 6col — DualCameraView */}
-          <div className="xl:col-span-5 min-w-0">
-            <DualCameraView />
+          {/* 좌측 5col — ImmersiveCameraView (어안렌즈 wrapping) */}
+          <div className="xl:col-span-5 min-w-0 min-h-[420px]">
+            <ImmersiveCameraView />
           </div>
           {/* 중앙 4col — MapTrack (정사각형) */}
           <div className="xl:col-span-4 min-w-0">
@@ -122,57 +119,48 @@ export default function Page() {
                       patrolState={patrolState}
                       alertActive={alertActive} />
           </div>
-          {/* 우측 3col — Controls column */}
+          {/* 우측 3col — Patrol + Inspect+BaseMv (통합) */}
           <div className="xl:col-span-3 flex flex-col gap-2 min-w-0">
             <PatrolControls patrolState={patrolState} />
-            <DualSenseStatus />
-            <InspectorCameraPanel />
+            {/* InspectCam + BaseMovement 통합 컨테이너 (사용자 요청) */}
+            <div className="panel flex flex-col">
+              <div className="panel-hd">
+                <span>ROBOT CONTROL</span>
+                <span className="text-[10px] text-dim">INSPECT · MOVE</span>
+              </div>
+              <div className="p-2 space-y-2">
+                <InspectorCameraPanel />
+                {showBaseMv && <BaseMovementPanel />}
+                {showTeleop && <TeleopPad />}
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowBaseMv((v) => !v)}
+                    className="flex-1 text-[10px] px-2 py-0.5 rounded
+                               bg-zinc-800 hover:bg-zinc-700 text-dim">
+                    {showBaseMv ? "▼" : "▶"} BASE MV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowTeleop((v) => !v)}
+                    className="flex-1 text-[10px] px-2 py-0.5 rounded
+                               bg-zinc-800 hover:bg-zinc-700 text-dim">
+                    {showTeleop ? "▼" : "▶"} TELEOP
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* CONTROLS row 2: BaseMovement + Alerts + NPC */}
+        {/* ALERTS + NPC row */}
         <section
           className="grid grid-cols-1 lg:grid-cols-3 gap-3 px-3 pb-3"
-          aria-label="controls2">
-          <div className="min-w-0">
-            {showBaseMv && <BaseMovementPanel />}
-            {showTeleop && <TeleopPad />}
-          </div>
-          <div className="grid grid-cols-1 gap-2 min-w-0">
-            <AlertsLog liveEvents={alertEvents} />
-            <AnimalAlertsLog liveEvents={animalAlertEvents} />
-          </div>
-          <div className="min-w-0">
-            <NpcSpawnButton />
-          </div>
+          aria-label="alerts">
+          <AlertsLog liveEvents={alertEvents} />
+          <AnimalAlertsLog liveEvents={animalAlertEvents} />
+          <NpcSpawnButton />
         </section>
-
-        <DiagnosticsStrip
-          armQ={snap.arm_q || []}
-          legQ={snap.leg_q || []}
-        />
-
-        {/* FOOTER: legacy toggles + EventLog (축소) */}
-        <div className="px-3 pb-1 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowBaseMv((v) => !v)}
-            className="text-[10px] px-2 py-0.5 rounded bg-zinc-800
-                       hover:bg-zinc-700 text-dim">
-            {showBaseMv ? "▼" : "▶"} BASE MV
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowTeleop((v) => !v)}
-            className="text-[10px] px-2 py-0.5 rounded bg-zinc-800
-                       hover:bg-zinc-700 text-dim">
-            {showTeleop ? "▼" : "▶"} TELEOP
-          </button>
-        </div>
-
-        <div className="h-[120px] px-3 pb-3">
-          <EventLog events={eventStream} />
-        </div>
       </main>
     </div>
   );

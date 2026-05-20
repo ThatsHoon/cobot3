@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import TripleCameraView from "@/components/TripleCameraView";
 import TopicHealthMonitor from "@/components/TopicHealthMonitor";
 import RawJsonInspector from "@/components/RawJsonInspector";
+import EventLog from "@/components/EventLog";
+import DiagnosticsStrip from "@/components/DiagnosticsStrip";
+import DualSenseStatus from "@/components/DualSenseStatus";
+import { C2Event, useEvents } from "@/lib/api";
 
 /** 디버그 페이지 — Lichtblick(Foxglove) + cobot3 고유 시각화 통합.
  *
@@ -20,6 +24,9 @@ export default function DebugPage() {
   const [src, setSrc] = useState("");
   const [lichtblickUrl, setLichtblickUrl] = useState("");
   const [wsUrl, setWsUrl] = useState("");
+  const [eventStream, setEventStream] = useState<C2Event[]>([]);
+  const [legQ, setLegQ] = useState<number[]>([]);
+  const [armQ, setArmQ] = useState<number[]>([]);
 
   useEffect(() => {
     const host = window.location.hostname;
@@ -29,6 +36,15 @@ export default function DebugPage() {
     setWsUrl(ws);
     setSrc(`${lb}/?ds=foxglove-websocket&ds.url=${encodeURIComponent(ws)}`);
   }, []);
+
+  const onEvent = useCallback((e: C2Event) => {
+    setEventStream((p) => [...p.slice(-149), e]);
+    if (e.type === "state") {
+      const od = (e.data as any)?.leg_q || (e.data as any)?.legs;
+      if (Array.isArray(od)) setLegQ(od);
+    }
+  }, []);
+  useEvents(onEvent);
 
   return (
     <main className="relative z-10 flex flex-col"
@@ -50,9 +66,10 @@ export default function DebugPage() {
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 grid grid-cols-12 grid-rows-2 gap-2 p-2">
-        {/* 상단 좌: Lichtblick (3D + Plot + TF + Image) */}
-        <div className="col-span-8 row-span-1 min-h-0 bg-black border border-line/40">
+      <div className="flex-1 min-h-0 grid grid-cols-12 gap-2 p-2"
+           style={{ gridTemplateRows: "minmax(0,1.4fr) minmax(0,1fr) auto auto" }}>
+        {/* row1 좌: Lichtblick (3D + Plot + TF + Image) */}
+        <div className="col-span-8 min-h-0 bg-black border border-line/40">
           {src ? (
             <iframe
               src={src}
@@ -68,19 +85,34 @@ export default function DebugPage() {
           )}
         </div>
 
-        {/* 상단 우: 3-카메라 grid */}
-        <div className="col-span-4 row-span-1 min-h-0">
+        {/* row1 우: 3-카메라 grid */}
+        <div className="col-span-4 min-h-0">
           <TripleCameraView />
         </div>
 
-        {/* 하단 좌: 토픽 헬스 모니터 */}
-        <div className="col-span-8 row-span-1 min-h-0">
+        {/* row2 좌: 토픽 헬스 모니터 */}
+        <div className="col-span-5 min-h-0">
           <TopicHealthMonitor />
         </div>
 
-        {/* 하단 우: Raw JSON 인스펙터 */}
-        <div className="col-span-4 row-span-1 min-h-0">
+        {/* row2 중: Raw JSON 인스펙터 */}
+        <div className="col-span-4 min-h-0">
           <RawJsonInspector />
+        </div>
+
+        {/* row2 우: DualSense + 추가 정보 */}
+        <div className="col-span-3 min-h-0 flex flex-col gap-2">
+          <DualSenseStatus />
+        </div>
+
+        {/* row3: 관절 메트릭 (DiagnosticsStrip) */}
+        <div className="col-span-12">
+          <DiagnosticsStrip armQ={armQ} legQ={legQ} />
+        </div>
+
+        {/* row4: EventLog (로그) */}
+        <div className="col-span-12 h-[160px]">
+          <EventLog events={eventStream} />
         </div>
       </div>
     </main>
