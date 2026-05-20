@@ -195,13 +195,16 @@ def _build_dmz_zone(_stage):
 
 _build_dmz_zone(stage)
 
-# Go2 spawn zone 선택: cube=기존 Cube 위 (-714,952), dmz=DMZ_Zone Home (0,0)
-_ZONE = os.environ.get("GP_GO2_SPAWN_ZONE", "cube").lower()
-log(f"GP_GO2_SPAWN_ZONE={_ZONE}")
+# Go2 정찰 사양 (2026-05-20): 명시 spawn (212.8, 890.53, 5.0), 수색지(620.36,
+# 499.72, 52.138). 환경변수 GP_GO2_SPAWN_USE_TERRAIN=1 면 terrain nearest
+# vertex 보정(낙하 방지), 기본 0=명시 좌표 그대로 (씬 terrain 없거나 명시
+# z 가 신뢰 가능할 때).
+_GO2_HOME_XYZ = (212.8, 890.53, 5.0)
+_GO2_GOAL_XYZ = (620.36, 499.72, 52.138)
+_USE_TERRAIN = os.environ.get("GP_GO2_SPAWN_USE_TERRAIN", "0") == "1"
 
-_spawn = Gf.Vec3d(0.0, 0.0, 0.42)
-_cone_xy = None
-_cb = stage.GetPrimAtPath(CUBE_PRIM)
+_spawn = Gf.Vec3d(*_GO2_HOME_XYZ)
+_cone_xy = (_GO2_GOAL_XYZ[0], _GO2_GOAL_XYZ[1])
 _tm = stage.GetPrimAtPath(TERR_PRIM)
 
 
@@ -218,94 +221,35 @@ def _terrain_nearest_vertex(tm_prim, tx, ty):
     return float(_W[_i, 0]), float(_W[_i, 1]), float(_W[_i, 2])
 
 
-# spawn / cone 결정 — zone 분기
-if _ZONE == "dmz":
-    # DMZ_Zone Home_Marker(0,0) 위 spawn. terrain 가 있으면 nearest vertex z,
-    # 없으면 DMZ Ground plane 위(z=0.05+_CLEAR).
-    if _tm and _tm.IsValid():
-        try:
-            _gx, _gy, _gz = _terrain_nearest_vertex(_tm, *_DMZ_HOME)
-            _spawn = Gf.Vec3d(_gx, _gy, _gz + _CLEAR)
-            log(f"[DMZ] home(0,0) → terrain 최근접 ({_gx:.1f},{_gy:.1f},"
-                f"z={_gz:.2f}) → spawn {tuple(round(float(v),2) for v in _spawn)}")
-        except Exception as _e:
-            _spawn = Gf.Vec3d(0.0, 0.0, 0.05 + _CLEAR)
-            log(f"[DMZ] terrain nearest 실패 ({_e!r}) → Ground 위 spawn {tuple(_spawn)}")
-    else:
-        _spawn = Gf.Vec3d(0.0, 0.0, 0.05 + _CLEAR)
-        log(f"[DMZ] terrain 없음 → Ground 위 spawn {tuple(_spawn)}")
-    _cone_xy = _DMZ_PATROL_E
-    log(f"[DMZ] nav_goal = Patrol_E_Marker {_cone_xy}")
-elif _cb and _cb.IsValid() and _tm and _tm.IsValid():
-    _cm = UsdGeom.Xformable(_cb).ComputeLocalToWorldTransform(
-        _U.TimeCode.Default())
-    _ct = _cm.ExtractTranslation()
-    _cx, _cy = float(_ct[0]), float(_ct[1])
-    _gx, _gy, _gz = _terrain_nearest_vertex(_tm, _cx, _cy)
-    _d = ((_gx - _cx) ** 2 + (_gy - _cy) ** 2) ** 0.5
-    _spawn = Gf.Vec3d(_gx, _gy, _gz + _CLEAR)
-    log(f"Cube XY({_cx:.1f},{_cy:.1f}) → 최근접 터레인 정점"
-        f"({_gx:.1f},{_gy:.1f},z={_gz:.2f}) {_d:.1f}m → spawn "
-        f"{tuple(round(float(v),2) for v in _spawn)} (터레인+{_CLEAR})")
-    _cn = stage.GetPrimAtPath(CONE_PRIM)
-    if _cn and _cn.IsValid():
-        _r2 = _bc.ComputeWorldBound(_cn).ComputeAlignedRange()
-        _m2, _x2 = _r2.GetMin(), _r2.GetMax()
-        _cone_xy = ((float(_m2[0]) + float(_x2[0])) / 2.0,
-                    (float(_m2[1]) + float(_x2[1])) / 2.0)
-        log(f"Cone@({_cone_xy[0]:.2f},{_cone_xy[1]:.2f}) → nav_goal "
-            f"(Cube→Cone ≈ "
-            f"{((_cone_xy[0]-_spawn[0])**2 + (_cone_xy[1]-_spawn[1])**2)**0.5:.0f}m)")
-    else:
-        log(f"⚠ {CONE_PRIM} 없음 — nav 비활성")
+if _USE_TERRAIN and _tm and _tm.IsValid():
+    try:
+        _gx, _gy, _gz = _terrain_nearest_vertex(_tm, _GO2_HOME_XYZ[0],
+                                                _GO2_HOME_XYZ[1])
+        _spawn = Gf.Vec3d(_gx, _gy, _gz + _CLEAR)
+        log(f"spawn terrain nearest: ({_gx:.1f},{_gy:.1f},z={_gz:.2f}) → "
+            f"{tuple(round(float(v),2) for v in _spawn)}")
+    except Exception as _e:
+        log(f"⚠ terrain nearest 실패 ({_e!r}) → 명시 좌표 사용 {_GO2_HOME_XYZ}")
 else:
-    log(f"⚠ {CUBE_PRIM}/{TERR_PRIM} 미발견 — 기본 스폰 (0,0,0.42)")
+    log(f"spawn 명시 좌표: {tuple(round(float(v),2) for v in _spawn)} "
+        f"(GP_GO2_SPAWN_USE_TERRAIN={int(_USE_TERRAIN)})")
+log(f"nav_goal=수색지 {_cone_xy} (z={_GO2_GOAL_XYZ[2]:.2f})")
 
 # 씬 랜드마크 dump → landmarks_pub.py 가 읽어 /scene/landmarks (latched) 발행.
 # patrol controller(C2) 가 sortie 시 waypoint 구성에 사용.
 import json as _json
 try:
     _lm = {
-        "zone": _ZONE,
-        "cube": {"x": float(_spawn[0]), "y": float(_spawn[1]),
+        "home": {"x": float(_spawn[0]), "y": float(_spawn[1]),
                  "z": float(_spawn[2])},
+        "goal": {"x": float(_cone_xy[0]), "y": float(_cone_xy[1]),
+                 "z": float(_GO2_GOAL_XYZ[2])},
+        "arrive_box": 10.0,
     }
-    if _cone_xy is not None:
-        _lm["cone"] = {"x": float(_cone_xy[0]), "y": float(_cone_xy[1]),
-                       "z": 0.0}
-    # 울타리 세그먼트 — gp_scene 의 /World/Fence/* 또는
-    # /World/barbed_wire_fence/* 가 있으면 중심 XY 수집.
-    _fence_paths = []
-    for _p in stage.Traverse():
-        _pp = str(_p.GetPath())
-        if (_pp.startswith("/World/Fence/")
-                or _pp.startswith("/World/barbed_wire_fence")):
-            if UsdGeom.Xformable(_p):
-                _fence_paths.append(_pp)
-    _lm["fence"] = []
-    for _fp in _fence_paths[:8]:
-        _fprim = stage.GetPrimAtPath(_fp)
-        _frange = _bc.ComputeWorldBound(_fprim).ComputeAlignedRange()
-        if _frange.IsEmpty():
-            continue
-        _fmn, _fmx = _frange.GetMin(), _frange.GetMax()
-        _lm["fence"].append({
-            "x": 0.5 * (float(_fmn[0]) + float(_fmx[0])),
-            "y": 0.5 * (float(_fmn[1]) + float(_fmx[1])),
-            "z": 0.5 * (float(_fmn[2]) + float(_fmx[2])),
-        })
-    # DMZ_Zone 의 home/cone/fence 도 항상 dump (zone 무관, web 가시화용)
-    _lm["dmz_home"] = {"x": float(_DMZ_HOME[0]), "y": float(_DMZ_HOME[1]), "z": 0.0}
-    _lm["dmz_cone"] = {"x": float(_DMZ_PATROL_E[0]), "y": float(_DMZ_PATROL_E[1]), "z": 0.0}
-    _lm["dmz_patrol_w"] = {"x": float(_DMZ_PATROL_W[0]), "y": float(_DMZ_PATROL_W[1]), "z": 0.0}
-    _lm["dmz_fence"] = [
-        {"x": -40.0, "y": float(_DMZ_FENCE_N_Y), "z": 0.0},
-        {"x":  40.0, "y": float(_DMZ_FENCE_N_Y), "z": 0.0},
-    ]
     with open("/tmp/cobot3_landmarks.json", "w") as _f:
         _json.dump(_lm, _f)
     log(f"landmarks dump → /tmp/cobot3_landmarks.json "
-        f"(zone={_ZONE}, cube,cone,fence×{len(_lm['fence'])}, dmz_*)")
+        f"home={_lm['home']} goal={_lm['goal']} arrive=±{_lm['arrive_box']}m")
 except Exception as _e:
     log(f"⚠ landmarks dump 실패: {_e!r}")
 _xf_g = UsdGeom.Xformable(_go2)
@@ -785,6 +729,8 @@ def _apply_inspect_cmd():
 
 
 n = 0
+_TL = omni.timeline.get_timeline_interface()
+_tl_replays = 0
 try:
     while simulation_app.is_running():
         world.step(render=True)
@@ -793,9 +739,16 @@ try:
         _apply_inspect_cmd()
         if n in (60, 150):
             _diag()
+        # timeline play 자가 복원 — GUI 일시정지나 외부 stop() 으로 멈춰
+        # simTime 이 동결되면 OG 모든 토픽 0Hz. 100 step 마다 확인.
+        if n % 100 == 0 and not _TL.is_playing():
+            _TL.play()
+            _tl_replays += 1
+            log(f"timeline.play() 자동 재시작 (n={n} replays={_tl_replays})")
         if n % 300 == 0:
-            t = omni.timeline.get_timeline_interface().get_current_time()
-            log(f"stepped {n} | simTime={t:.2f} | cmd_rx={_cmd_state['rx']}")
+            t = _TL.get_current_time()
+            log(f"stepped {n} | simTime={t:.2f} | cmd_rx={_cmd_state['rx']} "
+                f"playing={_TL.is_playing()} replays={_tl_replays}")
             _diag()
 except KeyboardInterrupt:
     log("중지(Ctrl+C)")

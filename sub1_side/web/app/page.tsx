@@ -11,6 +11,7 @@ import AnimalAlertsLog from "@/components/AnimalAlertsLog";
 import EventLog from "@/components/EventLog";
 import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import TeleopPad from "@/components/TeleopPad";
+import BaseMovementPanel from "@/components/BaseMovementPanel";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
   LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
@@ -37,6 +38,7 @@ export default function Page() {
   const [eventStream, setEventStream] = useState<C2Event[]>([]);
   const [lastAlertTs, setLastAlertTs] = useState<number | null>(null);
   const [showTeleop, setShowTeleop] = useState(false);
+  const [showBaseMv, setShowBaseMv] = useState(true);
 
   // 초기 스냅샷 폴백 (4초 폴링)
   useEffect(() => {
@@ -109,17 +111,24 @@ export default function Page() {
               <DualCameraView />
             </div>
             <PatrolControls patrolState={patrolState} />
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap">
+              <button
+                onClick={() => setShowBaseMv((v) => !v)}
+                className="text-[10px] px-2 py-1 rounded bg-zinc-800
+                           hover:bg-zinc-700 text-dim">
+                {showBaseMv ? "▼" : "▶"} BASE MOVEMENT
+              </button>
               <button
                 onClick={() => setShowTeleop((v) => !v)}
                 className="text-[10px] px-2 py-1 rounded bg-zinc-800
                            hover:bg-zinc-700 text-dim">
-                {showTeleop ? "▼" : "▶"} TELEOP
+                {showTeleop ? "▼" : "▶"} TELEOP (legacy)
               </button>
               <span className="text-[10px] text-dim">
-                (Nav2 사용 시 비활성 권장)
+                Base Movement: 이동/대기 중 추가 보행 명령 (사용자 사양 #4)
               </span>
             </div>
+            {showBaseMv && <BaseMovementPanel />}
             {showTeleop && <TeleopPad />}
           </div>
 

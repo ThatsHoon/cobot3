@@ -237,9 +237,15 @@ async def fire(rid: str, body: dict):
 
 @app.post("/robots/{rid}/cmd_vel", dependencies=[Depends(require_key)])
 async def cmd_vel(rid: str, body: dict):
-    """body: {"linear": 0.6, "angular": 0.0} — /robot/cmd_vel Twist (RELIABLE)."""
-    ros.pub_cmd_vel(float(body.get("linear", 0.0)),
-                    float(body.get("angular", 0.0)))
+    """body: {"linear":vx, "linear_y":vy, "angular":wz} — /robot/cmd_vel Twist.
+
+    quadruped 사양 (사용자 #4): vx=전후, vy=좌우(strafe), wz=제자리 회전.
+    legacy body {"linear", "angular"} 도 호환.
+    """
+    vx = float(body.get("linear", body.get("linear_x", 0.0)))
+    vy = float(body.get("linear_y", 0.0))
+    wz = float(body.get("angular", body.get("angular_z", 0.0)))
+    ros.pub_cmd_vel(vx, wz, vy=vy)
     return {"ok": True}
 
 

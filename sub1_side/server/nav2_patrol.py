@@ -1,23 +1,15 @@
-"""Nav2 patrol 컨트롤러 — cobot3 Go2 적용 (DMZ Sentry 골격 차용).
+"""Nav2 patrol 컨트롤러 — Go2 정찰 단순화 사양 (2026-05-20).
 
-웹 / FastAPI 의 mission_command 를 받아 Nav2 navigate_to_pose action 으로
-순차 전송. alerts 가 들어오면 ALERT_STOP 으로 전환해 정지, alert_hold 후
-이전 모드로 자동 복귀(M0 게이트).
-
-waypoint 는 /scene/landmarks (RELIABLE+TRANSIENT_LOCAL latched) 1회 수신해
-구성. 수신 실패 시 ros2 parameter fallback.
+지통실의 mission_command (sortie/home/stop/resume/idle) 를 받아 Nav2
+navigate_to_pose action 으로 전송. 도착 ±10m 사각 판정. stop → PAUSED 진입 +
+stop_burst 타이머 (10Hz × 2s) Twist(0) 반복으로 cmd_vel chain 잔여 덮어쓰기.
+resume → 보존된 mode + goal 재전송.
 
 I/O:
-- 구독: /mission_command (String)  — sortie/home/stop/resume/idle
-        /alerts          (String JSON)
-        /robot/odom      (Odometry)
-        /scene/landmarks (String JSON, latched)
-- 발행: /patrol_state    (String JSON, 5Hz)
-        /robot/cmd_vel   (Twist, 정지 명령용)
+- 구독: /mission_command (String), /robot/odom (Odometry),
+        /scene/landmarks (latched String JSON), /robot/nav/goal (PoseStamped)
+- 발행: /patrol_state (5Hz String JSON), /robot/cmd_vel (Twist 정지용)
 - Action: /navigate_to_pose (nav2_msgs/NavigateToPose)
-
-실행:
-    python3 sub1_side/server/nav2_patrol.py
 """
 import json
 import math
@@ -35,19 +27,20 @@ from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
                        ReliabilityPolicy)
 from std_msgs.msg import String
 
-# Manual goal topic (웹 MapTrack 더블클릭 → POST /goto → ros_bridge.publish_goal
-# → /robot/nav/goal). Nav2 는 navigate_to_pose action 만 받으므로 이 토픽의
-# 소비자가 없으면 무동작 — 본 노드가 PoseStamped → action goal 로 중계한다.
-NAV_GOAL_TOPIC = "/robot/nav/goal"
+# 사용자 사양 좌표 (2026-05-20)
+DEFAULT_HOME = (212.8, 890.53)
+DEFAULT_GOAL = (620.36, 499.72)
+ARRIVE_HALF = 10.0   # 도착 판정 ±10m 사각 box
+
+NAV_GOAL_TOPIC = "/robot/nav/goal"   # web 맵 클릭 manual goal
 
 
 class MissionMode(str, Enum):
     IDLE = "IDLE"
+    PATROL = "PATROL"       # → goal (수색위치)
+    HOME = "HOME"           # → home
+    PAUSED = "PAUSED"       # stop 명령 — mode·goal 보존
     WAITING_FOR_NAV2 = "WAITING_FOR_NAV2"
-    PATROL = "PATROL"
-    HOME = "HOME"
-    ALERT_STOP = "ALERT_STOP"
-    STOPPED = "STOPPED"
 
 
 def _yaw_from_quaternion(q) -> float:
@@ -68,23 +61,22 @@ class Nav2PatrolController(Node):
         super().__init__("nav2_patrol_controller")
 
         self.declare_parameter("mission_topic", "/mission_command")
-        self.declare_parameter("alerts_topic", "/alerts")
         self.declare_parameter("odom_topic", "/robot/odom")
         self.declare_parameter("state_topic", "/patrol_state")
         self.declare_parameter("cmd_vel_topic", "/robot/cmd_vel")
         self.declare_parameter("landmarks_topic", "/scene/landmarks")
         self.declare_parameter("action_name", "navigate_to_pose")
         self.declare_parameter("global_frame", "world")
-        # gp_scene 기본값 (이전 세션 측정치). landmarks 수신 시 덮어쓰기.
-        self.declare_parameter("home_x", -714.32)
-        self.declare_parameter("home_y", 952.93)
-        self.declare_parameter("patrol_x", -937.07)
-        self.declare_parameter("patrol_y", 938.98)
+        self.declare_parameter("home_x", DEFAULT_HOME[0])
+        self.declare_parameter("home_y", DEFAULT_HOME[1])
+        self.declare_parameter("goal_x", DEFAULT_GOAL[0])
+        self.declare_parameter("goal_y", DEFAULT_GOAL[1])
+        self.declare_parameter("arrive_half", ARRIVE_HALF)
         self.declare_parameter("status_hz", 5.0)
-        self.declare_parameter("alert_hold_seconds", 6.0)
+        self.declare_parameter("stop_burst_seconds", 2.0)
+        self.declare_parameter("stop_burst_hz", 10.0)
 
         self._mission_topic = self.get_parameter("mission_topic").value
-        self._alerts_topic = self.get_parameter("alerts_topic").value
         self._odom_topic = self.get_parameter("odom_topic").value
         self._state_topic = self.get_parameter("state_topic").value
         self._cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
@@ -93,24 +85,25 @@ class Nav2PatrolController(Node):
         self._global_frame = self.get_parameter("global_frame").value
         self._home = (float(self.get_parameter("home_x").value),
                       float(self.get_parameter("home_y").value))
-        self._patrol_waypoints = [
-            self._home,
-            (float(self.get_parameter("patrol_x").value),
-             float(self.get_parameter("patrol_y").value)),
-        ]
+        self._goal = (float(self.get_parameter("goal_x").value),
+                      float(self.get_parameter("goal_y").value))
+        self._arrive_half = float(self.get_parameter("arrive_half").value)
         status_hz = max(1.0, float(self.get_parameter("status_hz").value))
-        self._alert_hold_seconds = max(0.0,
-            float(self.get_parameter("alert_hold_seconds").value))
+        self._stop_burst_seconds = max(0.0,
+            float(self.get_parameter("stop_burst_seconds").value))
+        self._stop_burst_hz = max(1.0,
+            float(self.get_parameter("stop_burst_hz").value))
 
         self._mode = MissionMode.IDLE
-        self._resume_mode = MissionMode.PATROL
+        # PAUSED 진입 전 보존 (resume 용)
+        self._paused_from_mode = MissionMode.PATROL
+        self._paused_goal = None
         self._pose = None
         self._current_goal = None
-        self._route_queue = []
-        self._next_patrol_index = 1
         self._goal_handle = None
-        self._last_alert_time = 0.0
         self._landmarks_received = False
+        self._stop_burst_until = 0.0
+        self._goal_arrived = False
 
         latched = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -123,190 +116,125 @@ class Nav2PatrolController(Node):
         self._cmd_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
         self._state_pub = self.create_publisher(String, self._state_topic, 10)
         self.create_subscription(String, self._mission_topic, self._on_mission, 10)
-        self.create_subscription(String, self._alerts_topic, self._on_alert, 10)
         self.create_subscription(Odometry, self._odom_topic, self._on_odom, 20)
         self.create_subscription(String, self._landmarks_topic,
                                  self._on_landmarks, latched)
-        # 웹 MapTrack 더블클릭 → /robot/nav/goal → 본 노드가 action 으로 변환
         self.create_subscription(PoseStamped, NAV_GOAL_TOPIC,
                                  self._on_nav_goal, 10)
         self.create_timer(1.0 / status_hz, self._tick)
+        # stop_burst 타이머 (PAUSED 진입 시 활성, _stop_burst_until 까지 발행)
+        self.create_timer(1.0 / self._stop_burst_hz, self._tick_stop_burst)
 
         self.get_logger().info(
-            "patrol ready: mission=%s action=%s frame=%s home=(%.1f,%.1f) "
-            "patrol=(%.1f,%.1f)" % (
-                self._mission_topic, self._action_name, self._global_frame,
-                self._home[0], self._home[1],
-                self._patrol_waypoints[1][0], self._patrol_waypoints[1][1]))
+            f"patrol ready: mission={self._mission_topic} action={self._action_name} "
+            f"home=({self._home[0]:.1f},{self._home[1]:.1f}) "
+            f"goal=({self._goal[0]:.1f},{self._goal[1]:.1f}) arrive=±{self._arrive_half}m")
 
+    # ── landmarks ──────────────────────────────────────────────────────
     def _on_landmarks(self, msg: String) -> None:
         try:
             payload = json.loads(msg.data)
         except json.JSONDecodeError as e:
             self.get_logger().warn(f"landmarks JSON parse error: {e}")
             return
-        # zone 분기 (P2): "dmz" 면 DMZ_Zone 의 home/patrol 우선, "cube"(기본) 면
-        # gp_scene 의 Cube/Cone. fence 좌표는 무시 (B5).
-        zone = (payload.get("zone") or "cube").lower()
-        if zone == "dmz" and payload.get("dmz_home") and payload.get("dmz_cone"):
-            home = payload["dmz_home"]
-            cone = payload["dmz_cone"]
-            extra = payload.get("dmz_patrol_w")
-        else:
-            home = payload.get("cube") or payload.get("home")
-            cone = payload.get("cone")
-            extra = None
-        if home and "x" in home and "y" in home:
-            self._home = (float(home["x"]), float(home["y"]))
-        waypoints = []
-        if cone and "x" in cone and "y" in cone:
-            waypoints.append((float(cone["x"]), float(cone["y"])))
-        if extra and "x" in extra and "y" in extra:
-            waypoints.append((float(extra["x"]), float(extra["y"])))
-        if not waypoints:
-            waypoints.append(self._patrol_waypoints[1])
-        self._patrol_waypoints = [self._home] + waypoints
+        # 사용자 사양: payload.home / payload.goal 우선 (있으면 덮어쓰기)
+        h = payload.get("home")
+        g = payload.get("goal") or payload.get("cone")
+        if h and "x" in h and "y" in h:
+            self._home = (float(h["x"]), float(h["y"]))
+        if g and "x" in g and "y" in g:
+            self._goal = (float(g["x"]), float(g["y"]))
         self._landmarks_received = True
-        self._zone = zone
         self.get_logger().info(
             f"landmarks 수신: home=({self._home[0]:.1f},{self._home[1]:.1f}) "
-            f"waypoints={len(waypoints)}")
+            f"goal=({self._goal[0]:.1f},{self._goal[1]:.1f})")
 
+    # ── manual nav goal (web map 더블클릭) ─────────────────────────────
     def _on_nav_goal(self, msg: PoseStamped) -> None:
-        """웹 맵 클릭 → 단발 navigate_to_pose 변환. 기존 patrol 큐 덮어씀."""
         x = float(msg.pose.position.x)
         y = float(msg.pose.position.y)
         self.get_logger().info(
-            f"manual nav goal received: ({x:.1f}, {y:.1f}) → PATROL")
+            f"manual nav goal: ({x:.1f}, {y:.1f}) → PATROL")
         self._mode = MissionMode.PATROL
-        self._resume_mode = MissionMode.PATROL
+        self._goal = (x, y)
         self._cancel_current_goal()
-        self._route_queue = [(x, y)]
-        self._current_goal = None
-        self._send_next_goal()
+        self._goal_arrived = False
+        self._send_goal_now(self._goal)
 
+    # ── odom ───────────────────────────────────────────────────────────
     def _on_odom(self, msg: Odometry) -> None:
         position = msg.pose.pose.position
         yaw = _yaw_from_quaternion(msg.pose.pose.orientation)
         self._pose = (float(position.x), float(position.y), float(yaw))
+        # 도착 사각 박스 판정 (PATROL/HOME 진행 중)
+        if self._mode in (MissionMode.PATROL, MissionMode.HOME):
+            tgt = self._goal if self._mode == MissionMode.PATROL else self._home
+            dx = abs(self._pose[0] - tgt[0])
+            dy = abs(self._pose[1] - tgt[1])
+            if dx < self._arrive_half and dy < self._arrive_half:
+                if not self._goal_arrived:
+                    self._goal_arrived = True
+                    self._cancel_current_goal()
+                    self._publish_stop()
+                    self.get_logger().info(
+                        f"{self._mode.value} 도착 (사각 ±{self._arrive_half}m) → IDLE 제자리 사수")
+                    self._mode = MissionMode.IDLE
 
+    # ── mission_command ───────────────────────────────────────────────
     def _on_mission(self, msg: String) -> None:
         command = msg.data.strip().lower()
         if command in ("start", "start_patrol", "launch", "sortie"):
             self._mode = MissionMode.PATROL
-            self._resume_mode = MissionMode.PATROL
-            self._set_patrol_route()
-            self._send_next_goal()
+            self._goal_arrived = False
+            self._send_goal_now(self._goal)
+            self.get_logger().info(f"mission: sortie → goal={self._goal}")
         elif command in ("home", "go_home", "return_home", "rtb"):
             self._mode = MissionMode.HOME
-            self._resume_mode = MissionMode.HOME
-            self._set_home_route()
-            self._send_next_goal()
-        elif command in ("stop", "halt"):
-            self._mode = MissionMode.STOPPED
-            self._route_queue = []
+            self._goal_arrived = False
+            self._send_goal_now(self._home)
+            self.get_logger().info(f"mission: home → {self._home}")
+        elif command in ("stop", "halt", "pause"):
+            # mode 보존
+            if self._mode in (MissionMode.PATROL, MissionMode.HOME):
+                self._paused_from_mode = self._mode
+                self._paused_goal = (self._goal if self._mode == MissionMode.PATROL
+                                     else self._home)
+            self._mode = MissionMode.PAUSED
             self._cancel_current_goal()
             self._publish_stop()
-            self.get_logger().info("mission: stop")
+            self._stop_burst_until = time.monotonic() + self._stop_burst_seconds
+            self.get_logger().info(
+                f"mission: stop → PAUSED (보존={self._paused_from_mode.value}, "
+                f"goal={self._paused_goal}, stop_burst {self._stop_burst_seconds}s)")
         elif command in ("resume", "continue"):
-            if self._mode in (MissionMode.ALERT_STOP, MissionMode.STOPPED):
-                self._mode = self._resume_mode
-                if not self._current_goal:
-                    if self._mode == MissionMode.PATROL:
-                        self._set_patrol_route()
-                    else:
-                        self._set_home_route()
-                self._send_next_goal()
-            self.get_logger().info(f"mission: resume -> {self._mode.value}")
+            if self._mode == MissionMode.PAUSED and self._paused_goal:
+                self._mode = self._paused_from_mode
+                self._goal_arrived = False
+                self._send_goal_now(self._paused_goal)
+                self.get_logger().info(
+                    f"mission: resume → {self._mode.value} goal={self._paused_goal}")
+            else:
+                self.get_logger().info("resume 무시 (PAUSED 아님)")
         elif command in ("idle", "standby"):
             self._mode = MissionMode.IDLE
-            self._route_queue = []
             self._cancel_current_goal()
             self._publish_stop()
             self.get_logger().info("mission: idle")
         else:
             self.get_logger().warn(f"unknown mission command: {msg.data}")
 
-    def _on_alert(self, msg: String) -> None:
-        self._last_alert_time = time.monotonic()
-        if self._mode not in (MissionMode.IDLE, MissionMode.STOPPED,
-                              MissionMode.ALERT_STOP):
-            self._resume_mode = self._mode
-        if self._mode != MissionMode.STOPPED:
-            self._mode = MissionMode.ALERT_STOP
-            self._cancel_current_goal()
-            self._publish_stop()
-        try:
-            payload = json.loads(msg.data)
-            confidence = float(payload.get("confidence", 0.0))
-            self.get_logger().warn(
-                f"ALERT — patrol holding (conf={confidence:.2f})")
-        except Exception:
-            self.get_logger().warn("ALERT — patrol holding")
-
-    def _set_patrol_route(self) -> None:
-        # patrol_waypoints[0]=home, [1..]=순찰점. home 제외 순환.
-        if len(self._patrol_waypoints) < 2:
-            self.get_logger().warn("patrol waypoint 부족 — sortie 무효")
-            self._route_queue = []
-            return
-        target = self._select_initial_patrol_target()
-        self._route_queue = [target]
-        self._current_goal = None
-
-    def _set_home_route(self) -> None:
-        self._route_queue = [self._home]
-        self._current_goal = None
-
-    def _select_initial_patrol_target(self):
-        # home(idx 0) 다음 가장 가까운 순찰점부터 시작
-        if self._pose is None or len(self._patrol_waypoints) < 2:
-            self._next_patrol_index = 2 if len(self._patrol_waypoints) > 2 else 1
-            return self._patrol_waypoints[1]
-        best_i = 1
-        best_d = float("inf")
-        for i in range(1, len(self._patrol_waypoints)):
-            wx, wy = self._patrol_waypoints[i]
-            d = math.hypot(wx - self._pose[0], wy - self._pose[1])
-            if d < best_d:
-                best_d = d
-                best_i = i
-        self._next_patrol_index = best_i + 1
-        return self._patrol_waypoints[best_i]
-
-    def _next_patrol_target(self):
-        n = len(self._patrol_waypoints)
-        if n < 2:
-            return self._home
-        # idx 1..n-1 순환 (home 제외)
-        idx = ((self._next_patrol_index - 1) % (n - 1)) + 1
-        self._next_patrol_index += 1
-        return self._patrol_waypoints[idx]
-
-    def _send_next_goal(self) -> None:
-        if self._mode in (MissionMode.IDLE, MissionMode.STOPPED,
-                          MissionMode.ALERT_STOP):
-            return
-        if self._goal_handle is not None:
-            return
+    # ── action client ─────────────────────────────────────────────────
+    def _send_goal_now(self, point) -> None:
         if not self._nav_client.server_is_ready():
             self._mode = MissionMode.WAITING_FOR_NAV2
             self.get_logger().warn("navigate_to_pose action 미준비")
             return
-        if not self._route_queue:
-            if self._mode == MissionMode.HOME:
-                self._mode = MissionMode.IDLE
-                self._current_goal = self._home
-                self._publish_stop()
-                self.get_logger().info("home 도착 → IDLE")
-                return
-            self._route_queue.append(self._next_patrol_target())
-
-        self._current_goal = self._route_queue.pop(0)
+        self._cancel_current_goal()
+        self._current_goal = (float(point[0]), float(point[1]))
         goal = NavigateToPose.Goal()
         goal.pose = self._make_pose(self._current_goal)
         self.get_logger().info(
-            f"goal x={self._current_goal[0]:.1f} y={self._current_goal[1]:.1f}")
+            f"action goal: x={self._current_goal[0]:.1f} y={self._current_goal[1]:.1f}")
         send_future = self._nav_client.send_goal_async(goal)
         send_future.add_done_callback(self._on_goal_response)
 
@@ -332,37 +260,37 @@ class Nav2PatrolController(Node):
     def _on_goal_result(self, future) -> None:
         self._goal_handle = None
         status = future.result().status
-        if self._mode in (MissionMode.ALERT_STOP, MissionMode.STOPPED,
-                          MissionMode.IDLE):
+        if self._mode in (MissionMode.PAUSED, MissionMode.IDLE):
             return
         if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info("goal 도착")
-            self._send_next_goal()
+            self.get_logger().info("Nav2 goal 성공 (도착 사각 판정과 별개)")
         else:
-            self.get_logger().warn(f"goal 실패 status={status} — 다음 시도")
-            self._send_next_goal()
+            self.get_logger().warn(f"Nav2 goal 종료 status={status}")
 
     def _cancel_current_goal(self) -> None:
         if self._goal_handle is not None:
             self._goal_handle.cancel_goal_async()
             self._goal_handle = None
 
+    # ── stop publish ──────────────────────────────────────────────────
     def _publish_stop(self) -> None:
         self._cmd_pub.publish(Twist())
 
-    def _tick(self) -> None:
+    def _tick_stop_burst(self) -> None:
+        """PAUSED/IDLE 진입 후 stop_burst_seconds 동안 Twist(0) 반복.
+        velocity_smoother 잔여 발행을 덮어쓰기 위한 burst."""
         now = time.monotonic()
+        if now < self._stop_burst_until:
+            self._publish_stop()
+
+    def _tick(self) -> None:
+        # WAITING_FOR_NAV2 에서 server ready 시 자동 재전송 (마지막 모드의 goal)
         if (self._mode == MissionMode.WAITING_FOR_NAV2
                 and self._nav_client.server_is_ready()):
-            self._mode = self._resume_mode
-            self._send_next_goal()
-        elif self._mode == MissionMode.ALERT_STOP:
-            self._publish_stop()
-            if now - self._last_alert_time > self._alert_hold_seconds:
-                self._mode = self._resume_mode
-                self.get_logger().info(
-                    f"ALERT_STOP hold 종료 → {self._mode.value} 재개")
-                self._send_next_goal()
+            self.get_logger().info("nav2 ready → goal 재전송")
+            self._mode = MissionMode.PATROL
+            self._goal_arrived = False
+            self._send_goal_now(self._goal)
         self._publish_state()
 
     def _publish_state(self) -> None:
@@ -372,7 +300,9 @@ class Nav2PatrolController(Node):
                 {"x": self._current_goal[0], "y": self._current_goal[1]}
                 if self._current_goal else None),
             "home": {"x": self._home[0], "y": self._home[1]},
-            "route": [{"x": w[0], "y": w[1]} for w in self._route_queue],
+            "goal": {"x": self._goal[0], "y": self._goal[1]},
+            "arrive_half": self._arrive_half,
+            "goal_arrived": self._goal_arrived,
             "pose": (
                 {"x": self._pose[0], "y": self._pose[1], "yaw": self._pose[2]}
                 if self._pose else None),

@@ -133,9 +133,9 @@ class RosBridge:
                 self._video_rear = bgr
 
     # ---- 업링크 (C2 → 로봇) ------------------------------------------
-    def pub_cmd_vel(self, lin: float, ang: float):
+    def pub_cmd_vel(self, lin: float, ang: float, vy: float = 0.0):
         if self._node:
-            self._node.pub_cmd_vel(lin, ang)
+            self._node.pub_cmd_vel(lin, ang, vy=vy)
 
     def publish_goal(self, x: float, y: float):
         if self._node:
@@ -417,9 +417,10 @@ if RCLPY_OK:
             self.br._emit({"type": "landmarks", "ts": _now_iso(), "data": d})
 
         # ---- 업링크 ----
-        def pub_cmd_vel(self, lin: float, ang: float):
+        def pub_cmd_vel(self, lin: float, ang: float, vy: float = 0.0):
             m = Twist()
             m.linear.x = float(lin)
+            m.linear.y = float(vy)
             m.angular.z = float(ang)
             self._cmd_pub.publish(m)
 

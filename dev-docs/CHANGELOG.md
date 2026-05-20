@@ -7,6 +7,59 @@
 
 ## 2026-05-20
 
+### Go2 정찰 신사양 통합 (단일 미션 4-mode FSM + BaseMovement + YOLO 0.7)
+
+**사용자 요구사항 (8개):**
+1. spawn/home=(212.8, 890.53, 5.0)
+2. 수색지=(620.36, 499.72, 52.138)
+3. 도착 판정: 사각형 ±10m 박스
+4. 웹 teleop 추가 보행 (8-방향, quadruped_example 패턴 차용)
+5. 기존 검증된 통신 그대로
+6. 비동기 명령 수신 (이동중 home/stop/resume 즉시 반응)
+7. 명령 수신 시 Isaac console echo (디버깅)
+8. YOLO conf 0.7 + COCO 80 클래스 bbox 표시
+
+**변경 파일:**
+
+- `sub1_side/server/nav2_patrol.py` (재작성) — 4-mode FSM
+  (IDLE/PATROL/HOME/PAUSED), HOME/GOAL/ARRIVE_HALF 파라미터, 도착 ±10m 사각
+  판정, stop_burst timer 10Hz×2s, resume 시 보존된 mode·goal 재전송.
+- `sub1_side/server/cmd_vel_safety_filter.py` (수정) — `/patrol_state` 구독,
+  PAUSED/IDLE 진입 시 Nav2 입력 무시 + Twist(0) 강제(velocity_smoother 잔여 차단).
+- `main_side/camera_publisher.py` (수정) — 명시 spawn (212.8, 890.53, 5.0),
+  zone 분기 제거, landmarks dump 가 home/goal/arrive_box 단일 미션 포맷.
+  메인 루프 100 step 마다 timeline.is_playing() 자가 복원.
+- `main_side/mission_echo.py` (신규) — `/mission_command` rclpy 사이드카, stdout
+  → Isaac console.log 캡처 (사용자 #7).
+- `main_side/bake_go2_recon_map.sh` (신규) — 새 AABB(112.8-720.36 × 399.72-990.53,
+  0.5 m/px) 로 gp_static 베이크 헬퍼.
+- `sub1_side/server/config.py` (수정) — YOLO_CLASSES = COCO 80 전체,
+  YOLO_ALERT_CONF=0.7, YOLO_ANIMAL_CLASS_IDS 추가.
+- `sub1_side/server/yolo_infer.py` (수정) — predict conf=YOLO_ALERT_CONF (0.7).
+- `sub1_side/server/app.py` (수정) — `/robots/{rid}/cmd_vel` 가 linear_y(strafe)
+  도 수신 (quadruped 8-방향).
+- `sub1_side/server/ros_bridge.py` (수정) — pub_cmd_vel(vy=0.0) 시그니처 확장,
+  Twist.linear.y 발행.
+- `sub1_side/web/components/BaseMovementPanel.tsx` (신규) — quadruped_example
+  의 base_command 누적 패턴 차용, 8-방향 버튼 + WASD/QE/Space 키보드, 100ms
+  POST 주기.
+- `sub1_side/web/app/page.tsx` (수정) — BaseMovementPanel 기본 노출, TeleopPad
+  은 legacy 토글로 유지.
+- `~/.bashrc` (수정) — MAIN 분기 cobot3-start_all 에 mission_echo·urdf_server
+  자동 기동 추가, down_all PAT 에 동일 패턴 추가.
+
+**WHY (핵심 결함 수정):**
+- 정지 버튼 무동작: velocity_smoother 가 nav2_patrol 의 1-shot Twist(0) 통과
+  후 20Hz 잔여 발행 → safety_filter 가 그대로 통과시킴 → robot 보행 지속.
+  **Fix**: nav2_patrol PAUSED 모드 + 10Hz×2s stop_burst, safety_filter 가
+  /patrol_state 구독해 PAUSED/IDLE 시 입력 무시 + Twist(0) 강제.
+- simTime 동결: world.reset() 후 timeline.play() 1회만 호출, GUI 일시정지
+  영향. **Fix**: 100 step 마다 is_playing() 확인 → 자동 재시작.
+
+---
+
+## 2026-05-20
+
 ### DMZ Sentry 기능 통합 (Nav2 자율 순찰 + YOLO alert + 검사 카메라 + 침입자 GT)
 
 **변경 파일 (예고 — 마일스톤별 순차 적용):**

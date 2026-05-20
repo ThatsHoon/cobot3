@@ -34,10 +34,12 @@ class YoloInfer:
         return self._model is not None
 
     def infer(self, bgr) -> list[dict]:
+        # WHY conf=YOLO_ALERT_CONF (0.7): 사용자 사양 #8 — bbox 표시도 0.7 이상만.
         if self._model is None:
             return []
         try:
-            r = self._model.predict(bgr, verbose=False, conf=0.35)[0]
+            r = self._model.predict(
+                bgr, verbose=False, conf=config.YOLO_ALERT_CONF)[0]
         except Exception as e:
             log.warning("YOLO infer 실패: %s", e)
             return []
@@ -45,7 +47,7 @@ class YoloInfer:
         for b in r.boxes:
             cls = int(b.cls[0])
             name = config.YOLO_CLASSES.get(cls)
-            if name is None:                       # 관심 클래스만(person 등)
+            if name is None:
                 continue
             x1, y1, x2, y2 = (float(v) for v in b.xyxy[0])
             out.append({"class_name": name, "conf": float(b.conf[0]),
