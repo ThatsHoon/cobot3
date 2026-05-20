@@ -488,6 +488,7 @@ document.getElementById("resumeBtn").addEventListener("click", () => publishMiss
 document.getElementById("zoomInBtn").addEventListener("click", () => publishZoom("zoom_in"));
 document.getElementById("zoomOutBtn").addEventListener("click", () => publishZoom("zoom_out"));
 document.getElementById("zoomResetBtn").addEventListener("click", () => publishZoom("zoom_reset"));
+document.getElementById("thermalToggleBtn").addEventListener("click", () => publishZoom("thermal_toggle"));
 document.getElementById("panLeftBtn").addEventListener("click", () => publishInspectionMove("pan_left"));
 document.getElementById("panRightBtn").addEventListener("click", () => publishInspectionMove("pan_right"));
 document.getElementById("tiltUpBtn").addEventListener("click", () => publishInspectionMove("tilt_up"));

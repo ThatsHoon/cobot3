@@ -11,6 +11,9 @@ Isaac Sim의 ANYmal 정찰 시뮬레이션을 중심으로 ROS 2 센서/제어 �
 - Isaac Sim에서 DMZ 스타일 지형, 울타리, 강, 벙커, 감시탑, 움직이는 침입자 target을 생성합니다.
 - ANYmal 전방 카메라는 YOLO 감지용 `/camera/image_raw`, `/camera/depth`, `/camera/camera_info`, `/camera/points`를 발행합니다.
 - 별도 Inspector 카메라는 target 확인용 `/inspection_camera/image_raw`, `/inspection_camera/depth`, `/inspection_camera/camera_info`, `/inspection_camera/points`를 발행합니다.
+- Isaac Sim 내부 `DMZ Sentry Modes` 창에서 Morning/Noon/Evening/Night와 Clear/Cloudy/Fog/Rain/Snow 시각 프리셋을 바꿀 수 있습니다.
+- 침입자 target은 `--thermal-visuals`, Isaac Sim 내부 `DMZ Sentry Modes` 창, 또는 `/inspection_camera/command`의 `thermal_toggle`로 pseudo-thermal 시각 효과를 켜고 끌 수 있습니다.
+- `inspection_thermal_view`는 `/inspection_camera/image_raw`를 후처리해 Inspector 전용 `/inspection_camera/thermal/image_raw` 영상을 발행합니다.
 - YOLO 노드는 `/camera/image_raw`에서 사람을 감지하고 `/detections_text`, `/alerts`, 선택적으로 `/camera/annotated`를 발행합니다.
 - Nav2 순찰 컨트롤러는 웹의 `/mission_command`를 받아 `/navigate_to_pose` goal로 변환하고, alert가 들어오면 일시 정지 후 재개합니다.
 - 웹 전술 지도는 rosbridge로 `/odom`, `/alerts`, `/patrol_state`, `/intruder_states`를 구독하고, `/mission_command`, `/inspection_camera/command`를 발행합니다.
@@ -21,6 +24,7 @@ Isaac Sim의 ANYmal 정찰 시뮬레이션을 중심으로 ROS 2 센서/제어 �
 | --- | --- | --- |
 | Isaac Sim | `isaacsim/anymal_gp_terrain.py` | 지형/에셋/ANYmal/침입자/카메라/LiDAR/ROS 2 bridge 그래프를 생성하는 메인 시뮬레이션 |
 | Perception | `ros2_ws/src/dmz_sentry_perception/dmz_sentry_perception/yolo_person_detector.py` | Ultralytics YOLO로 사람 감지, detection JSON과 alert 발행 |
+| Perception | `ros2_ws/src/dmz_sentry_perception/dmz_sentry_perception/inspection_thermal_view.py` | Inspector RGB 영상에서 사람을 검출해 thermal-style 전용 영상 토픽 발행 |
 | Control | `ros2_ws/src/dmz_sentry_control/dmz_sentry_control/nav2_patrol_controller.py` | mission command를 Nav2 goal로 변환하고 순찰/복귀/정지/재개 상태 관리 |
 | Control | `ros2_ws/src/dmz_sentry_control/dmz_sentry_control/cmd_vel_safety_filter.py` | Nav2 속도 명령을 ANYmal에 맞게 drive/turn 모드로 제한 |
 | Bridge | `ros2_ws/src/dmz_sentry_control/dmz_sentry_control/inspection_bridge.py` | 웹 카메라 명령과 Isaac Sim 파일 mailbox, 침입자 상태 토픽을 연결 |
@@ -69,6 +73,10 @@ web target click / pan / tilt / zoom / clear
 
 Isaac Sim도 `/inspection_camera/command`를 직접 구독할 수 있고, 동시에 파일 mailbox도 poll합니다. 파일 mailbox는 rosbridge/ROS context가 엇갈릴 때를 대비한 느슨한 연결 방식입니다.
 
+`time_morning`, `time_noon`, `time_evening`, `time_night`와 `weather_clear`, `weather_cloudy`, `weather_fog`, `weather_rain`, `weather_snow` 명령으로도 시각 프리셋을 바꿀 수 있습니다.
+
+`thermal_on`, `thermal_off`, `thermal_toggle` 명령은 실제 열 센서가 아니라 침입자 material false-color를 바꾸는 시각 효과입니다. Depth 카메라 출력은 열값이 아니라 거리값 그대로입니다.
+
 ### 순찰 제어
 
 ```text
@@ -101,20 +109,24 @@ colcon build --symlink-install
 ./scripts/demo_dmz_sim.sh
 ./scripts/demo_inspection_bridge.sh
 ./scripts/demo_yolo_detector.sh
+./scripts/demo_inspection_thermal_view.sh
 ./scripts/demo_nav2_bringup.sh
 ./scripts/demo_nav2_patrol_controller.sh
 ./scripts/demo_rosbridge.sh
 ./scripts/demo_tactical_map.sh
 ```
 
-웹 지도는 `http://localhost:8080`에서 확인합니다. 카메라는 `rqt_image_view`에서 `/camera/annotated`와 `/inspection_camera/image_raw`를 보면 됩니다.
+웹 지도는 `http://localhost:8080`에서 확인합니다. 카메라는 `rqt_image_view`에서 `/camera/annotated`, `/inspection_camera/image_raw`, `/inspection_camera/thermal/image_raw`를 보면 됩니다.
 
 ## 동작 확인 포인트
 
 - `/camera/image_raw`, `/camera/depth`, `/camera/camera_info`, `/camera/points`가 발행되는지 확인합니다.
 - `/inspection_camera/image_raw`, `/inspection_camera/depth`, `/inspection_camera/camera_info`, `/inspection_camera/points`가 발행되는지 확인합니다.
+- `/inspection_camera/thermal/image_raw`가 발행되고, Inspector 화면 안 사람 영역만 thermal-style로 강조되는지 확인합니다.
 - `/alerts`에 `person_detected_near_fence` JSON이 나오는지 확인합니다.
 - 웹 지도에서 target이 표시되고 target 클릭 시 Inspector 카메라가 해당 좌표를 바라보는지 확인합니다.
+- Isaac Sim 내부 `DMZ Sentry Modes`에서 시간대와 날씨 프리셋이 바뀌는지 확인합니다.
+- Isaac Sim 내부 `DMZ Sentry Modes` 또는 웹 `Thermal` 버튼으로 침입자 pseudo-thermal 효과가 토글되는지 확인합니다.
 - 웹의 `출격`, `홈`, `정지`, `재개` 버튼이 `/mission_command`를 통해 Nav2 순찰 상태를 바꾸는지 확인합니다.
 - `/navigate_to_pose` action이 보이고 `/cmd_vel`이 발행되는지 확인합니다.
 
@@ -122,6 +134,8 @@ colcon build --symlink-install
 
 - target 지도 위치는 ground-truth 기반입니다. YOLO + depth 기반 world 좌표 추적은 아직 구현되어 있지 않습니다.
 - Inspector 카메라는 실제 물리 짐벌이 아니라 USD 카메라 transform과 focal length를 코드로 갱신하는 가상 짐벌입니다.
+- 시간대/날씨 모드는 조명과 간단한 오버레이 기반의 시각 효과입니다. 실제 기상 물리, 빗방울 동역학, 안개 산란을 모델링하지 않습니다.
+- Pseudo-thermal 모드는 material false-color 기반의 시각 효과입니다. 실제 열복사, 온도, IR 카메라 응답을 모델링하지 않습니다.
 - `assets.md`에 일부 외부 USDZ 에셋 출처와 라이선스가 TBD로 남아 있습니다. 공개 배포 전 정리가 필요합니다.
 - `models/`와 `datasets/`, `runs/`는 `.gitignore` 대상입니다. 학습 모델은 로컬 경로 기준으로 실행 스크립트에서 참조합니다.
 - Nav2는 SLAM이 아니라 정적 map과 `world` frame을 사용하는 known-map 데모 구성입니다.

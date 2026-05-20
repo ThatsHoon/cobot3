@@ -20,6 +20,7 @@ setup(
     entry_points={
         "console_scripts": [
             "yolo_person_detector = dmz_sentry_perception.yolo_person_detector:main",
+            "inspection_thermal_view = dmz_sentry_perception.inspection_thermal_view:main",
         ],
     },
 )

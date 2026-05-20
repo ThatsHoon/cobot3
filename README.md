@@ -106,6 +106,7 @@ YOLO bbox
 - `Zoom + / Zoom -`: Inspector 카메라 줌 인/아웃
 - `Reset`: 줌 초기화
 - `Clear`: target 추적 해제, 선택 target을 Confirmed 상태로 변경
+- `Thermal`: 침입자 target에 pseudo-thermal 시각 효과 토글
 
 ## Inspector 카메라
 
@@ -126,6 +127,18 @@ SentryInspectionCamera
 웹에서 target을 클릭하면 `/inspection_camera/command`가 발행되고, `inspection_bridge`가 이 명령을 Isaac Sim에 전달합니다. Isaac Sim은 해당 좌표를 바라보도록 Inspector 카메라 방향을 갱신합니다.
 
 현재 Inspector 카메라는 실제 물리 짐벌 모델이 아니라, 코드로 카메라 방향을 바꾸는 **가상 짐벌** 방식입니다.
+
+## 환경/날씨 시각 모드
+
+Isaac Sim 내부 `DMZ Sentry Modes` 창에서 `Morning`, `Noon`, `Evening`, `Night` 시간대와 `Clear`, `Cloudy`, `Fog`, `Rain`, `Snow` 날씨 프리셋을 바꿀 수 있습니다. 실행 시 `--time-of-day evening --weather rain`처럼 초기 프리셋을 지정할 수도 있습니다.
+
+이 기능은 조명, sky 색감, rain/snow/fog 오버레이를 바꾸는 시각 데모입니다. 실제 강수/안개 물리나 센서 산란 모델은 아닙니다.
+
+## Pseudo-thermal 시각 모드
+
+열화상 센서 물리 모델이 아니라 데모용 시각 효과입니다. Isaac Sim 내부 `DMZ Sentry Modes` 창이나 웹 `Thermal` 버튼으로 침입자 material false-color를 토글할 수 있고, 실행 시 `--thermal-visuals`를 주면 처음부터 켜집니다. `/camera/depth`는 기존처럼 거리 데이터만 제공하므로, 열 신호가 아니라 위치 추정 보조용으로 사용합니다.
+
+Inspector 카메라에서만 thermal처럼 보이는 영상은 별도 ROS 2 후처리 노드가 발행합니다. `./scripts/demo_inspection_thermal_view.sh`를 실행하면 `/inspection_camera/image_raw`에서 사람을 감지해 `/inspection_camera/thermal/image_raw`로 false-color thermal 영상을 내보냅니다.
 
 ## YOLO 사람 감지
 
@@ -226,6 +239,7 @@ dmz_sentry/
 
   ros2_ws/src/dmz_sentry_perception/
     yolo_person_detector.py           YOLO 사람 감지 노드
+    inspection_thermal_view.py        Inspector 전용 pseudo-thermal 영상 노드
 
   ros2_ws/src/dmz_sentry_control/
     nav2_patrol_controller.py         Nav2 순찰 컨트롤러
@@ -242,6 +256,7 @@ dmz_sentry/
   scripts/
     demo_dmz_sim.sh
     demo_yolo_detector.sh
+    demo_inspection_thermal_view.sh
     demo_inspection_bridge.sh
     demo_nav2_bringup.sh
     demo_nav2_patrol_controller.sh
@@ -285,25 +300,31 @@ cd /home/rokey/dev_ws/dmz_sentry
 ```
 
 ```bash
-# Terminal 4: Nav2 실행
+# Terminal 4: Inspector 전용 thermal view
+cd /home/rokey/dev_ws/dmz_sentry
+./scripts/demo_inspection_thermal_view.sh
+```
+
+```bash
+# Terminal 5: Nav2 실행
 cd /home/rokey/dev_ws/dmz_sentry
 ./scripts/demo_nav2_bringup.sh
 ```
 
 ```bash
-# Terminal 5: Nav2 순찰 컨트롤러
+# Terminal 6: Nav2 순찰 컨트롤러
 cd /home/rokey/dev_ws/dmz_sentry
 ./scripts/demo_nav2_patrol_controller.sh
 ```
 
 ```bash
-# Terminal 6: rosbridge websocket
+# Terminal 7: rosbridge websocket
 cd /home/rokey/dev_ws/dmz_sentry
 ./scripts/demo_rosbridge.sh
 ```
 
 ```bash
-# Terminal 7: 웹 전술 지도
+# Terminal 8: 웹 전술 지도
 cd /home/rokey/dev_ws/dmz_sentry
 ./scripts/demo_tactical_map.sh
 ```
@@ -330,4 +351,5 @@ Inspector 카메라:
 
 ```text
 /inspection_camera/image_raw
+/inspection_camera/thermal/image_raw
 ```

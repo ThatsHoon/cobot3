@@ -27,6 +27,7 @@ import omni.client
 import omni.graph.core as og
 import omni.kit.commands
 import omni.replicator.core as rep
+import omni.ui as ui
 import usdrt.Sdf
 from pathlib import Path
 from isaacsim.core.api import World
@@ -147,6 +148,23 @@ parser.add_argument(
     default=0.0,
     help="Yaw rotation applied to the intruder visual in degrees. Use 180 if the human asset faces backward.",
 )
+parser.add_argument(
+    "--thermal-visuals",
+    action="store_true",
+    help="Start with visual-only pseudo-thermal highlighting for intruder targets.",
+)
+parser.add_argument(
+    "--time-of-day",
+    choices=("morning", "noon", "evening", "night"),
+    default="noon",
+    help="Initial visual lighting preset.",
+)
+parser.add_argument(
+    "--weather",
+    choices=("clear", "cloudy", "fog", "rain", "snow"),
+    default="clear",
+    help="Initial visual weather preset.",
+)
 parser.add_argument("--no-gp-props", action="store_true", help="Disable lightweight GP visual props.")
 parser.add_argument("--no-external-props", action="store_true", help="Disable external USD/USDZ prop assets.")
 parser.add_argument(
@@ -238,6 +256,77 @@ INSPECTION_CAMERA_MAX_FOCAL_LENGTH = 90.0
 INSPECTION_CAMERA_PAN_STEP_DEG = 8.0
 INSPECTION_CAMERA_TILT_STEP_DEG = 5.0
 INSPECTION_CAMERA_MAX_TILT_DEG = 70.0
+THERMAL_HOT_MATERIAL_PATH = "/World/Looks/PseudoThermalHotMaterial"
+THERMAL_HOT_DIFFUSE = (1.0, 0.16, 0.02)
+THERMAL_HOT_EMISSIVE = (1.0, 0.42, 0.02)
+WEATHER_EFFECTS_PATH = "/World/WeatherEffects"
+TIME_OF_DAY_PRESETS = {
+    "morning": {
+        "sun_rotation": (-20.0, 0.0, 58.0),
+        "sun_intensity": 1250.0,
+        "sun_color": (1.0, 0.70, 0.42),
+        "dome_intensity": 470.0,
+        "dome_color": (0.76, 0.88, 1.0),
+    },
+    "noon": {
+        "sun_rotation": (-55.0, 0.0, 35.0),
+        "sun_intensity": 1800.0,
+        "sun_color": (1.0, 0.96, 0.84),
+        "dome_intensity": 650.0,
+        "dome_color": (0.86, 0.92, 1.0),
+    },
+    "evening": {
+        "sun_rotation": (-12.0, 0.0, -62.0),
+        "sun_intensity": 950.0,
+        "sun_color": (1.0, 0.48, 0.26),
+        "dome_intensity": 360.0,
+        "dome_color": (0.56, 0.62, 0.82),
+    },
+    "night": {
+        "sun_rotation": (-5.0, 0.0, 120.0),
+        "sun_intensity": 60.0,
+        "sun_color": (0.35, 0.48, 0.78),
+        "dome_intensity": 95.0,
+        "dome_color": (0.08, 0.11, 0.19),
+    },
+}
+WEATHER_PRESETS = {
+    "clear": {
+        "sun_multiplier": 1.0,
+        "dome_multiplier": 1.0,
+        "tint": (1.0, 1.0, 1.0),
+        "tint_strength": 0.0,
+        "effect": None,
+    },
+    "cloudy": {
+        "sun_multiplier": 0.38,
+        "dome_multiplier": 0.88,
+        "tint": (0.62, 0.68, 0.74),
+        "tint_strength": 0.45,
+        "effect": None,
+    },
+    "fog": {
+        "sun_multiplier": 0.25,
+        "dome_multiplier": 0.72,
+        "tint": (0.62, 0.70, 0.74),
+        "tint_strength": 0.60,
+        "effect": "fog",
+    },
+    "rain": {
+        "sun_multiplier": 0.28,
+        "dome_multiplier": 0.68,
+        "tint": (0.48, 0.58, 0.68),
+        "tint_strength": 0.62,
+        "effect": "rain",
+    },
+    "snow": {
+        "sun_multiplier": 0.55,
+        "dome_multiplier": 1.18,
+        "tint": (0.78, 0.88, 1.0),
+        "tint_strength": 0.50,
+        "effect": "snow",
+    },
+}
 # USD camera local -Z looks forward. This quaternion points it along robot +X
 # while keeping robot +Z as image up, so the viewport is not rolled sideways.
 FRONT_CAMERA_ORIENTATION_IJKR = (0.5, -0.5, -0.5, 0.5)
@@ -560,6 +649,14 @@ def _normalize_vector(vector: np.ndarray, fallback) -> np.ndarray:
     return np.asarray(vector, dtype=float) / norm
 
 
+def _mix_color(base, tint, strength: float) -> tuple[float, float, float]:
+    strength = float(np.clip(strength, 0.0, 1.0))
+    base_color = np.asarray(base, dtype=float)
+    tint_color = np.asarray(tint, dtype=float)
+    mixed = base_color * (1.0 - strength) + tint_color * strength
+    return tuple(float(value) for value in np.clip(mixed, 0.0, 1.0))
+
+
 def _quat_wxyz_from_rotation_matrix(matrix: np.ndarray) -> tuple[float, float, float, float]:
     trace = float(matrix[0, 0] + matrix[1, 1] + matrix[2, 2])
     if trace > 0.0:
@@ -614,6 +711,35 @@ def _set_xform(prim, translate, scale=None, rotate_xyz=None) -> None:
 
 def _set_display_color(gprim, color) -> None:
     gprim.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+
+
+def _create_preview_surface_material(
+    stage,
+    path: str,
+    diffuse_color,
+    emissive_color=(0.0, 0.0, 0.0),
+    roughness: float = 0.45,
+    metallic: float = 0.0,
+) -> UsdShade.Material:
+    material = UsdShade.Material.Define(stage, Sdf.Path(path))
+    shader = UsdShade.Shader.Define(stage, Sdf.Path(f"{path}/PreviewSurface"))
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*diffuse_color))
+    shader.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*emissive_color))
+    shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(float(roughness))
+    shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(float(metallic))
+    material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+    return material
+
+
+def _get_or_create_thermal_hot_material(stage) -> UsdShade.Material:
+    return _create_preview_surface_material(
+        stage,
+        THERMAL_HOT_MATERIAL_PATH,
+        THERMAL_HOT_DIFFUSE,
+        emissive_color=THERMAL_HOT_EMISSIVE,
+        roughness=0.18,
+    )
 
 
 def _enable_static_collision(prim) -> None:
@@ -691,6 +817,7 @@ def _add_curve_lines(stage, path: str, lines, width: float, color) -> None:
     curves.CreatePointsAttr(points)
     curves.CreateWidthsAttr([width])
     curves.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    return curves
 
 
 def _add_sphere_light(stage, path: str, center, radius: float, intensity: float, color) -> None:
@@ -699,6 +826,89 @@ def _add_sphere_light(stage, path: str, center, radius: float, intensity: float,
     light.CreateIntensityAttr(intensity)
     light.CreateColorAttr(Gf.Vec3f(*color))
     _set_xform(light.GetPrim(), center)
+
+
+def _set_prim_visibility(stage, path: str, visible: bool) -> None:
+    prim = stage.GetPrimAtPath(path)
+    if prim.IsValid():
+        UsdGeom.Imageable(prim).GetVisibilityAttr().Set("inherited" if visible else "invisible")
+
+
+def _add_weather_effects(stage, terrain_size: float) -> dict:
+    stage.DefinePrim(WEATHER_EFFECTS_PATH, "Xform")
+    rng = np.random.default_rng(20260520)
+    area = float(terrain_size) * 0.48
+
+    rain_lines = []
+    rain_bases = []
+    rain_speeds = []
+    for _ in range(220):
+        x = float(rng.uniform(-area, area))
+        y = float(rng.uniform(-area, area))
+        z = float(rng.uniform(2.2, 8.8))
+        rain_bases.append((x, y, z))
+        rain_speeds.append(float(rng.uniform(5.5, 8.0)))
+        rain_lines.append(((x, y, z), (x - 0.18, y - 0.36, z - 1.05)))
+    rain_path = f"{WEATHER_EFFECTS_PATH}/RainStreaks"
+    rain_curves = _add_curve_lines(stage, rain_path, rain_lines, width=0.012, color=(0.50, 0.62, 0.72))
+
+    fog_lines = []
+    fog_bases = []
+    for band_idx, y in enumerate(np.linspace(-area, area, 18)):
+        for z in (0.45, 0.95, 1.45):
+            offset = 0.6 * np.sin(band_idx * 0.8 + z)
+            fog_bases.append((float(y), float(z), float(offset), float(band_idx)))
+            fog_lines.append(((-area, float(y + offset), float(z)), (area, float(y - offset), float(z + 0.08))))
+    fog_path = f"{WEATHER_EFFECTS_PATH}/FogBands"
+    fog_curves = _add_curve_lines(stage, fog_path, fog_lines, width=0.075, color=(0.55, 0.62, 0.65))
+
+    snow_points = []
+    snow_bases = []
+    snow_speeds = []
+    snow_phases = []
+    snow_widths = []
+    for _ in range(260):
+        x = float(rng.uniform(-area, area))
+        y = float(rng.uniform(-area, area))
+        z = float(rng.uniform(1.0, 7.6))
+        snow_bases.append((x, y, z))
+        snow_speeds.append(float(rng.uniform(0.45, 1.1)))
+        snow_phases.append(float(rng.uniform(0.0, np.pi * 2.0)))
+        snow_points.append(Gf.Vec3f(x, y, z))
+        snow_widths.append(float(rng.uniform(0.035, 0.075)))
+    snow = UsdGeom.Points.Define(stage, Sdf.Path(f"{WEATHER_EFFECTS_PATH}/SnowFlakes"))
+    snow.CreatePointsAttr(snow_points)
+    snow.CreateWidthsAttr(snow_widths)
+    snow.CreateDisplayColorAttr([Gf.Vec3f(0.90, 0.96, 1.0)])
+
+    effect_paths = {"rain": rain_path, "fog": fog_path, "snow": str(snow.GetPath())}
+    for path in effect_paths.values():
+        _set_prim_visibility(stage, path, False)
+    return {
+        "paths": effect_paths,
+        "area": area,
+        "rain": {
+            "points_attr": rain_curves.GetPointsAttr(),
+            "color_attr": rain_curves.GetDisplayColorAttr(),
+            "color": (0.50, 0.62, 0.72),
+            "bases": np.asarray(rain_bases, dtype=float),
+            "speeds": np.asarray(rain_speeds, dtype=float),
+        },
+        "fog": {
+            "points_attr": fog_curves.GetPointsAttr(),
+            "color_attr": fog_curves.GetDisplayColorAttr(),
+            "color": (0.55, 0.62, 0.65),
+            "bases": np.asarray(fog_bases, dtype=float),
+        },
+        "snow": {
+            "points_attr": snow.GetPointsAttr(),
+            "color_attr": snow.GetDisplayColorAttr(),
+            "color": (0.90, 0.96, 1.0),
+            "bases": np.asarray(snow_bases, dtype=float),
+            "speeds": np.asarray(snow_speeds, dtype=float),
+            "phases": np.asarray(snow_phases, dtype=float),
+        },
+    }
 
 
 def _add_concertina_wire(
@@ -1110,6 +1320,8 @@ class IntruderScenario:
         self._human_usd_path = human_usd_path
         self._yaw_deg = float(yaw_deg)
         self._visual_types = set()
+        self._thermal_enabled = False
+        self._thermal_material = _get_or_create_thermal_hot_material(stage)
 
         stage.DefinePrim("/World/Intruders", "Xform")
         for index in range(max(0, int(count))):
@@ -1120,6 +1332,7 @@ class IntruderScenario:
                 "path": path,
                 "translate_op": handles["translate_op"],
                 "visual_type": handles.get("visual_type", "unknown"),
+                "thermal_original_materials": {},
                 "phase": float(self._rng.uniform(0.0, np.pi * 2.0)),
                 "time": 0.0,
             }
@@ -1131,6 +1344,44 @@ class IntruderScenario:
                 f"Intruder scenario enabled: count={len(self._intruders)}, "
                 f"speed={self._speed:.2f} m/s, visual={','.join(sorted(self._visual_types))}, label=person"
             )
+
+    def set_thermal_visual_enabled(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._thermal_enabled == enabled:
+            return
+
+        for state in self._intruders:
+            self._set_intruder_thermal_visual(state, enabled)
+        self._thermal_enabled = enabled
+        print(f"Pseudo-thermal visual mode: {'ON' if enabled else 'OFF'}")
+
+    def thermal_visual_enabled(self) -> bool:
+        return bool(self._thermal_enabled)
+
+    def _set_intruder_thermal_visual(self, state: dict, enabled: bool) -> None:
+        root_prim = self._stage.GetPrimAtPath(state["path"])
+        if not root_prim.IsValid():
+            return
+
+        originals = state.setdefault("thermal_original_materials", {})
+        for prim in Usd.PrimRange(root_prim):
+            if not prim.IsA(UsdGeom.Gprim):
+                continue
+            prim_path = str(prim.GetPath())
+            binding_api = UsdShade.MaterialBindingAPI(prim)
+            if enabled:
+                if prim_path not in originals:
+                    original_material, _ = binding_api.ComputeBoundMaterial()
+                    originals[prim_path] = (
+                        original_material if original_material and original_material.GetPrim().IsValid() else None
+                    )
+                binding_api.Bind(self._thermal_material, UsdShade.Tokens.strongerThanDescendants)
+            else:
+                original_material = originals.get(prim_path)
+                if original_material is not None and original_material.GetPrim().IsValid():
+                    binding_api.Bind(original_material, UsdShade.Tokens.strongerThanDescendants)
+                else:
+                    binding_api.UnbindAllBindings()
 
     def _respawn_intruder(self, state: dict) -> None:
         x_limit = self._terrain_size * 0.30
@@ -1182,6 +1433,7 @@ class IntruderScenario:
                     "label": "person",
                     "path": state["path"],
                     "visual_type": state.get("visual_type", "unknown"),
+                    "thermal_visual": self.thermal_visual_enabled(),
                     "x": float(position[0]),
                     "y": float(position[1]),
                     "z": float(ground_z),
@@ -1563,16 +1815,25 @@ def _create_noise_terrain(
     return float(heights[samples // 2, samples // 2]), x_values, y_values, heights
 
 
-def _add_scene_lighting(stage) -> None:
+def _add_scene_lighting(stage) -> dict:
     dome_light = UsdLux.DomeLight.Define(stage, Sdf.Path("/World/DomeLight"))
-    dome_light.CreateIntensityAttr(650.0)
-    dome_light.CreateColorAttr(Gf.Vec3f(0.86, 0.92, 1.0))
+    dome_intensity_attr = dome_light.CreateIntensityAttr(650.0)
+    dome_color_attr = dome_light.CreateColorAttr(Gf.Vec3f(0.86, 0.92, 1.0))
 
     distant_light = UsdLux.DistantLight.Define(stage, Sdf.Path("/World/Sun"))
-    distant_light.CreateIntensityAttr(1800.0)
+    sun_intensity_attr = distant_light.CreateIntensityAttr(1800.0)
+    sun_color_attr = distant_light.CreateColorAttr(Gf.Vec3f(1.0, 0.96, 0.84))
     distant_light.CreateAngleAttr(0.7)
     xformable = UsdGeom.Xformable(distant_light.GetPrim())
-    xformable.AddRotateXYZOp().Set(Gf.Vec3f(-55.0, 0.0, 35.0))
+    sun_rotate_op = xformable.AddRotateXYZOp()
+    sun_rotate_op.Set(Gf.Vec3f(-55.0, 0.0, 35.0))
+    return {
+        "dome_intensity": dome_intensity_attr,
+        "dome_color": dome_color_attr,
+        "sun_intensity": sun_intensity_attr,
+        "sun_color": sun_color_attr,
+        "sun_rotate": sun_rotate_op,
+    }
 
 
 def _make_child_path(parent_path: str, child_name: str) -> str:
@@ -2088,6 +2349,9 @@ class Anymal_runner(object):
         intruder_visual,
         intruder_human_usd,
         intruder_yaw_deg,
+        thermal_visuals,
+        time_of_day,
+        weather,
     ) -> None:
         """
         Creates the simulation world and places ANYmal on a generated GP-style noise terrain.
@@ -2100,7 +2364,12 @@ class Anymal_runner(object):
         self._world = World(stage_units_in_meters=1.0, physics_dt=physics_dt, rendering_dt=render_dt)
         self._stage = simulation_app.context.get_stage()
 
-        _add_scene_lighting(self._stage)
+        self._lighting_handles = _add_scene_lighting(self._stage)
+        self._weather_effect_paths = _add_weather_effects(self._stage, terrain_size)
+        self._weather_visual_time = 0.0
+        self._time_of_day = "noon"
+        self._weather_mode = "clear"
+        self._environment_status_label = None
         terrain_center_height, terrain_x_values, terrain_y_values, terrain_heights = _create_noise_terrain(
             self._stage,
             prim_path="/World/GP_NoiseTerrain",
@@ -2149,6 +2418,13 @@ class Anymal_runner(object):
             if enable_intruder
             else None
         )
+        self._thermal_status_label = None
+        self._thermal_window = None
+        if self._intruder_scenario is not None:
+            self._intruder_scenario.set_thermal_visual_enabled(bool(thermal_visuals))
+        elif thermal_visuals:
+            carb.log_warn("Pseudo-thermal visuals requested, but intruder scenario is disabled.")
+        self.set_environment_visual_mode(time_of_day=time_of_day, weather=weather)
         self._sim_time = 0.0
         self._last_intruder_state_publish_time = -1.0
         self._intruder_state_publisher = (
@@ -2200,6 +2476,7 @@ class Anymal_runner(object):
         self._lidar_follow_offset = np.array(LIDAR_LOCAL_TRANSLATION)
         if self._lidar_follow_enabled:
             self._setup_lidar_follow_xform()
+        self._setup_visual_mode_ui()
 
         self._base_command = np.zeros(3)
         self._keyboard_command = np.zeros(3)
@@ -2280,6 +2557,195 @@ class Anymal_runner(object):
                 Gf.Vec3d(float(orientation[1]), float(orientation[2]), float(orientation[3])),
             )
         )
+
+    def _apply_environment_visuals(self) -> None:
+        time_preset = TIME_OF_DAY_PRESETS[self._time_of_day]
+        weather_preset = WEATHER_PRESETS[self._weather_mode]
+
+        sun_intensity = float(time_preset["sun_intensity"] * weather_preset["sun_multiplier"])
+        dome_intensity = float(time_preset["dome_intensity"] * weather_preset["dome_multiplier"])
+        tint_strength = float(weather_preset["tint_strength"])
+        if self._time_of_day == "night":
+            tint_strength *= 0.16
+            sun_intensity = min(sun_intensity, float(time_preset["sun_intensity"]))
+            dome_intensity = min(dome_intensity, float(time_preset["dome_intensity"]))
+        sun_color = _mix_color(time_preset["sun_color"], weather_preset["tint"], tint_strength)
+        dome_color = _mix_color(time_preset["dome_color"], weather_preset["tint"], tint_strength)
+
+        self._lighting_handles["sun_intensity"].Set(sun_intensity)
+        self._lighting_handles["sun_color"].Set(Gf.Vec3f(*sun_color))
+        self._lighting_handles["sun_rotate"].Set(Gf.Vec3f(*time_preset["sun_rotation"]))
+        self._lighting_handles["dome_intensity"].Set(dome_intensity)
+        self._lighting_handles["dome_color"].Set(Gf.Vec3f(*dome_color))
+
+        active_effect = weather_preset["effect"]
+        for effect_name, path in self._weather_effect_paths["paths"].items():
+            _set_prim_visibility(self._stage, path, active_effect == effect_name)
+            effect_data = self._weather_effect_paths.get(effect_name)
+            if effect_data and effect_data.get("color_attr") is not None:
+                dim = 0.34 if self._time_of_day == "night" else 1.0
+                color = tuple(float(value) * dim for value in effect_data["color"])
+                effect_data["color_attr"].Set([Gf.Vec3f(*color)])
+
+    def _get_weather_center_xy(self) -> tuple[float, float]:
+        try:
+            position, _ = self._anymal.robot.get_world_pose()
+            return float(position[0]), float(position[1])
+        except Exception:
+            return 0.0, 0.0
+
+    def _update_weather_effects(self, step_size: float) -> None:
+        self._weather_visual_time += float(step_size)
+        active_effect = WEATHER_PRESETS[self._weather_mode]["effect"]
+        if active_effect is None:
+            return
+
+        center_x, center_y = self._get_weather_center_xy()
+        area = float(self._weather_effect_paths["area"])
+        time_value = self._weather_visual_time
+
+        if active_effect == "rain":
+            data = self._weather_effect_paths["rain"]
+            bases = data["bases"]
+            speeds = data["speeds"]
+            z = 1.6 + np.mod(bases[:, 2] - time_value * speeds - 1.6, 7.0)
+            drift_x = -0.65 * time_value
+            drift_y = -1.15 * time_value
+            x = center_x - area + np.mod(bases[:, 0] + area + drift_x, area * 2.0)
+            y = center_y - area + np.mod(bases[:, 1] + area + drift_y, area * 2.0)
+            points = []
+            for px, py, pz in zip(x, y, z):
+                points.append(Gf.Vec3f(float(px), float(py), float(pz)))
+                points.append(Gf.Vec3f(float(px - 0.18), float(py - 0.36), float(pz - 1.05)))
+            data["points_attr"].Set(points)
+        elif active_effect == "snow":
+            data = self._weather_effect_paths["snow"]
+            bases = data["bases"]
+            speeds = data["speeds"]
+            phases = data["phases"]
+            z = 1.1 + np.mod(bases[:, 2] - time_value * speeds - 1.1, 6.8)
+            x = center_x + bases[:, 0] + 0.45 * np.sin(time_value * 1.4 + phases)
+            y = center_y + bases[:, 1] + 0.35 * np.cos(time_value * 1.1 + phases * 0.7)
+            data["points_attr"].Set([Gf.Vec3f(float(px), float(py), float(pz)) for px, py, pz in zip(x, y, z)])
+        elif active_effect == "fog":
+            data = self._weather_effect_paths["fog"]
+            points = []
+            for base_y, base_z, base_offset, band_idx in data["bases"]:
+                scroll = np.sin(time_value * 0.34 + band_idx * 0.8)
+                wave = 0.45 * np.sin(time_value * 0.72 + band_idx + base_z)
+                y0 = center_y + base_y + base_offset + wave
+                y1 = center_y + base_y - base_offset + wave * 0.35
+                x_shift = 1.5 * scroll
+                points.append(Gf.Vec3f(float(center_x - area + x_shift), float(y0), float(base_z)))
+                points.append(Gf.Vec3f(float(center_x + area + x_shift), float(y1), float(base_z + 0.08)))
+            data["points_attr"].Set(points)
+
+    def _update_environment_status_label(self) -> None:
+        if self._environment_status_label is None:
+            return
+        self._environment_status_label.text = f"{self._time_of_day.upper()} / {self._weather_mode.upper()}"
+
+    def set_environment_visual_mode(self, time_of_day: str | None = None, weather: str | None = None) -> None:
+        next_time = self._time_of_day if time_of_day is None else str(time_of_day).strip().lower()
+        next_weather = self._weather_mode if weather is None else str(weather).strip().lower()
+        if next_time not in TIME_OF_DAY_PRESETS:
+            carb.log_warn(f"Unknown time-of-day visual preset: {time_of_day}")
+            return
+        if next_weather not in WEATHER_PRESETS:
+            carb.log_warn(f"Unknown weather visual preset: {weather}")
+            return
+
+        changed = next_time != self._time_of_day or next_weather != self._weather_mode
+        self._time_of_day = next_time
+        self._weather_mode = next_weather
+        self._apply_environment_visuals()
+        self._update_environment_status_label()
+        if changed:
+            print(f"Environment visual mode: time={self._time_of_day}, weather={self._weather_mode}")
+
+    def set_time_of_day(self, time_of_day: str) -> None:
+        self.set_environment_visual_mode(time_of_day=time_of_day)
+
+    def set_weather_mode(self, weather: str) -> None:
+        self.set_environment_visual_mode(weather=weather)
+
+    def show_visual_mode_ui(self) -> None:
+        try:
+            if self._thermal_window is None:
+                self._setup_visual_mode_ui()
+            else:
+                self._thermal_window.visible = True
+                self._update_environment_status_label()
+                self._update_thermal_status_label()
+        except Exception as exc:
+            carb.log_warn(f"Unable to show DMZ visual mode UI: {exc}")
+            self._thermal_window = None
+            self._setup_visual_mode_ui()
+
+    def hide_visual_mode_ui(self) -> None:
+        if self._thermal_window is not None:
+            self._thermal_window.visible = False
+
+    def toggle_visual_mode_ui(self) -> None:
+        if self._thermal_window is None:
+            self._setup_visual_mode_ui()
+            return
+        try:
+            self._thermal_window.visible = not bool(self._thermal_window.visible)
+        except Exception as exc:
+            carb.log_warn(f"Unable to toggle DMZ visual mode UI: {exc}")
+            self._thermal_window = None
+            self._setup_visual_mode_ui()
+
+    def _setup_visual_mode_ui(self) -> None:
+        try:
+            self._thermal_window = ui.Window("DMZ Sentry Modes", width=360, height=248)
+            with self._thermal_window.frame:
+                with ui.VStack(spacing=7, height=0):
+                    ui.Label("Environment")
+                    self._environment_status_label = ui.Label("")
+                    with ui.HStack(spacing=6):
+                        ui.Button("Morning", clicked_fn=lambda: self.set_time_of_day("morning"))
+                        ui.Button("Noon", clicked_fn=lambda: self.set_time_of_day("noon"))
+                        ui.Button("Evening", clicked_fn=lambda: self.set_time_of_day("evening"))
+                        ui.Button("Night", clicked_fn=lambda: self.set_time_of_day("night"))
+                    with ui.HStack(spacing=6):
+                        ui.Button("Clear", clicked_fn=lambda: self.set_weather_mode("clear"))
+                        ui.Button("Cloudy", clicked_fn=lambda: self.set_weather_mode("cloudy"))
+                        ui.Button("Fog", clicked_fn=lambda: self.set_weather_mode("fog"))
+                    with ui.HStack(spacing=6):
+                        ui.Button("Rain", clicked_fn=lambda: self.set_weather_mode("rain"))
+                        ui.Button("Snow", clicked_fn=lambda: self.set_weather_mode("snow"))
+                    ui.Label("Thermal Visual")
+                    self._thermal_status_label = ui.Label("")
+                    with ui.HStack(spacing=6):
+                        ui.Button("On", clicked_fn=lambda: self.set_thermal_visual_enabled(True))
+                        ui.Button("Off", clicked_fn=lambda: self.set_thermal_visual_enabled(False))
+                        ui.Button("Toggle", clicked_fn=self.toggle_thermal_visual_mode)
+            self._update_environment_status_label()
+            self._update_thermal_status_label()
+        except Exception as exc:
+            carb.log_warn(f"Unable to create DMZ visual mode UI: {exc}")
+
+    def _update_thermal_status_label(self) -> None:
+        if self._thermal_status_label is None:
+            return
+        enabled = self.thermal_visual_enabled()
+        self._thermal_status_label.text = f"Status: {'ON' if enabled else 'OFF'}"
+
+    def thermal_visual_enabled(self) -> bool:
+        return bool(self._intruder_scenario and self._intruder_scenario.thermal_visual_enabled())
+
+    def set_thermal_visual_enabled(self, enabled: bool) -> None:
+        if self._intruder_scenario is None:
+            carb.log_warn("Cannot change pseudo-thermal visuals because intruder scenario is disabled.")
+            return
+        self._intruder_scenario.set_thermal_visual_enabled(bool(enabled))
+        self._update_thermal_status_label()
+        self._publish_intruder_states(force=True)
+
+    def toggle_thermal_visual_mode(self) -> None:
+        self.set_thermal_visual_enabled(not self.thermal_visual_enabled())
 
     def _setup_inspection_camera_xform(self) -> None:
         camera_path = self._ros_sensor_handles["inspection_camera"]["camera_path"]
@@ -2376,6 +2842,24 @@ class Anymal_runner(object):
                     INSPECTION_CAMERA_MAX_FOCAL_LENGTH,
                 )
             )
+        elif action in ("thermal_on", "thermal_visual_on", "pseudo_thermal_on"):
+            self.set_thermal_visual_enabled(True)
+        elif action in ("thermal_off", "thermal_visual_off", "pseudo_thermal_off"):
+            self.set_thermal_visual_enabled(False)
+        elif action in ("thermal_toggle", "toggle_thermal", "thermal_visual_toggle", "pseudo_thermal_toggle"):
+            self.toggle_thermal_visual_mode()
+        elif action in ("set_environment", "environment_mode"):
+            self.set_environment_visual_mode(payload.get("time_of_day"), payload.get("weather"))
+        elif action.startswith("time_"):
+            self.set_time_of_day(action.removeprefix("time_"))
+        elif action.startswith("weather_"):
+            self.set_weather_mode(action.removeprefix("weather_"))
+        elif action in ("show_ui", "show_modes_ui", "show_dmz_modes"):
+            self.show_visual_mode_ui()
+        elif action in ("hide_ui", "hide_modes_ui", "hide_dmz_modes"):
+            self.hide_visual_mode_ui()
+        elif action in ("toggle_ui", "toggle_modes_ui", "toggle_dmz_modes"):
+            self.toggle_visual_mode_ui()
         else:
             carb.log_warn(f"Unknown inspection camera command: {action}")
 
@@ -2490,6 +2974,7 @@ class Anymal_runner(object):
             if self._intruder_scenario is not None:
                 self._intruder_scenario.update(0.0)
                 self._publish_intruder_states(force=True)
+            self._update_weather_effects(0.0)
             self._update_lidar_follow_pose()
             self._update_inspection_camera_pose()
             self.first_step = False
@@ -2505,6 +2990,7 @@ class Anymal_runner(object):
                 self._intruder_scenario.update(step_size)
                 self._sim_time += float(step_size)
                 self._publish_intruder_states()
+            self._update_weather_effects(step_size)
             self._update_lidar_follow_pose()
             self._update_inspection_camera_pose()
 
@@ -2676,6 +3162,9 @@ def main():
         f"intruder_speed={args.intruder_speed:.2f}m/s, "
         f"intruder_visual={args.intruder_visual}, "
         f"intruder_yaw={args.intruder_yaw_deg:.1f}deg, "
+        f"thermal_visuals={args.thermal_visuals}, "
+        f"time_of_day={args.time_of_day}, "
+        f"weather={args.weather}, "
         f"replicator_dataset={args.replicator_dataset}, "
         f"seed={args.terrain_seed}"
     )
@@ -2732,6 +3221,9 @@ def main():
         intruder_visual=args.intruder_visual,
         intruder_human_usd=args.intruder_human_usd,
         intruder_yaw_deg=args.intruder_yaw_deg,
+        thermal_visuals=args.thermal_visuals,
+        time_of_day=args.time_of_day,
+        weather=args.weather,
     )
     simulation_app.update()
     runner._world.reset()
