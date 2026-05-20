@@ -51,7 +51,6 @@ ROBOT_PRIM     = "/World/Go2"          # go2.usd ref Xform (TF 루트)
 ART_PRIM       = "/World/Go2/base"
 SPOT_PRIM      = ART_PRIM              # OG 와이어링 하위호환 별칭(=articulation)
 BASE_PRIM      = "/World/Go2/base"
-CAM_FRONT_PATH = "/World/Go2/base/camera_front"
 CAM_REAR_PATH  = "/World/Go2/base/camera_rear"
 _STALE_ROBOT   = "/World/Robot"
 GRAPH  = "/World/Graphs/sensor_bridge"
@@ -364,13 +363,14 @@ def _mk_cam(path, translate, quat, label):
     log(f"{label} 생성: {path} (시선 정방향, up=+Z, 16:9)")
 
 
-_mk_cam(CAM_FRONT_PATH, Gf.Vec3f(0.22, 0.0, 0.06), _Q_FRONT, "전방 카메라")
-_mk_cam(CAM_REAR_PATH, Gf.Vec3f(-0.22, 0.0, 0.06), _Q_REAR, "후방 카메라")
+# 사용자 요청 (2026-05-20): front 카메라 삭제, inspect 는 base 전방 끝, rear 는
+# 후방 끝 으로 이동. Go2 base half-length ≈ 0.235m.
+_mk_cam(CAM_REAR_PATH, Gf.Vec3f(-0.235, 0.0, 0.10), _Q_REAR, "후방(real) 카메라")
 
-# DMZ Sentry M6: 검사 카메라(가상 짐벌) — Go2 base 위 mount. pan/tilt/zoom 은
+# 검사 카메라(가상 짐벌) — base 전방 끝 mount. pan/tilt/zoom 은
 # /robot/inspect/command 수신 시 _apply_inspect_cmd 가 Xform·focalLength 갱신.
 CAM_INSPECT_PATH = "/World/Go2/base/camera_inspect"
-_mk_cam(CAM_INSPECT_PATH, Gf.Vec3f(0.0, 0.0, 0.30), _Q_FRONT, "검사 카메라(짐벌)")
+_mk_cam(CAM_INSPECT_PATH, Gf.Vec3f(0.235, 0.0, 0.10), _Q_FRONT, "검사 카메라(짐벌, 전방 끄트머리)")
 
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
@@ -413,32 +413,17 @@ LEG_TOPIC  = "/robot/leg_joint_states"
 ODOM_TOPIC = "/robot/odom"
 
 K = og.Controller.Keys
+# 사용자 요청 (2026-05-20): RPFront/CamFront 제거 — front 카메라 미사용.
 _CN = [
     ("OnTick",   "omni.graph.action.OnPlaybackTick"),
     ("Ctx",      "isaacsim.ros2.bridge.ROS2Context"),
-    ("RPFront",  "isaacsim.core.nodes.IsaacCreateRenderProduct"),
-    ("CamFront", "isaacsim.ros2.bridge.ROS2CameraHelper"),
-    # CamDepth/CamInfo/CamPCL 제거: Isaac 5.1 ROS2CameraHelper 가 type
-    # "depth"/"camera_info"/"depth_pcl" 미지원 → 매 프레임 "type is not
-    # supported" 폭주(수천 에러)·렌더 파이프라인 손상. rgb 2종만 유지.
     ("RPRear",   "isaacsim.core.nodes.IsaacCreateRenderProduct"),
     ("CamRear",  "isaacsim.ros2.bridge.ROS2CameraHelper"),
-    # DMZ Sentry M6: 검사 카메라 RGB
     ("RPInspect",  "isaacsim.core.nodes.IsaacCreateRenderProduct"),
     ("CamInspect", "isaacsim.ros2.bridge.ROS2CameraHelper"),
-    # 검사 카메라 명령 — Isaac 5.1 OG 에 ROS2SubscribeString 미등록(2026-05-20
-    # 라이브 검증) → 사이드카 inspect_relay.py(rclpy) 가 /robot/inspect/command
-    # 구독해 /tmp/cobot3_inspect_cmd.json 에 dump, 본 process 가 mtime 폴.
 ]
 _SV = [
     ("Ctx.inputs:domain_id",        DOMAIN),
-    ("RPFront.inputs:cameraPrim",   CAM_FRONT_PATH),
-    ("RPFront.inputs:width",        640),
-    ("RPFront.inputs:height",       360),
-    ("CamFront.inputs:topicName",   "/cam/front/rgb"),
-    ("CamFront.inputs:frameId",     "camera_front"),
-    ("CamFront.inputs:type",        "rgb"),
-    ("CamFront.inputs:qosProfile",  _SENSOR_QOS),
     ("RPRear.inputs:cameraPrim",    CAM_REAR_PATH),
     ("RPRear.inputs:width",         640),
     ("RPRear.inputs:height",        360),
@@ -446,7 +431,6 @@ _SV = [
     ("CamRear.inputs:frameId",      "camera_rear"),
     ("CamRear.inputs:type",         "rgb"),
     ("CamRear.inputs:qosProfile",   _SENSOR_QOS),
-    # DMZ Sentry M6: 검사 카메라 RGB + 명령 구독
     ("RPInspect.inputs:cameraPrim",  CAM_INSPECT_PATH),
     ("RPInspect.inputs:width",       640),
     ("RPInspect.inputs:height",      360),
@@ -456,15 +440,10 @@ _SV = [
     ("CamInspect.inputs:qosProfile", _SENSOR_QOS),
 ]
 _CC = [
-    ("OnTick.outputs:tick",              "RPFront.inputs:execIn"),
-    ("RPFront.outputs:execOut",          "CamFront.inputs:execIn"),
-    ("RPFront.outputs:renderProductPath","CamFront.inputs:renderProductPath"),
-    ("Ctx.outputs:context",              "CamFront.inputs:context"),
     ("OnTick.outputs:tick",              "RPRear.inputs:execIn"),
     ("RPRear.outputs:execOut",           "CamRear.inputs:execIn"),
     ("RPRear.outputs:renderProductPath", "CamRear.inputs:renderProductPath"),
     ("Ctx.outputs:context",              "CamRear.inputs:context"),
-    # DMZ Sentry M6
     ("OnTick.outputs:tick",                "RPInspect.inputs:execIn"),
     ("RPInspect.outputs:execOut",          "CamInspect.inputs:execIn"),
     ("RPInspect.outputs:renderProductPath", "CamInspect.inputs:renderProductPath"),
@@ -524,7 +503,7 @@ og.Controller.edit(
     {"graph_path": GRAPH, "evaluator_name": "execution"},
     {K.CREATE_NODES: _CN, K.SET_VALUES: _SV, K.CONNECT: _CC},
 )
-log(f"OG {GRAPH} fresh 생성 완료 → /cam/front/rgb, /cam/rear/rgb (domain {DOMAIN})")
+log(f"OG {GRAPH} fresh 생성 완료 → /cam/rear/rgb, /cam/inspect/rgb (domain {DOMAIN})")
 if _TELEM:
     log(f"OG 텔레메트리 발행: {LEG_TOPIC}, {ODOM_TOPIC}, /tf "
         f"(RELIABLE) — gps/state 는 telemetry_bridge_node 가 odom 에서 파생")
@@ -580,12 +559,16 @@ if _SPOT_CTRL:
         _ctrl = Go2WtwController(SPOT_PRIM)
         world.add_physics_callback("go2_ctrl", _ctrl.on_physics_step)
         log("Go2WtwController 등록 — physics_callback 활성")
-        # play 시 자동으로 Cone 으로 자율 주행 (nav P-제어 → walk-these-ways).
-        # teleop(/robot/cmd_vel) 수신 시 _command() 가 우선(teleop>nav>idle).
-        if _cone_xy is not None and os.environ.get("GP_GO2_NAV", "1") == "1":
+        # 외부 Nav2 사용 시 내부 P-제어 비활성 (GP_GO2_NAV=0). 충돌 방지
+        # — 외부 Nav2 가 mode 변경마다 새 goal 전송, 내부 P-제어가 고정 goal
+        # 추적하면 명령 무시 증상 (2026-05-20 fix).
+        if _cone_xy is not None and os.environ.get("GP_GO2_NAV", "1") != "0":
             _ctrl.set_nav_goal(_cone_xy[0], _cone_xy[1])
-            log(f"nav_goal=Cone {tuple(round(v,2) for v in _cone_xy)} "
-                f"설정 — play 시 자율 보행 시작")
+            log(f"nav_goal=수색지 {tuple(round(v,2) for v in _cone_xy)} "
+                f"설정 — play 시 자율 보행 시작 (내부 P-제어)")
+        else:
+            log("GP_GO2_NAV=0 → 내부 P-제어 set_nav_goal 호출 스킵 "
+                "(외부 Nav2 cmd_vel 만 사용)")
     except Exception as e:
         log(f"Go2WtwController 초기화 실패 {e!r} — 보행 제어 비활성")
 else:
@@ -619,13 +602,14 @@ def _apply_cmd():
 
 def _diag():
     try:
-        rp = og.Controller.attribute(
-            f"{GRAPH}/RPFront.outputs:renderProductPath").get()
-        cp = og.Controller.attribute(
-            f"{GRAPH}/RPFront.inputs:cameraPrim").get()
-        log(f"DIAG front cameraPrim={cp} renderProduct={rp!r}")
-        if not rp:
-            log("  ⚠ front renderProductPath 비어있음 → 카메라 프레임 생성 안 됨")
+        for cam in ("RPRear", "RPInspect"):
+            rp = og.Controller.attribute(
+                f"{GRAPH}/{cam}.outputs:renderProductPath").get()
+            cp = og.Controller.attribute(
+                f"{GRAPH}/{cam}.inputs:cameraPrim").get()
+            log(f"DIAG {cam} cameraPrim={cp} renderProduct={rp!r}")
+            if not rp:
+                log(f"  ⚠ {cam} renderProductPath 비어있음")
     except Exception as e:
         log(f"DIAG 실패: {e!r}")
 

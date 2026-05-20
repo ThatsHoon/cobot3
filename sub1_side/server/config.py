@@ -31,9 +31,10 @@ TOPICS = {
     "odom":        "/robot/odom",             # nav_msgs/Odometry
     "leg_joint":   "/robot/leg_joint_states", # sensor_msgs/JointState (Spot 12-DOF legs)
     "rosout":      "/rosout",                 # rcl_interfaces/Log (level>=30 필터)
-    "video_front": "/c2/front/compressed",    # sensor_msgs/CompressedImage (전방 카메라)
-    "video_rear":  "/c2/rear/compressed",     # sensor_msgs/CompressedImage (후방 카메라)
-    "depth":       "/c2/depth/compressed",    # sensor_msgs/CompressedImage
+    # video_front 삭제 (2026-05-20 사용자 요청) — Go2 전방 카메라 제거
+    "video_rear":    "/c2/rear/compressed",     # sensor_msgs/CompressedImage (후방/real)
+    "video_inspect": "/c2/inspect/compressed",  # sensor_msgs/CompressedImage (검사 짐벌)
+    "depth":         "/c2/depth/compressed",    # sensor_msgs/CompressedImage
     # 업링크 (C2 → 로봇)
     "nav_goal":  "/robot/nav/goal",         # geometry_msgs/PoseStamped
     "speaker":   "/robot/speaker/audio",    # std_msgs/String (JSON: preset/pcm-b64)

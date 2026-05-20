@@ -2,12 +2,12 @@
 import { useState } from "react";
 import { postJSON, PatrolStatePayload } from "@/lib/api";
 
+// 2026-05-20: "대기" 제거 — 4버튼 (출격/복귀/정지/재개). backend idle 분기는 보존.
 const BTNS: { cmd: string; label: string; cls: string }[] = [
   { cmd: "sortie", label: "출격",   cls: "bg-emerald-700 hover:bg-emerald-600" },
   { cmd: "home",   label: "복귀",   cls: "bg-sky-700 hover:bg-sky-600" },
   { cmd: "stop",   label: "정지",   cls: "bg-rose-700 hover:bg-rose-600" },
   { cmd: "resume", label: "재개",   cls: "bg-amber-700 hover:bg-amber-600" },
-  { cmd: "idle",   label: "대기",   cls: "bg-zinc-700 hover:bg-zinc-600" },
 ];
 
 const MODE_CLASS: Record<string, string> = {
@@ -53,7 +53,7 @@ export default function PatrolControls({
           {lmReady === false && <span className="text-amber"> · LM 대기</span>}
         </span>
       </div>
-      <div className="px-3 py-2 grid grid-cols-5 gap-1.5">
+      <div className="px-3 py-2 grid grid-cols-4 gap-1.5">
         {BTNS.map((b) => (
           <button
             key={b.cmd}

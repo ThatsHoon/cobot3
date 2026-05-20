@@ -2,12 +2,12 @@
 import { getApiBase } from "@/lib/api";
 
 /**
- * 전방 + 검사 카메라 MJPEG 2-panel (P4 jsy 포팅).
- * server 의 `/c2/video/mjpeg?camera={front|rear|inspect}` 활용.
+ * 검사(짐벌) + 후방(real) 카메라 MJPEG 2-panel.
+ * 2026-05-20: front 제거 → inspect+rear. YOLO bbox 는 inspect 채널에서.
  */
-const CAMS: { id: "front" | "rear" | "inspect"; label: string }[] = [
-  { id: "front",   label: "FRONT" },
+const CAMS: { id: "rear" | "inspect"; label: string }[] = [
   { id: "inspect", label: "INSPECT" },
+  { id: "rear",    label: "REAR" },
 ];
 
 export default function DualCameraView() {

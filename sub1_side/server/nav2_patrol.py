@@ -104,6 +104,8 @@ class Nav2PatrolController(Node):
         self._landmarks_received = False
         self._stop_burst_until = 0.0
         self._goal_arrived = False
+        self._pending_target = None    # cancel done → 이 target 으로 dispatch
+        self._diag_ctr = 0             # 5Hz tick 안 5초 주기 lifecycle 진단
 
         latched = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -225,16 +227,44 @@ class Nav2PatrolController(Node):
 
     # ── action client ─────────────────────────────────────────────────
     def _send_goal_now(self, point) -> None:
+        """Mode 전환 시 호출. 진행 중 goal 가 있으면 cancel 의 done callback
+        에서 dispatch — cancel→send race 제거 (2026-05-20 fix: 복귀/재할당
+        명령 무시 증상).
+        """
         if not self._nav_client.server_is_ready():
-            self._mode = MissionMode.WAITING_FOR_NAV2
-            self.get_logger().warn("navigate_to_pose action 미준비")
-            return
-        self._cancel_current_goal()
-        self._current_goal = (float(point[0]), float(point[1]))
+            if not self._nav_client.wait_for_server(timeout_sec=2.0):
+                self._mode = MissionMode.WAITING_FOR_NAV2
+                self.get_logger().warn(
+                    "navigate_to_pose action 미준비 (2s wait 실패)")
+                return
+        target = (float(point[0]), float(point[1]))
+        if self._goal_handle is not None:
+            gh = self._goal_handle
+            self._goal_handle = None
+            self._pending_target = target
+            self.get_logger().info(
+                f"이전 goal cancel → done callback 안에서 새 goal({target}) 전송")
+            fut = gh.cancel_goal_async()
+            fut.add_done_callback(self._on_cancel_done)
+        else:
+            self._dispatch_goal(target)
+
+    def _on_cancel_done(self, future) -> None:
+        try:
+            future.result()
+        except Exception as e:
+            self.get_logger().warn(f"cancel 응답 처리 예외: {e!r}")
+        tgt = self._pending_target
+        self._pending_target = None
+        if tgt is not None:
+            self._dispatch_goal(tgt)
+
+    def _dispatch_goal(self, point) -> None:
+        self._current_goal = point
         goal = NavigateToPose.Goal()
         goal.pose = self._make_pose(self._current_goal)
         self.get_logger().info(
-            f"action goal: x={self._current_goal[0]:.1f} y={self._current_goal[1]:.1f}")
+            f"action goal: x={point[0]:.1f} y={point[1]:.1f}")
         send_future = self._nav_client.send_goal_async(goal)
         send_future.add_done_callback(self._on_goal_response)
 
@@ -291,6 +321,15 @@ class Nav2PatrolController(Node):
             self._mode = MissionMode.PATROL
             self._goal_arrived = False
             self._send_goal_now(self._goal)
+        # 5Hz tick 안 5초 주기 lifecycle 진단 (action server_ready + 핸들 상태)
+        self._diag_ctr += 1
+        if self._diag_ctr >= 25:
+            self._diag_ctr = 0
+            self.get_logger().info(
+                f"[diag] mode={self._mode.value} "
+                f"nav_ready={self._nav_client.server_is_ready()} "
+                f"goal_handle={'O' if self._goal_handle else 'X'} "
+                f"pending={self._pending_target} arrived={self._goal_arrived}")
         self._publish_state()
 
     def _publish_state(self) -> None:

@@ -205,8 +205,9 @@ async def webrtc_offer(req: Request):
 
 # ---- 영상: MJPEG 폴백 (저대역) ------------------------------------------
 @app.get("/c2/video/mjpeg")
-async def mjpeg(camera: str = "front"):
-    cam = camera if camera in ("front", "rear") else "front"
+async def mjpeg(camera: str = "rear"):
+    # 2026-05-20: front 제거, rear/inspect 두 카메라 노출
+    cam = camera if camera in ("rear", "inspect") else "rear"
     async def gen():
         while True:
             f = ros.get_video_frame(cam)
@@ -310,6 +311,26 @@ async def spawn_npc(rid: str, body: dict | None = None):
     }
     ros.pub_npc_spawn(payload)
     return {"ok": True, "payload": payload}
+
+
+@app.get("/c2/sample")
+async def sample_snapshot():
+    """ros_bridge.latest dict snapshot — 다음 세션 foxglove 패널 설계용.
+
+    카메라 frame 은 제외 (대용량 ndarray). state/odom/gps/patrol_state/
+    landmarks/intruders/leg_q 등 JSON 직렬화 가능한 데이터만.
+    """
+    out = {}
+    for k, v in ros.br.latest.items():
+        if k.startswith("video_"):
+            continue
+        out[k] = v
+    rx = None
+    try:
+        rx = dict(ros.br._node._rx) if ros.br._node else None
+    except Exception:
+        pass
+    return {"latest": out, "rx": rx}
 
 
 @app.post("/alerts/{alert_id}/ack", dependencies=[Depends(require_key)])
