@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import StatusHeader from "@/components/StatusHeader";
 import TelemetryStrip from "@/components/TelemetryStrip";
-import ImmersiveCameraView from "@/components/ImmersiveCameraView";
+import DualCameraView from "@/components/DualCameraView";
 import MapTrack from "@/components/MapTrack";
 import PatrolControls from "@/components/PatrolControls";
 import InspectorCameraPanel from "@/components/InspectorCameraPanel";
@@ -107,9 +107,9 @@ export default function Page() {
         <section
           className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3"
           aria-label="hero">
-          {/* 좌측 5col — ImmersiveCameraView (어안렌즈 wrapping) */}
+          {/* 좌측 5col — DualCameraView (기존 INSPECT + REAR) */}
           <div className="xl:col-span-5 min-w-0 min-h-[420px]">
-            <ImmersiveCameraView />
+            <DualCameraView />
           </div>
           {/* 중앙 4col — MapTrack (정사각형) */}
           <div className="xl:col-span-4 min-w-0">

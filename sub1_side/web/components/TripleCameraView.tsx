@@ -18,7 +18,7 @@ export default function TripleCameraView() {
         <span>CAMERAS · 3-VIEW</span>
         <span className="text-[10px] text-dim">MJPEG · 5fps</span>
       </div>
-      <div className="grid grid-cols-1 gap-1 p-1 flex-1 min-h-0">
+      <div className="grid grid-cols-3 gap-1 p-1 flex-1 min-h-0">
         {CAMS.map(({ id, label }) => (
           <div key={id} className="relative bg-black min-h-0 flex-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}

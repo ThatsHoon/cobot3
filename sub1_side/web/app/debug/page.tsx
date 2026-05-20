@@ -7,6 +7,7 @@ import RawJsonInspector from "@/components/RawJsonInspector";
 import EventLog from "@/components/EventLog";
 import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import DualSenseStatus from "@/components/DualSenseStatus";
+import ImmersiveCameraView from "@/components/ImmersiveCameraView";
 import { C2Event, useEvents } from "@/lib/api";
 
 /** 디버그 페이지 — Lichtblick(Foxglove) + cobot3 고유 시각화 통합.
@@ -67,9 +68,10 @@ export default function DebugPage() {
       </header>
 
       <div className="flex-1 min-h-0 grid grid-cols-12 gap-2 p-2"
-           style={{ gridTemplateRows: "minmax(0,1.4fr) minmax(0,1fr) auto auto" }}>
-        {/* row1 좌: Lichtblick (3D + Plot + TF + Image) */}
-        <div className="col-span-8 min-h-0 bg-black border border-line/40">
+           style={{ gridTemplateRows: "minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,1fr) auto auto" }}>
+        {/* row1 좌측 (8col): Lichtblick — Go2 URDF + Plot + TF + 3D 패널 */}
+        <div className="col-span-8 min-h-0 bg-black border border-line/40
+                        rounded-sm overflow-hidden relative">
           {src ? (
             <iframe
               src={src}
@@ -83,10 +85,20 @@ export default function DebugPage() {
               INITIALIZING…
             </div>
           )}
+          {/* scanline 오버레이 — CRT 느낌 */}
+          <div className="absolute inset-0 pointer-events-none opacity-15"
+               style={{
+                 background: "repeating-linear-gradient(0deg, rgba(0,255,128,0) 0px, rgba(0,255,128,0) 2px, rgba(0,255,128,0.05) 3px, rgba(0,255,128,0) 4px)",
+               }} />
         </div>
 
-        {/* row1 우: 3-카메라 grid */}
+        {/* row1 우측 (4col): ImmersiveCameraView (어안렌즈 + Go2 silhouette) */}
         <div className="col-span-4 min-h-0">
+          <ImmersiveCameraView />
+        </div>
+
+        {/* row2 전체: 3-카메라 grid (REAR/INSPECT/OVERHEAD) */}
+        <div className="col-span-12 min-h-0">
           <TripleCameraView />
         </div>
 
