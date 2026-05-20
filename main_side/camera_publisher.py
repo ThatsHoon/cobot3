@@ -144,6 +144,8 @@ _DMZ_HOME      = (0.0, 0.0)
 _DMZ_PATROL_W  = (-24.0, -12.0)
 _DMZ_PATROL_E  = (24.0, -12.0)
 _DMZ_FENCE_N_Y = 16.0
+# _HERE: camera_publisher.py 가 위치한 main_side 디렉토리 절대경로
+_HERE = os.path.dirname(os.path.abspath(__file__))
 _DMZ_GTOWER    = os.path.join(
     _HERE, "scene", "assets", "props", "guard_tower",
     "Guard_Tower_Free_Asset.usdz")
