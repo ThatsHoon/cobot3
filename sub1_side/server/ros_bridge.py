@@ -153,6 +153,10 @@ class RosBridge:
         if self._node:
             self._node.pub_inspect_cmd(json.dumps(payload))
 
+    def pub_npc_spawn(self, payload: dict):
+        if self._node:
+            self._node.pub_npc_spawn(json.dumps(payload))
+
     def fire(self, target_ref: str, operator: str):
         """weapon/fire 서비스 호출 → 결과를 fire_events 기록 + 이벤트 emit."""
         hit, dist = (False, None)
@@ -208,6 +212,7 @@ if RCLPY_OK:
             # ---- DMZ Sentry M5/M7 신규 업링크 ----
             self._mission_pub = self.create_publisher(String, T["mission_cmd"], rel_qos)
             self._inspect_pub = self.create_publisher(String, T["inspect_cmd"], rel_qos)
+            self._npc_pub = self.create_publisher(String, T["npc_spawn"], rel_qos)
             self._alerts_pub = self.create_publisher(String, T["alerts"], rel_qos)
             self._animal_pub = self.create_publisher(String, T["animal_alerts"], rel_qos)
             self._det_pub = self.create_publisher(String, T["detections"], rel_qos)
@@ -447,6 +452,11 @@ if RCLPY_OK:
             m = String()
             m.data = payload_json
             self._inspect_pub.publish(m)
+
+        def pub_npc_spawn(self, payload_json: str):
+            m = String()
+            m.data = payload_json
+            self._npc_pub.publish(m)
 
         def call_fire(self):
             if not self._fire_cli.wait_for_service(timeout_sec=1.0):

@@ -50,6 +50,7 @@ TOPICS = {
     "inspect_rgb":  "/cam/inspect/rgb",     # sensor_msgs/Image (검사 카메라 RGB)
     "cmd_nav_raw":  "/cmd_vel_nav2_raw",    # geometry_msgs/Twist (Nav2→safety filter)
     "animal_alerts": "/animal_alerts",      # std_msgs/String (JSON 동물 감지 alert, P3)
+    "npc_spawn":     "/robot/npc/spawn",    # std_msgs/String (JSON forward_m/z_offset/count)
 }
 
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)

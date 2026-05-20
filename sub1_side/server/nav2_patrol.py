@@ -29,7 +29,7 @@ from std_msgs.msg import String
 
 # 사용자 사양 좌표 (2026-05-20)
 DEFAULT_HOME = (212.8, 890.53)
-DEFAULT_GOAL = (620.36, 499.72)
+DEFAULT_GOAL = (287.59, 1129.728)
 ARRIVE_HALF = 10.0   # 도착 판정 ±10m 사각 box
 
 NAV_GOAL_TOPIC = "/robot/nav/goal"   # web 맵 클릭 manual goal

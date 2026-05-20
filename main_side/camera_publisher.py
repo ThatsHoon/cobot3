@@ -200,7 +200,7 @@ _build_dmz_zone(stage)
 # vertex 보정(낙하 방지), 기본 0=명시 좌표 그대로 (씬 terrain 없거나 명시
 # z 가 신뢰 가능할 때).
 _GO2_HOME_XYZ = (212.8, 890.53, 5.0)
-_GO2_GOAL_XYZ = (620.36, 499.72, 52.138)
+_GO2_GOAL_XYZ = (287.59, 1129.728, 29.53)
 _USE_TERRAIN = os.environ.get("GP_GO2_SPAWN_USE_TERRAIN", "0") == "1"
 
 _spawn = Gf.Vec3d(*_GO2_HOME_XYZ)
@@ -728,6 +728,121 @@ def _apply_inspect_cmd():
             f"focal={_inspect_state['focal']:.1f} (rx={_inspect_state['rx']})")
 
 
+# ── NPC 소환 (지통실 버튼 → npc_relay → /tmp mailbox → 본 함수) ──────────
+# WHY: 사용자 요청 — 사람 형체 NPC 를 Go2 전방 20m 앞 z+5 에서 떨어뜨려
+# YOLO person 검출 검증. 사람 USD 자산이 로컬에 없어 procedural primitive
+# 합성 (capsule 몸통/사지 + 구체 머리, ~1.75m 인체 비율). RigidBody+Gravity
+# 활성 → 자유낙하 → 지면 충돌.
+_NPC_CMD_FILE = "/tmp/cobot3_npc_cmd.json"
+_NPC_ROOT_PRIM = "/World/NPCs"
+_npc_state = {"rx": 0, "spawned": 0, "last_mtime": 0.0}
+_SKIN_COLOR = Gf.Vec3f(0.96, 0.80, 0.69)
+_CLOTH_COLOR = Gf.Vec3f(0.20, 0.30, 0.55)
+
+
+def _yaw_from_xformable(prim) -> float:
+    """Xformable world rotation 에서 Z 축 yaw(rad) 추출."""
+    import math as _math
+    m = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+        _U.TimeCode.Default())
+    # 회전 행렬 [m00, m01, m02; m10, m11, m12; ...] → yaw = atan2(m10, m00)
+    return _math.atan2(float(m[1][0]), float(m[0][0]))
+
+
+def _build_npc(stage_, path, x, y, z):
+    """Procedural 사람 형체 NPC (capsule 몸통/사지 + 구체 머리). RigidBody
+    + CollisionAPI + 중력 자동 적용. 키 ≈ 1.75m, 어깨폭 ≈ 0.4m."""
+    from pxr import UsdPhysics as _UP, UsdShade as _US
+    if stage_.GetPrimAtPath(path).IsValid():
+        stage_.RemovePrim(path)
+    root = stage_.DefinePrim(path, "Xform")
+    rxf = UsdGeom.Xformable(root)
+    rxf.AddTranslateOp().Set(Gf.Vec3d(float(x), float(y), float(z)))
+    _UP.RigidBodyAPI.Apply(root)
+    _UP.MassAPI.Apply(root)
+    _UP.MassAPI(root).CreateMassAttr(75.0)
+    # 자식 prim 들은 root 의 RigidBody 에 자동 가담 (USD physics 규약).
+    parts = [
+        ("body",  "Capsule", (0.0, 0.0,  0.95), 0.18, 0.55, _CLOTH_COLOR),
+        ("head",  "Sphere",  (0.0, 0.0,  1.62), 0.14, 0.0,  _SKIN_COLOR),
+        ("arm_l", "Capsule", (-0.28, 0.0, 1.10), 0.07, 0.50, _SKIN_COLOR),
+        ("arm_r", "Capsule", ( 0.28, 0.0, 1.10), 0.07, 0.50, _SKIN_COLOR),
+        ("leg_l", "Capsule", (-0.10, 0.0, 0.40), 0.09, 0.60, _CLOTH_COLOR),
+        ("leg_r", "Capsule", ( 0.10, 0.0, 0.40), 0.09, 0.60, _CLOTH_COLOR),
+    ]
+    for name, prim_type, (px, py, pz), radius, height, color in parts:
+        p = stage_.DefinePrim(f"{path}/{name}", prim_type)
+        pxf = UsdGeom.Xformable(p)
+        pxf.AddTranslateOp().Set(Gf.Vec3d(px, py, pz))
+        if prim_type == "Capsule":
+            UsdGeom.Capsule(p).GetRadiusAttr().Set(float(radius))
+            UsdGeom.Capsule(p).GetHeightAttr().Set(float(height))
+        else:
+            UsdGeom.Sphere(p).GetRadiusAttr().Set(float(radius))
+        # 시각 색상 (displayColor primvar — material 없이 즉시 색칭)
+        UsdGeom.Gprim(p).CreateDisplayColorAttr([color])
+        _UP.CollisionAPI.Apply(p)
+
+
+def _apply_npc_cmd():
+    """NPC mailbox 폴링 — /tmp/cobot3_npc_cmd.json 의 mtime 변화 시 소환.
+
+    payload (npc_relay.py 가 작성):
+      {"forward_m": 20.0, "z_offset": 5.0, "count": 1} — Go2 base pose 기준
+      forward(전방) 방향 N미터, base.z + z_offset 위치에서 떨어뜨림.
+      forward_m 음수면 후방. count > 1 면 좌우 0.6m 간격으로 다중 소환.
+    """
+    try:
+        m = os.path.getmtime(_NPC_CMD_FILE)
+    except OSError:
+        return
+    if m <= _npc_state["last_mtime"]:
+        return
+    _npc_state["last_mtime"] = m
+    _npc_state["rx"] += 1
+    import json as _json
+    try:
+        with open(_NPC_CMD_FILE) as _f:
+            cmd = _json.load(_f)
+    except Exception as _e:
+        log(f"[npc] JSON 파싱 실패: {_e!r}")
+        return
+
+    fwd = float(cmd.get("forward_m", 20.0))
+    dz = float(cmd.get("z_offset", 5.0))
+    count = max(1, int(cmd.get("count", 1)))
+
+    base = stage.GetPrimAtPath(BASE_PRIM)
+    if not (base and base.IsValid()):
+        log(f"[npc] {BASE_PRIM} 없음 — 소환 무효")
+        return
+    bt = UsdGeom.Xformable(base).ComputeLocalToWorldTransform(
+        _U.TimeCode.Default()).ExtractTranslation()
+    yaw = _yaw_from_xformable(base)
+    import math as _math
+    fx = _math.cos(yaw); fy = _math.sin(yaw)
+    sx = -fy; sy = fx  # 좌우 (yaw + 90° 방향 단위벡터)
+
+    if not stage.GetPrimAtPath(_NPC_ROOT_PRIM).IsValid():
+        stage.DefinePrim(_NPC_ROOT_PRIM, "Xform")
+
+    for i in range(count):
+        offset = (i - (count - 1) * 0.5) * 0.6   # 중심 정렬, 0.6m 간격
+        nx = float(bt[0]) + fwd * fx + offset * sx
+        ny = float(bt[1]) + fwd * fy + offset * sy
+        nz = float(bt[2]) + dz
+        _npc_state["spawned"] += 1
+        idx = _npc_state["spawned"]
+        path = f"{_NPC_ROOT_PRIM}/npc_{idx:03d}"
+        try:
+            _build_npc(stage, path, nx, ny, nz)
+            log(f"[npc] 소환 #{idx} @ ({nx:.1f},{ny:.1f},{nz:.1f}) "
+                f"base=({float(bt[0]):.1f},{float(bt[1]):.1f},{float(bt[2]):.1f}) "
+                f"yaw={_math.degrees(yaw):.0f}° fwd={fwd}m dz={dz}m")
+        except Exception as _e:
+            log(f"[npc] 소환 실패: {_e!r}")
+
+
 n = 0
 _TL = omni.timeline.get_timeline_interface()
 _tl_replays = 0
@@ -737,6 +852,7 @@ try:
         n += 1
         _apply_cmd()
         _apply_inspect_cmd()
+        _apply_npc_cmd()
         if n in (60, 150):
             _diag()
         # timeline play 자가 복원 — GUI 일시정지나 외부 stop() 으로 멈춰

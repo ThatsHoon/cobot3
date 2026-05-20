@@ -12,6 +12,7 @@ import EventLog from "@/components/EventLog";
 import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import TeleopPad from "@/components/TeleopPad";
 import BaseMovementPanel from "@/components/BaseMovementPanel";
+import NpcSpawnButton from "@/components/NpcSpawnButton";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
   LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
@@ -130,6 +131,7 @@ export default function Page() {
             </div>
             {showBaseMv && <BaseMovementPanel />}
             {showTeleop && <TeleopPad />}
+            <NpcSpawnButton />
           </div>
 
           {/* 우: 지도 + 검사 + 알람 */}
