@@ -1,13 +1,16 @@
-"""world → odom static TF 발행자 (Nav2 TF 트리 보강).
+"""static TF 보강 사이드카 (Nav2 + Lichtblick URDF 트리 정합).
 
-cobot3 의 camera_publisher OG 는 `odom → base_link` 만 발행한다. Nav2 가
-`global_frame=world` 로 동작하려면 `world → odom` 연결이 필수. 본 노드는
-identity transform 을 StaticTransformBroadcaster 로 latched 1회 발행.
+2개 static TF 발행:
+1. `world → odom` (identity) — camera_publisher OG 는 `world → Go2` 만 발행.
+   Nav2 가 `global_frame=world` + `odom_topic=/robot/odom (frame_id=odom)`
+   으로 동작하려면 `world → odom` 연결 필수.
+2. `Go2 → base` (identity) — go2.urdf 의 root link 이름은 "base" 인데
+   Isaac OG TF 는 "Go2" frame 만 발행. Lichtblick 3D!go2 패널이 URDF mesh
+   를 "base" frame 에서 lookup 하므로 alias 가 필요. identity 정합.
 
-향후 SLAM/AMCL 도입 시 본 노드는 비활성화하고 그쪽 발행에 맡긴다.
+향후 SLAM/AMCL 도입 시 1)은 비활성화, 2)는 유지.
 
 실행:
-    ros2 run rclpy_executor world_odom_tf_pub  (불가 — standalone Python)
     python3 main_side/world_odom_tf_pub.py
 """
 import rclpy
@@ -16,23 +19,32 @@ from geometry_msgs.msg import TransformStamped
 from tf2_ros import StaticTransformBroadcaster
 
 
+def _identity_tf(parent: str, child: str, stamp) -> TransformStamped:
+    m = TransformStamped()
+    m.header.stamp = stamp
+    m.header.frame_id = parent
+    m.child_frame_id = child
+    m.transform.translation.x = 0.0
+    m.transform.translation.y = 0.0
+    m.transform.translation.z = 0.0
+    m.transform.rotation.x = 0.0
+    m.transform.rotation.y = 0.0
+    m.transform.rotation.z = 0.0
+    m.transform.rotation.w = 1.0
+    return m
+
+
 class WorldOdomTfPub(Node):
     def __init__(self):
         super().__init__("world_odom_tf_pub")
         self._tf = StaticTransformBroadcaster(self)
-        msg = TransformStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = "world"
-        msg.child_frame_id = "odom"
-        msg.transform.translation.x = 0.0
-        msg.transform.translation.y = 0.0
-        msg.transform.translation.z = 0.0
-        msg.transform.rotation.x = 0.0
-        msg.transform.rotation.y = 0.0
-        msg.transform.rotation.z = 0.0
-        msg.transform.rotation.w = 1.0
-        self._tf.sendTransform(msg)
-        self.get_logger().info("world → odom static TF (identity) latched")
+        stamp = self.get_clock().now().to_msg()
+        self._tf.sendTransform([
+            _identity_tf("world", "odom", stamp),    # Nav2 TF 보강
+            _identity_tf("Go2", "base", stamp),      # URDF alias (Lichtblick)
+        ])
+        self.get_logger().info(
+            "static TF latched: world→odom + Go2→base (URDF alias)")
 
 
 def main():
