@@ -128,10 +128,17 @@ export default function Page() {
                 <span>ROBOT CONTROL</span>
                 <span className="text-[10px] text-dim">INSPECT · MOVE</span>
               </div>
-              <div className="p-2 space-y-2">
-                <InspectorCameraPanel />
-                {showBaseMv && <BaseMovementPanel />}
-                {showTeleop && <TeleopPad />}
+              <div className="p-2 flex flex-col gap-2">
+                {/* INSPECT CAM + BASE MOVEMENT 가로 2-column 배치 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div className="min-w-0">
+                    <InspectorCameraPanel />
+                  </div>
+                  <div className="min-w-0">
+                    {showBaseMv && <BaseMovementPanel />}
+                    {showTeleop && <TeleopPad />}
+                  </div>
+                </div>
                 <div className="flex gap-1.5">
                   <button
                     type="button"
