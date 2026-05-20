@@ -368,24 +368,31 @@ class Go2WtwController:
     def _command(self) -> np.ndarray:
         cmd = _CMD_BASE.copy()
         # 캘리브레이션: GP_GO2_CMD_MODE=cal → 순수 직진(vx=0.5,wz=0).
-        # _nav_p_ctrl 진단이 ryaw vs 실제 이동방향(무회전) 깨끗이 기록 →
-        # 정확한 quat-yaw↔전진 오프셋 산출.
         if os.environ.get("GP_GO2_CMD_MODE") == "cal":
             cmd[0], cmd[1], cmd[2] = 0.5, 0.0, 0.0
             if self._nav_goal is not None:
-                self._nav_p_ctrl()        # 진단 로그만 (반환값 무시)
+                self._nav_p_ctrl()
             return cmd
-        if (time.time() - self._vel_ts < _CMD_TIMEOUT
-                and np.any(np.abs(self._vel_cmd) > 1e-6)):
+        active_teleop = (time.time() - self._vel_ts < _CMD_TIMEOUT
+                         and np.any(np.abs(self._vel_cmd) > 1e-6))
+        if active_teleop:
             cmd[0], cmd[1], cmd[2] = self._vel_cmd
         elif _NAV_ENABLED and self._nav_goal is not None:
-            # ready 직후 zero-history 트랜지언트(~수백 틱) 동안은 정책이
-            # 비틀거리며 회전 → 이때 nav 모션을 주면 멀리 표류. 먼저 제자리
-            # 안정화(idle 기립) 후 nav 개입.
             if (self._step_n - getattr(self, "_ready_step", 0)) < _SETTLE_STEPS:
-                return cmd                     # idle 기립 (안정화 대기)
-            vx, vy, wz = self._nav_p_ctrl()
-            cmd[0], cmd[1], cmd[2] = vx, vy, wz
+                # idle 기립 (안정화 대기) — 아래 standstill clamp 으로 fallthrough
+                pass
+            else:
+                vx, vy, wz = self._nav_p_ctrl()
+                cmd[0], cmd[1], cmd[2] = vx, vy, wz
+                return cmd
+        # standstill clamp (2026-05-20 fix) — teleop/nav 모두 비활성이면
+        # _CMD_BASE 의 stepping gait (freq 3.6, footswing 0.15) 가 zero cmd 인데도
+        # 다리를 들어 yaw drift 누적 (원형 궤적). freq=0 + footswing=0 으로
+        # 다리 안 들고 완전 stance 유지 → drift 차단.
+        # idx 4=step_freq, idx 9=footswing
+        if not active_teleop:
+            cmd[4] = 0.0    # step frequency = 0 → 다리 stepping 없음
+            cmd[9] = 0.0    # footswing height = 0 → 발 안 들음
         return cmd
 
     def _nav_p_ctrl(self):
