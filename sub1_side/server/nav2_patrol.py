@@ -35,6 +35,11 @@ from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
                        ReliabilityPolicy)
 from std_msgs.msg import String
 
+# Manual goal topic (웹 MapTrack 더블클릭 → POST /goto → ros_bridge.publish_goal
+# → /robot/nav/goal). Nav2 는 navigate_to_pose action 만 받으므로 이 토픽의
+# 소비자가 없으면 무동작 — 본 노드가 PoseStamped → action goal 로 중계한다.
+NAV_GOAL_TOPIC = "/robot/nav/goal"
+
 
 class MissionMode(str, Enum):
     IDLE = "IDLE"
@@ -122,6 +127,9 @@ class Nav2PatrolController(Node):
         self.create_subscription(Odometry, self._odom_topic, self._on_odom, 20)
         self.create_subscription(String, self._landmarks_topic,
                                  self._on_landmarks, latched)
+        # 웹 MapTrack 더블클릭 → /robot/nav/goal → 본 노드가 action 으로 변환
+        self.create_subscription(PoseStamped, NAV_GOAL_TOPIC,
+                                 self._on_nav_goal, 10)
         self.create_timer(1.0 / status_hz, self._tick)
 
         self.get_logger().info(
@@ -163,6 +171,19 @@ class Nav2PatrolController(Node):
         self.get_logger().info(
             f"landmarks 수신: home=({self._home[0]:.1f},{self._home[1]:.1f}) "
             f"waypoints={len(waypoints)}")
+
+    def _on_nav_goal(self, msg: PoseStamped) -> None:
+        """웹 맵 클릭 → 단발 navigate_to_pose 변환. 기존 patrol 큐 덮어씀."""
+        x = float(msg.pose.position.x)
+        y = float(msg.pose.position.y)
+        self.get_logger().info(
+            f"manual nav goal received: ({x:.1f}, {y:.1f}) → PATROL")
+        self._mode = MissionMode.PATROL
+        self._resume_mode = MissionMode.PATROL
+        self._cancel_current_goal()
+        self._route_queue = [(x, y)]
+        self._current_goal = None
+        self._send_next_goal()
 
     def _on_odom(self, msg: Odometry) -> None:
         position = msg.pose.pose.position
