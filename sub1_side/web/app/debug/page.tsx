@@ -7,7 +7,6 @@ import RawJsonInspector from "@/components/RawJsonInspector";
 import EventLog from "@/components/EventLog";
 import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import DualSenseStatus from "@/components/DualSenseStatus";
-import ImmersiveCameraView from "@/components/ImmersiveCameraView";
 import { C2Event, useEvents } from "@/lib/api";
 
 /** 디버그 페이지 — Lichtblick(Foxglove) + cobot3 고유 시각화 통합.
@@ -68,9 +67,11 @@ export default function DebugPage() {
       </header>
 
       <div className="flex-1 min-h-0 grid grid-cols-12 gap-2 p-2"
-           style={{ gridTemplateRows: "minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,1fr) auto auto" }}>
-        {/* row1 좌측 (8col): Lichtblick — Go2 URDF + Plot + TF + 3D 패널 */}
-        <div className="col-span-8 min-h-0 bg-black border border-line/40
+           style={{ gridTemplateRows: "minmax(0,2.0fr) minmax(0,0.9fr) minmax(0,1fr) auto auto" }}>
+        {/* row1 전체 (12col): Lichtblick — Go2 URDF + 3D + 카메라 패널 통합.
+            layout.json 의 3D!go2 (62%) + Image×3 + Plot×2 로 Spot SDK 스타일
+            시각화. CRT scanline 오버레이로 watch-officer 미감. */}
+        <div className="col-span-12 min-h-0 bg-black border border-line/40
                         rounded-sm overflow-hidden relative">
           {src ? (
             <iframe
@@ -85,19 +86,18 @@ export default function DebugPage() {
               INITIALIZING…
             </div>
           )}
-          {/* scanline 오버레이 — CRT 느낌 */}
-          <div className="absolute inset-0 pointer-events-none opacity-15"
+          {/* scanline + vignette 오버레이 */}
+          <div className="absolute inset-0 pointer-events-none opacity-12"
                style={{
-                 background: "repeating-linear-gradient(0deg, rgba(0,255,128,0) 0px, rgba(0,255,128,0) 2px, rgba(0,255,128,0.05) 3px, rgba(0,255,128,0) 4px)",
+                 background: "repeating-linear-gradient(0deg, rgba(0,255,128,0) 0px, rgba(0,255,128,0) 2px, rgba(0,255,128,0.06) 3px, rgba(0,255,128,0) 4px)",
+               }} />
+          <div className="absolute inset-0 pointer-events-none"
+               style={{
+                 boxShadow: "inset 0 0 120px rgba(0,0,0,0.6)",
                }} />
         </div>
 
-        {/* row1 우측 (4col): ImmersiveCameraView (어안렌즈 + Go2 silhouette) */}
-        <div className="col-span-4 min-h-0">
-          <ImmersiveCameraView />
-        </div>
-
-        {/* row2 전체: 3-카메라 grid (REAR/INSPECT/OVERHEAD) */}
+        {/* row2 전체: 3-카메라 grid (REAR/INSPECT/OVERHEAD) — Lichtblick 외부 백업 */}
         <div className="col-span-12 min-h-0">
           <TripleCameraView />
         </div>

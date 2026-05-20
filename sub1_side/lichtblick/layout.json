@@ -3,11 +3,27 @@
     "3D!go2": {
       "followTf": "base",
       "followMode": "follow-pose",
-      "scene": { "enableStats": false, "backgroundColor": "#000000" },
-      "transforms": {},
+      "scene": {
+        "enableStats": false,
+        "backgroundColor": "#000000",
+        "labelScaleFactor": 0.6,
+        "ignoreColladaUpAxis": false,
+        "syncCamera": false
+      },
+      "transforms": {
+        "world": { "visible": true },
+        "odom": { "visible": true },
+        "base": { "visible": true }
+      },
       "topics": {
         "/tf": { "visible": true },
-        "/robot/odom": { "visible": true },
+        "/robot/odom": {
+          "visible": true,
+          "type": "foxglove.Pose",
+          "axisScale": 0.5,
+          "lineWidth": 0.03,
+          "color": "rgba(0, 255, 128, 0.95)"
+        },
         "/cam/front/points": {
           "visible": true,
           "colorMode": "colormap",
@@ -31,22 +47,57 @@
           "topic": "",
           "framePrefix": "",
           "displayMode": "auto",
-          "fallbackColor": "#ffffff",
+          "fallbackColor": "#ffcc00",
           "order": 1
+        },
+        "grid": {
+          "visible": true,
+          "frameLocked": false,
+          "label": "Ground Grid",
+          "instanceId": "grid",
+          "layerId": "foxglove.Grid",
+          "size": 20,
+          "divisions": 20,
+          "lineWidth": 0.5,
+          "color": "rgba(0, 255, 128, 0.18)",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 0
         }
       },
       "cameraState": {
-        "distance": 3,
+        "distance": 4.5,
         "perspective": true,
-        "phi": 60,
+        "phi": 55,
         "thetaOffset": 45,
-        "target": [0, 0, 0],
+        "target": [0, 0, 0.3],
         "targetOffset": [0, 0, 0],
         "targetOrientation": [0, 0, 0, 1],
-        "fovy": 45,
-        "near": 0.01,
+        "fovy": 50,
+        "near": 0.05,
         "far": 5000
       }
+    },
+    "Image!cam_inspect": {
+      "cameraTopic": "/c2/inspect/compressed",
+      "transformMarkers": false,
+      "synchronize": false,
+      "mode": "fit",
+      "smooth": true
+    },
+    "Image!cam_rear": {
+      "cameraTopic": "/c2/rear/compressed",
+      "transformMarkers": false,
+      "synchronize": false,
+      "mode": "fit",
+      "smooth": true
+    },
+    "Image!cam_overhead": {
+      "cameraTopic": "/c2/overhead/compressed",
+      "transformMarkers": false,
+      "synchronize": false,
+      "mode": "fit",
+      "smooth": true
     },
     "Plot!joint_position": {
       "title": "Joint Position (Go2 leg 12-DOF)",
@@ -68,33 +119,28 @@
       "showLegend": true,
       "isSynced": false
     },
-    "Plot!foot_position": {
-      "title": "Foot Position (effort z component)",
-      "paths": [
-        { "value": "/robot/leg_joint_states.effort[2]",  "label": "FL_foot", "color": "#ff5050", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.effort[5]",  "label": "FR_foot", "color": "#ffaa50", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.effort[8]",  "label": "RL_foot", "color": "#ffee50", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.effort[11]", "label": "RR_foot", "color": "#50ff80", "enabled": true, "timestampMethod": "receiveTime" }
-      ],
-      "xAxisVal": "timestamp",
-      "showLegend": true,
-      "isSynced": false
-    },
     "Plot!cmd_vel": {
-      "title": "Commanded velocity",
+      "title": "Command Velocity",
       "paths": [
-        { "value": "/robot/cmd_vel.linear.x",  "label": "linear.x",  "color": "#ff4040", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/cmd_vel.angular.z", "label": "angular.z", "color": "#4080ff", "enabled": true, "timestampMethod": "receiveTime" }
+        { "value": "/robot/cmd_vel.linear.x",  "label": "vx",  "color": "#00ff88", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/cmd_vel.linear.y",  "label": "vy",  "color": "#ffcc00", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/cmd_vel.angular.z", "label": "wz",  "color": "#ff5050", "enabled": true, "timestampMethod": "receiveTime" }
       ],
       "xAxisVal": "timestamp",
       "showLegend": true,
       "isSynced": false
     },
-    "Image!cam_front": {
-      "cameraTopic": "/c2/front/compressed",
-      "transformMarkers": false,
-      "synchronize": false,
-      "mode": "fit"
+    "RawMessages!patrol": {
+      "topicPath": "/patrol_state",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false
+    },
+    "Indicator!mode": {
+      "path": "/patrol_state.data",
+      "style": "background",
+      "fallbackColor": "#202020",
+      "fallbackLabel": "—",
+      "rules": []
     }
   },
   "globalVariables": {},
@@ -103,20 +149,25 @@
   "layout": {
     "direction": "row",
     "first": "3D!go2",
-    "splitPercentage": 50,
+    "splitPercentage": 62,
     "second": {
       "direction": "column",
-      "first": "Plot!joint_position",
-      "splitPercentage": 33,
+      "first": {
+        "direction": "row",
+        "first": "Image!cam_inspect",
+        "splitPercentage": 50,
+        "second": "Image!cam_rear"
+      },
+      "splitPercentage": 28,
       "second": {
         "direction": "column",
-        "first": "Plot!foot_position",
-        "splitPercentage": 33,
+        "first": "Image!cam_overhead",
+        "splitPercentage": 32,
         "second": {
           "direction": "column",
-          "first": "Plot!cmd_vel",
+          "first": "Plot!joint_position",
           "splitPercentage": 50,
-          "second": "Image!cam_front"
+          "second": "Plot!cmd_vel"
         }
       }
     }
