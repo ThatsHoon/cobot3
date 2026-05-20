@@ -48,6 +48,11 @@ VX_MAX = 1.2   # m/s
 VY_MAX = 0.6
 WZ_MAX = 1.0   # rad/s
 
+# inspect 짐벌 — L-stick 매핑 (사용자 사양 2026-05-20)
+import math as _math
+INSPECT_LIM_RAD = _math.radians(70.0)   # 정면 ±70°
+INSPECT_RATE_RAD_PER_S = _math.radians(45.0)   # full-stick 45°/s
+
 
 class DualSenseService:
     """sub1 backend 측 DualSense polling 서비스.
@@ -71,6 +76,10 @@ class DualSenseService:
         self._l2_next_fire_t = 0.0
         self._r2_next_fire_t = 0.0
         self._last_cmd_zero = True   # cmd_vel 마지막이 0 인지 (jitter 발행 회피)
+        # inspect 짐벌 상태 (L-stick 누적). 백엔드 절대값 발행.
+        self._inspect_pan = 0.0
+        self._inspect_tilt = 0.0
+        self._last_inspect_t = 0.0
 
     # ── status -----------------------------------------------------------
     def status(self) -> dict:
@@ -81,7 +90,14 @@ class DualSenseService:
             "limits": {"vx": VX_MAX, "vy": VY_MAX, "wz": WZ_MAX},
             "polling_hz": POLL_HZ,
             "pygame_available": pygame is not None,
+            "inspect": {
+                "pan_deg":  round(_math.degrees(self._inspect_pan), 1),
+                "tilt_deg": round(_math.degrees(self._inspect_tilt), 1),
+                "limit_deg": 70.0,
+            },
             "mapping": {
+                "left_stick_L/R":  "inspect pan ±70°",
+                "left_stick_U/D":  "inspect tilt ±70°",
                 "right_stick_L/R": "yaw left/right",
                 "dpad_up/down":    "forward/back",
                 "dpad_left/right": "strafe left/right",
@@ -208,6 +224,38 @@ class DualSenseService:
                 except Exception:
                     self._close()
                     continue
+
+                # ── L-stick → inspect 짐벌 pan/tilt (사용자 사양) ──
+                # LX 좌(-1)/우(+1) → pan delta (음수 = 좌). LY 위(-1)/아래(+1) → tilt
+                # delta (스틱 위=카메라 위=+tilt 라 -ly_raw 부호 반전).
+                lx_raw = j.get_axis(AXIS_LX) if nax > AXIS_LX else 0.0
+                ly_raw = j.get_axis(AXIS_LY) if nax > AXIS_LY else 0.0
+                dt_ck = 1.0 / POLL_HZ
+                if abs(lx_raw) >= DEADZONE:
+                    sign = 1.0 if lx_raw > 0 else -1.0
+                    self._inspect_pan += sign * (abs(lx_raw) ** 1.2) \
+                        * INSPECT_RATE_RAD_PER_S * dt_ck
+                    self._inspect_pan = max(-INSPECT_LIM_RAD,
+                                            min(INSPECT_LIM_RAD, self._inspect_pan))
+                if abs(ly_raw) >= DEADZONE:
+                    sign = -1.0 if ly_raw > 0 else 1.0   # ly>0 = 스틱 아래 = -tilt
+                    self._inspect_tilt += sign * (abs(ly_raw) ** 1.2) \
+                        * INSPECT_RATE_RAD_PER_S * dt_ck
+                    self._inspect_tilt = max(-INSPECT_LIM_RAD,
+                                             min(INSPECT_LIM_RAD, self._inspect_tilt))
+                # 5Hz 절대값 발행 — full-stick 시 9° step. 변화 없으면 skip.
+                now_t = time.monotonic()
+                if (abs(lx_raw) >= DEADZONE or abs(ly_raw) >= DEADZONE) \
+                        and (now_t - self._last_inspect_t) >= 0.20:
+                    try:
+                        self._ros.pub_inspect_cmd({
+                            "pan": self._inspect_pan,
+                            "tilt": self._inspect_tilt,
+                            "absolute": True,
+                        })
+                    except Exception:
+                        pass
+                    self._last_inspect_t = now_t
 
                 # ── L2/R2 hold → speed_scale step ──
                 l2 = (j.get_axis(AXIS_L2) + 1.0) * 0.5 if nax > AXIS_L2 else 0.0

@@ -9,6 +9,7 @@ type Status = {
   pygame_available: boolean;
   polling_hz: number;
   limits: { vx: number; vy: number; wz: number };
+  inspect?: { pan_deg: number; tilt_deg: number; limit_deg: number };
   mapping: Record<string, string>;
 };
 
@@ -48,6 +49,7 @@ export default function DualSenseStatus() {
           <div className="text-amber">⚠ pygame 미설치 — `pip install pygame`</div>
         )}
         <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+          <span>L-stick</span>    <span className="text-ink">INSPECT pan/tilt (±70°)</span>
           <span>R-stick L/R</span><span className="text-ink">좌/우 회전</span>
           <span>D-pad ↑↓</span>   <span className="text-ink">전후진</span>
           <span>D-pad ←→</span>   <span className="text-ink">좌우 평행</span>
@@ -57,6 +59,11 @@ export default function DualSenseStatus() {
           <span>△ (Triangle)</span><span className="text-ink">출격</span>
           <span>○ (Circle)</span> <span className="text-ink">복귀</span>
         </div>
+        {st?.inspect && (
+          <div className="pt-1 mt-1 border-t border-line text-[10px] text-dim">
+            INSPECT: pan {st.inspect.pan_deg.toFixed(0)}° · tilt {st.inspect.tilt_deg.toFixed(0)}°
+          </div>
+        )}
       </div>
     </div>
   );

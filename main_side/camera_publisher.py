@@ -647,11 +647,64 @@ def _diag():
         log(f"DIAG 실패: {e!r}")
 
 
+_INSPECT_LIM = 70.0   # 사용자 사양 (2026-05-20): pan/tilt ±70°
+
+
+def _update_inspect_xform():
+    """매 step 호출 — base body roll/pitch 격리 (짐벌 stabilization) +
+    사용자 pan/tilt 적용 + focalLength 갱신.
+
+    WHY: base 자식이라 robot 보행 중 base roll/pitch 가 카메라에 누설되어
+    영상이 기울어짐. base.world.inverse 로 cancel.
+    """
+    try:
+        _cam_prim = stage.GetPrimAtPath(CAM_INSPECT_PATH)
+        if not (_cam_prim and _cam_prim.IsValid()):
+            return
+        import math as _math
+        _LIM = _math.radians(_INSPECT_LIM)
+        _inspect_state["pan"] = max(-_LIM, min(_LIM, _inspect_state["pan"]))
+        _inspect_state["tilt"] = max(-_LIM, min(_LIM, _inspect_state["tilt"]))
+        # base world rotation → roll(X)/pitch(Y) 추출 (ZYX intrinsic)
+        _base = stage.GetPrimAtPath(BASE_PRIM)
+        _roll_w = _pitch_w = 0.0
+        if _base and _base.IsValid():
+            _bt = UsdGeom.Xformable(_base).ComputeLocalToWorldTransform(
+                _U.TimeCode.Default())
+            _r20 = float(_bt[2][0]); _r21 = float(_bt[2][1]); _r22 = float(_bt[2][2])
+            _pitch_w = _math.atan2(-_r20, _math.sqrt(_r21*_r21 + _r22*_r22))
+            _roll_w = _math.atan2(_r21, _r22)
+
+        def _qx(a):
+            return Gf.Quatf(float(_math.cos(a*0.5)),
+                            Gf.Vec3f(float(_math.sin(a*0.5)), 0.0, 0.0))
+        def _qy(a):
+            return Gf.Quatf(float(_math.cos(a*0.5)),
+                            Gf.Vec3f(0.0, float(_math.sin(a*0.5)), 0.0))
+        def _qz(a):
+            return Gf.Quatf(float(_math.cos(a*0.5)),
+                            Gf.Vec3f(0.0, 0.0, float(_math.sin(a*0.5))))
+        q_user = _qz(_inspect_state["pan"]) * _qy(_inspect_state["tilt"])
+        # base 자식 → local = inverse(base roll/pitch) * Q_FRONT * user
+        q_stab = _qy(-_pitch_w) * _qx(-_roll_w)
+        q_total = q_stab * _Q_FRONT * q_user
+        _xf = UsdGeom.Xformable(_cam_prim)
+        for _op in _xf.GetOrderedXformOps():
+            if _op.GetOpType() == UsdGeom.XformOp.TypeOrient:
+                _op.Set(q_total)
+                break
+        UsdGeom.Camera(_cam_prim).GetFocalLengthAttr().Set(
+            float(_inspect_state["focal"]))
+    except Exception as _e:
+        log(f"[inspect] xform 갱신 실패: {_e!r}")
+
+
 def _apply_inspect_cmd():
     """/tmp/cobot3_inspect_cmd.json 의 명령을 읽어 검사 카메라 Xform/focal 갱신.
 
     inspect_relay.py (rclpy 사이드카) 가 /robot/inspect/command 를 받아
-    이 파일에 dump 한다. mtime 변화 시에만 처리.
+    이 파일에 dump 한다. mtime 변화 시에만 처리 → 그러나 stabilization 부분
+    (_update_inspect_xform) 은 매 step 호출돼 base body 회전 격리 유지.
 
     payload JSON 키:
     - pan, tilt: delta(rad) 또는 절대(rad) — "absolute":true 면 절대.
@@ -663,8 +716,11 @@ def _apply_inspect_cmd():
     try:
         m = os.path.getmtime(_INSPECT_CMD_FILE)
     except OSError:
+        # 파일 없어도 stabilization 은 매 step 갱신
+        _update_inspect_xform()
         return
     if m <= _inspect_state["last_mtime"]:
+        _update_inspect_xform()
         return
     _inspect_state["last_mtime"] = m
     _inspect_state["rx"] += 1
@@ -710,32 +766,7 @@ def _apply_inspect_cmd():
             except Exception:
                 pass
 
-    # Xform / focalLength 갱신
-    try:
-        _cam_prim = stage.GetPrimAtPath(CAM_INSPECT_PATH)
-        if _cam_prim and _cam_prim.IsValid():
-            import math as _math
-            # base 정면(+X, up +Z) 쿼터니언 _Q_FRONT 에 pan(Z축) · tilt(Y축) 합성
-            cy = _math.cos(_inspect_state["pan"] * 0.5)
-            sy = _math.sin(_inspect_state["pan"] * 0.5)
-            cp = _math.cos(_inspect_state["tilt"] * 0.5)
-            sp = _math.sin(_inspect_state["tilt"] * 0.5)
-            # base 좌표 기준: pan = yaw about world Z (≈ camera 그대로 회전),
-            # tilt = pitch about camera's right axis. 1차 구현: 단순 yaw·pitch
-            # 의 Z·Y 합성 쿼터니언으로 (정밀 짐벌 짐벌락 분석은 추후).
-            q_yaw = Gf.Quatf(float(cy), Gf.Vec3f(0.0, 0.0, float(sy)))
-            q_pitch = Gf.Quatf(float(cp), Gf.Vec3f(0.0, float(sp), 0.0))
-            q_total = _Q_FRONT * q_yaw * q_pitch
-            _xf = UsdGeom.Xformable(_cam_prim)
-            _ops = _xf.GetOrderedXformOps()
-            for _op in _ops:
-                if _op.GetOpType() == UsdGeom.XformOp.TypeOrient:
-                    _op.Set(q_total)
-                    break
-            UsdGeom.Camera(_cam_prim).GetFocalLengthAttr().Set(
-                float(_inspect_state["focal"]))
-    except Exception as _e:
-        log(f"[inspect] Xform 갱신 실패: {_e!r}")
+    _update_inspect_xform()
 
     now = time.time()
     if now - _inspect_state["last_log"] > 1.0:
