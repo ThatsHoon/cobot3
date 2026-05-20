@@ -27,8 +27,10 @@ from std_msgs.msg import String
 MODE_DRIVE = "DRIVE"
 MODE_TURN = "TURN"
 
-# patrol mode 가 이 집합에 들면 Nav2 입력을 무시하고 Twist(0) 으로 강제 발행
-MUTE_MODES = {"PAUSED", "IDLE"}
+# patrol mode 가 이 집합에 들면 Nav2 입력을 무시하고 Twist(0) 으로 강제 발행.
+# 2026-05-20 fix: IDLE 제거 — 사용자 teleop(BaseMovement·DS) 가 IDLE 에서
+# 자유 발행 가능해야 함. PAUSED 만 mute (정지 버튼 보호).
+MUTE_MODES = {"PAUSED"}
 
 
 class CmdVelSafetyFilter(Node):
