@@ -44,7 +44,10 @@
           "frameLocked": true,
           "color": "rgba(100, 180, 255, 0.85)",
           "distance": 3.0
-        }
+        },
+        "/foxglove/intruder_markers":  { "visible": true },
+        "/foxglove/landmark_markers":  { "visible": true },
+        "/foxglove/patrol_goal_marker": { "visible": true }
       },
       "layers": {
         "go2-urdf": {
@@ -69,8 +72,8 @@
           "label": "Ground Grid",
           "instanceId": "grid",
           "layerId": "foxglove.Grid",
-          "size": 20,
-          "divisions": 20,
+          "size": 40,
+          "divisions": 40,
           "lineWidth": 0.5,
           "color": "rgba(0, 255, 128, 0.18)",
           "position": [0, 0, 0],
@@ -79,7 +82,7 @@
         }
       },
       "cameraState": {
-        "distance": 4.5,
+        "distance": 5.5,
         "perspective": true,
         "phi": 55,
         "thetaOffset": 45,
@@ -90,6 +93,54 @@
         "near": 0.05,
         "far": 5000
       }
+    },
+    "Indicator!mode": {
+      "path": "/foxglove/patrol_mode_str.data",
+      "style": "background",
+      "fallbackColor": "#202020",
+      "fallbackLabel": "—",
+      "rules": [
+        { "operator": "=", "rawValue": "IDLE",   "color": "#404048", "label": "IDLE" },
+        { "operator": "=", "rawValue": "PATROL", "color": "#1e7e34", "label": "PATROL · 출격" },
+        { "operator": "=", "rawValue": "HOME",   "color": "#1d6fa5", "label": "HOME · 복귀" },
+        { "operator": "=", "rawValue": "PAUSED", "color": "#a06000", "label": "PAUSED · 정지" }
+      ]
+    },
+    "StateTransitions!mode": {
+      "paths": [
+        { "value": "/foxglove/patrol_mode_str.data", "label": "Patrol Mode", "timestampMethod": "receiveTime" }
+      ],
+      "isSynced": true,
+      "showPoints": true
+    },
+    "Map!gps": {
+      "center": { "lat": 38.0, "lon": 127.5 },
+      "zoomLevel": 12,
+      "layer": "map",
+      "customTileUrl": "",
+      "topicColors": {
+        "/robot/gps": "#00ff88"
+      },
+      "disabledTopics": [],
+      "followTopic": "/robot/gps"
+    },
+    "Gauge!battery": {
+      "path": "/foxglove/battery.data",
+      "minValue": 0,
+      "maxValue": 100,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": ["#ff4040", "#ffaa20", "#22cc44"],
+      "reverse": false
+    },
+    "Gauge!speed": {
+      "path": "/robot/odom.twist.twist.linear.x",
+      "minValue": 0,
+      "maxValue": 1.6,
+      "colorMap": "turbo",
+      "colorMode": "colormap",
+      "gradient": ["#404048", "#00ff88", "#ffcc00"],
+      "reverse": false
     },
     "Image!cam_inspect": {
       "cameraTopic": "/c2/inspect/compressed",
@@ -116,16 +167,16 @@
       "title": "Joint Position (Go2 leg 12-DOF)",
       "paths": [
         { "value": "/robot/leg_joint_states.position[0]",  "label": "FL_hip",   "color": "#ff4040", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[1]",  "label": "FL_thigh", "color": "#ff9040", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[2]",  "label": "FL_calf",  "color": "#ffd040", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[3]",  "label": "FR_hip",   "color": "#40ff60", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[4]",  "label": "FR_thigh", "color": "#40ffd0", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[5]",  "label": "FR_calf",  "color": "#40c0ff", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[6]",  "label": "RL_hip",   "color": "#5060ff", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[7]",  "label": "RL_thigh", "color": "#9050ff", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[8]",  "label": "RL_calf",  "color": "#d050ff", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[9]",  "label": "RR_hip",   "color": "#ff50d0", "enabled": true, "timestampMethod": "receiveTime" },
-        { "value": "/robot/leg_joint_states.position[10]", "label": "RR_thigh", "color": "#ff5090", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[1]",  "label": "FR_hip",   "color": "#ff9040", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[2]",  "label": "RL_hip",   "color": "#ffd040", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[3]",  "label": "RR_hip",   "color": "#40ff60", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[4]",  "label": "FL_thigh", "color": "#40ffd0", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[5]",  "label": "FR_thigh", "color": "#40c0ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[6]",  "label": "RL_thigh", "color": "#5060ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[7]",  "label": "RR_thigh", "color": "#9050ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[8]",  "label": "FL_calf",  "color": "#d050ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[9]",  "label": "FR_calf",  "color": "#ff50d0", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[10]", "label": "RL_calf",  "color": "#ff5090", "enabled": true, "timestampMethod": "receiveTime" },
         { "value": "/robot/leg_joint_states.position[11]", "label": "RR_calf",  "color": "#ff7070", "enabled": true, "timestampMethod": "receiveTime" }
       ],
       "xAxisVal": "timestamp",
@@ -147,40 +198,75 @@
       "topicPath": "/patrol_state",
       "diffEnabled": false,
       "showFullMessageForDiff": false
-    },
-    "Indicator!mode": {
-      "path": "/patrol_state.data",
-      "style": "background",
-      "fallbackColor": "#202020",
-      "fallbackLabel": "—",
-      "rules": []
     }
   },
   "globalVariables": {},
-  "userNodes": {},
+  "userNodes": {
+    "patrol_mode_extractor": {
+      "name": "patrol_mode_extractor",
+      "sourceCode": "import { Input, Message } from \"./types\";\n\nexport const inputs = [\"/patrol_state\"];\nexport const output = \"/foxglove/patrol_mode_str\";\n\nexport default function script(\n  event: Input<\"/patrol_state\">\n): Message<\"std_msgs/String\"> {\n  try {\n    const d = JSON.parse(event.message.data);\n    return { data: String(d.mode ?? \"IDLE\") };\n  } catch {\n    return { data: \"IDLE\" };\n  }\n}\n"
+    },
+    "battery_extractor": {
+      "name": "battery_extractor",
+      "sourceCode": "import { Input, Message } from \"./types\";\n\nexport const inputs = [\"/robot/state\"];\nexport const output = \"/foxglove/battery\";\n\nexport default function script(\n  event: Input<\"/robot/state\">\n): Message<\"std_msgs/Float32\"> {\n  try {\n    const d = JSON.parse(event.message.data);\n    const b = Number(d.battery ?? 100);\n    return { data: Math.max(0, Math.min(100, b)) };\n  } catch {\n    return { data: 0 };\n  }\n}\n"
+    },
+    "intruders_to_scene": {
+      "name": "intruders_to_scene",
+      "sourceCode": "import { Input, Message } from \"./types\";\n\ntype Item = { id?: string; x: number; y: number; z?: number; level?: string; label?: string };\n\nexport const inputs = [\"/intruder_states\"];\nexport const output = \"/foxglove/intruder_markers\";\n\nexport default function script(\n  event: Input<\"/intruder_states\">\n): Message<\"foxglove.SceneUpdate\"> {\n  let items: Item[] = [];\n  try {\n    const d = JSON.parse(event.message.data);\n    items = Array.isArray(d) ? d : (d.items ?? []);\n  } catch {}\n  return {\n    deletions: [],\n    entities: items.map((it, i) => ({\n      id: `intruder_${it.id ?? i}`,\n      timestamp: event.receiveTime,\n      frame_id: \"world\",\n      frame_locked: false,\n      lifetime: { sec: 3, nsec: 0 },\n      metadata: [],\n      arrows: [], cubes: [], lines: [], cylinders: [], texts: [],\n      models: [], triangles: [],\n      spheres: [{\n        pose: {\n          position: { x: it.x, y: it.y, z: it.z ?? 0.5 },\n          orientation: { x: 0, y: 0, z: 0, w: 1 },\n        },\n        size: { x: 1.2, y: 1.2, z: 1.2 },\n        color: (it.level || \"\").toUpperCase() === \"ALERT\"\n          ? { r: 1.0, g: 0.2, b: 0.2, a: 0.85 }\n          : { r: 1.0, g: 0.85, b: 0.3, a: 0.7 },\n      }],\n    })),\n  };\n}\n"
+    },
+    "landmarks_to_scene": {
+      "name": "landmarks_to_scene",
+      "sourceCode": "import { Input, Message } from \"./types\";\n\ntype LM = { home?: {x:number,y:number,z?:number}; goal?: {x:number,y:number,z?:number}; arrive_box?: number };\n\nexport const inputs = [\"/scene/landmarks\"];\nexport const output = \"/foxglove/landmark_markers\";\n\nexport default function script(\n  event: Input<\"/scene/landmarks\">\n): Message<\"foxglove.SceneUpdate\"> {\n  let lm: LM = {};\n  try { lm = JSON.parse(event.message.data); } catch {}\n  const entities: any[] = [];\n  if (lm.home) entities.push({\n    id: \"home\", timestamp: event.receiveTime, frame_id: \"world\", frame_locked: false,\n    lifetime: { sec: 0, nsec: 0 }, metadata: [],\n    arrows: [], lines: [], cylinders: [], models: [], triangles: [], spheres: [],\n    cubes: [{\n      pose: { position: { x: lm.home.x, y: lm.home.y, z: (lm.home.z ?? 0) + 0.5 }, orientation: { x:0, y:0, z:0, w:1 } },\n      size: { x: 2, y: 2, z: 1 },\n      color: { r: 0.2, g: 1.0, b: 0.4, a: 0.85 },\n    }],\n    texts: [{\n      pose: { position: { x: lm.home.x, y: lm.home.y, z: (lm.home.z ?? 0) + 2.5 }, orientation: { x:0,y:0,z:0,w:1 } },\n      billboard: true, font_size: 0.8, scale_invariant: false,\n      color: { r:0.2, g:1.0, b:0.4, a:1.0 }, text: \"HOME\",\n    }],\n  });\n  if (lm.goal) entities.push({\n    id: \"goal\", timestamp: event.receiveTime, frame_id: \"world\", frame_locked: false,\n    lifetime: { sec: 0, nsec: 0 }, metadata: [],\n    arrows: [], lines: [], models: [], triangles: [], spheres: [],\n    cubes: [{\n      pose: { position: { x: lm.goal.x, y: lm.goal.y, z: (lm.goal.z ?? 0) + 0.5 }, orientation: { x:0, y:0, z:0, w:1 } },\n      size: { x: 2, y: 2, z: 1 },\n      color: { r: 1.0, g: 0.3, b: 0.3, a: 0.85 },\n    }],\n    cylinders: lm.arrive_box ? [{\n      pose: { position: { x: lm.goal.x, y: lm.goal.y, z: (lm.goal.z ?? 0) }, orientation: { x:0,y:0,z:0,w:1 } },\n      size: { x: lm.arrive_box * 2, y: lm.arrive_box * 2, z: 0.1 },\n      bottom_scale: 1.0, top_scale: 1.0,\n      color: { r: 1.0, g: 0.3, b: 0.3, a: 0.25 },\n    }] : [],\n    texts: [{\n      pose: { position: { x: lm.goal.x, y: lm.goal.y, z: (lm.goal.z ?? 0) + 2.5 }, orientation: { x:0,y:0,z:0,w:1 } },\n      billboard: true, font_size: 0.8, scale_invariant: false,\n      color: { r:1.0, g:0.4, b:0.4, a:1.0 }, text: \"GOAL\",\n    }],\n  });\n  return { deletions: [], entities };\n}\n"
+    }
+  },
   "playbackConfig": { "speed": 1 },
   "layout": {
     "direction": "row",
-    "first": "3D!go2",
-    "splitPercentage": 62,
+    "first": {
+      "direction": "column",
+      "first": "3D!go2",
+      "splitPercentage": 65,
+      "second": {
+        "direction": "row",
+        "first": {
+          "direction": "row",
+          "first": "Image!cam_inspect",
+          "splitPercentage": 50,
+          "second": "Image!cam_rear"
+        },
+        "splitPercentage": 60,
+        "second": {
+          "direction": "column",
+          "first": "Plot!cmd_vel",
+          "splitPercentage": 50,
+          "second": "Plot!joint_position"
+        }
+      }
+    },
+    "splitPercentage": 72,
     "second": {
       "direction": "column",
-      "first": {
-        "direction": "row",
-        "first": "Image!cam_inspect",
-        "splitPercentage": 50,
-        "second": "Image!cam_rear"
-      },
-      "splitPercentage": 28,
+      "first": "Indicator!mode",
+      "splitPercentage": 14,
       "second": {
         "direction": "column",
-        "first": "Image!cam_overhead",
+        "first": "Map!gps",
         "splitPercentage": 32,
         "second": {
           "direction": "column",
-          "first": "Plot!joint_position",
-          "splitPercentage": 50,
-          "second": "Plot!cmd_vel"
+          "first": "Gauge!battery",
+          "splitPercentage": 18,
+          "second": {
+            "direction": "column",
+            "first": "Gauge!speed",
+            "splitPercentage": 21,
+            "second": {
+              "direction": "column",
+              "first": "StateTransitions!mode",
+              "splitPercentage": 38,
+              "second": "RawMessages!patrol"
+            }
+          }
         }
       }
     }
