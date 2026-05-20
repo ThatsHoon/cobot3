@@ -6,6 +6,9 @@ import { useEffect, useRef, useState } from "react";
 const _STATIC_BASE = process.env.NEXT_PUBLIC_C2_API ?? "";
 export function getApiBase(): string {
   if (_STATIC_BASE) return _STATIC_BASE;
+  // SSR (prerender) 안전 guard — window 미정의 시 빈 string. 클라이언트 hydrate
+  // 후 첫 render 부터 정상 hostname 사용.
+  if (typeof window === "undefined") return "";
   return `http://${window.location.hostname}:8000`;
 }
 export const API_BASE = _STATIC_BASE || "http://localhost:8000"; // SSR 호환용 (fetch 직접 호출 시 fallback)
