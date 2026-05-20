@@ -144,6 +144,11 @@ class RosBridge:
 
     # ---- 업링크 (C2 → 로봇) ------------------------------------------
     def pub_cmd_vel(self, lin: float, ang: float, vy: float = 0.0):
+        # 2026-05-20 fix: 정지(PAUSED) 시 teleop 발행 차단 — safety_filter 의
+        # mute Twist(0) 와 race 제거. BaseMovement·DS·TeleopPad 모두 차단.
+        mode = str((self.latest.get("patrol_state") or {}).get("mode", "")).upper()
+        if mode == "PAUSED":
+            return
         if self._node:
             self._node.pub_cmd_vel(lin, ang, vy=vy)
 

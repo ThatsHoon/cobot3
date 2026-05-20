@@ -264,7 +264,7 @@ export default function MapTrack({
   };
 
   return (
-    <div className="panel h-full flex flex-col">
+    <div className="panel flex flex-col">
       <div className="panel-hd">
         <span>TACTICAL MAP · {ROBOT_ID.toUpperCase()}</span>
         <span className="text-dim">
@@ -272,7 +272,7 @@ export default function MapTrack({
           {patrolState?.mode && ` · ${patrolState.mode}`}
         </span>
       </div>
-      <div className="relative flex-1 bg-black">
+      <div className="relative aspect-square w-full mx-auto bg-black">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={`${getApiBase()}/c2/video/mjpeg?camera=overhead`}

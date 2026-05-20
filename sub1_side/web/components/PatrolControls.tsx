@@ -1,13 +1,14 @@
 "use client";
 import { useState } from "react";
+import { Play, Home, Pause, RotateCw } from "lucide-react";
 import { postJSON, PatrolStatePayload } from "@/lib/api";
 
-// 2026-05-20: "대기" 제거 — 4버튼 (출격/복귀/정지/재개). backend idle 분기는 보존.
-const BTNS: { cmd: string; label: string; cls: string }[] = [
-  { cmd: "sortie", label: "출격",   cls: "bg-emerald-700 hover:bg-emerald-600" },
-  { cmd: "home",   label: "복귀",   cls: "bg-sky-700 hover:bg-sky-600" },
-  { cmd: "stop",   label: "정지",   cls: "bg-rose-700 hover:bg-rose-600" },
-  { cmd: "resume", label: "재개",   cls: "bg-amber-700 hover:bg-amber-600" },
+// 2026-05-20: lucide icon only (텍스트 제거).
+const BTNS: { cmd: string; Icon: typeof Play; title: string; cls: string }[] = [
+  { cmd: "sortie", Icon: Play,     title: "출격",  cls: "bg-emerald-700 hover:bg-emerald-600" },
+  { cmd: "home",   Icon: Home,     title: "복귀",  cls: "bg-sky-700 hover:bg-sky-600" },
+  { cmd: "stop",   Icon: Pause,    title: "정지",  cls: "bg-rose-700 hover:bg-rose-600" },
+  { cmd: "resume", Icon: RotateCw, title: "재개",  cls: "bg-amber-700 hover:bg-amber-600" },
 ];
 
 const MODE_CLASS: Record<string, string> = {
@@ -54,15 +55,17 @@ export default function PatrolControls({
         </span>
       </div>
       <div className="px-3 py-2 grid grid-cols-4 gap-1.5">
-        {BTNS.map((b) => (
+        {BTNS.map(({ cmd, Icon, title, cls }) => (
           <button
-            key={b.cmd}
-            onClick={() => send(b.cmd)}
+            key={cmd}
+            onClick={() => send(cmd)}
             disabled={busy}
-            className={`text-[11px] py-1.5 rounded ${b.cls} ` +
+            title={title}
+            aria-label={title}
+            className={`flex items-center justify-center py-2 rounded ${cls} ` +
                        "disabled:opacity-40 disabled:cursor-not-allowed"}
           >
-            {b.label}
+            <Icon size={18} strokeWidth={2} />
           </button>
         ))}
       </div>

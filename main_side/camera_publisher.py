@@ -372,24 +372,25 @@ _mk_cam(CAM_REAR_PATH, Gf.Vec3f(-0.235, 0.0, 0.10), _Q_REAR, "후방(real) 카�
 CAM_INSPECT_PATH = "/World/Go2/base/camera_inspect"
 _mk_cam(CAM_INSPECT_PATH, Gf.Vec3f(0.235, 0.0, 0.10), _Q_FRONT, "검사 카메라(짐벌, 전방 끄트머리)")
 
-# 오버헤드(TACTICAL MAP 배경용) 카메라 — base 위 100m, 시선 −Z(지면 보기).
-# USD Camera default 가 시선 −Z, up +Y 라 identity quat 으로 충분. up 이 base
-# 의 +Y(좌측) → 영상 위쪽은 robot 좌측. yaw 같이 회전 (base 자식).
-CAM_OVERHEAD_PATH = "/World/Go2/base/camera_overhead"
-_Q_DOWN = Gf.Quatf(1.0, Gf.Vec3f(0.0, 0.0, 0.0))
+# 오버헤드(TACTICAL MAP 배경용) 카메라 — /World 직접 자식, 매 step Go2 base
+# xy 동기화 + z 고정 + orient identity (시선 −Z, up +Y) = North-up 고정.
+# WHY: base 자식이면 보행 oscillation (roll/pitch + z bob) 가 영상에 누설.
+# /World 자식 + 매 step xy 추적이면 robot 따라가지만 화면 위는 항상 world +Y.
+CAM_OVERHEAD_PATH = "/World/Overhead_Camera"
+_Q_DOWN = Gf.Quatf(1.0, Gf.Vec3f(0.0, 0.0, 0.0))   # identity
 if stage.GetPrimAtPath(CAM_OVERHEAD_PATH).IsValid():
     stage.RemovePrim(CAM_OVERHEAD_PATH)
 _cam_ov = UsdGeom.Camera.Define(stage, CAM_OVERHEAD_PATH)
 _xf_ov = UsdGeom.Xformable(_cam_ov.GetPrim())
 _xf_ov.ClearXformOpOrder()
-_xf_ov.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 100.0))
+# 초기 spawn 위치 위에 두기 (Go2 spawn x=212.8, y=890.53, z=5.0 + 100)
+_xf_ov.AddTranslateOp().Set(Gf.Vec3f(212.8, 890.53, 105.0))
 _xf_ov.AddOrientOp().Set(_Q_DOWN)
-_cam_ov.GetFocalLengthAttr().Set(8.0)     # ~광각, ±70m 시야 @ 100m
+_cam_ov.GetFocalLengthAttr().Set(8.0)
 _cam_ov.GetHorizontalApertureAttr().Set(_HAP)
 _cam_ov.GetVerticalApertureAttr().Set(_VAP)
-# clippingRange: 카메라가 base 위 100m 이고 지면 ≈ base.z, near/far 범위 보장
 _cam_ov.GetClippingRangeAttr().Set(Gf.Vec2f(1.0, 1000.0))
-log(f"오버헤드 카메라(고도 100m, 지면) 생성: {CAM_OVERHEAD_PATH}")
+log(f"오버헤드 카메라(고도 100m, North-up 고정) 생성: {CAM_OVERHEAD_PATH}")
 
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
@@ -650,6 +651,29 @@ def _diag():
 _INSPECT_LIM = 70.0   # 사용자 사양 (2026-05-20): pan/tilt ±70°
 
 
+def _update_overhead_xform():
+    """매 step 호출 — overhead 카메라 (/World 자식) 의 translate 를 Go2 base
+    xy 로 동기화. z 는 base.z + 100m. orient identity 유지 (North-up).
+    """
+    try:
+        _base = stage.GetPrimAtPath(BASE_PRIM)
+        if not (_base and _base.IsValid()):
+            return
+        _bt = UsdGeom.Xformable(_base).ComputeLocalToWorldTransform(
+            _U.TimeCode.Default()).ExtractTranslation()
+        _cam = stage.GetPrimAtPath(CAM_OVERHEAD_PATH)
+        if not (_cam and _cam.IsValid()):
+            return
+        _xf = UsdGeom.Xformable(_cam)
+        for _op in _xf.GetOrderedXformOps():
+            if _op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                _op.Set(Gf.Vec3f(float(_bt[0]), float(_bt[1]),
+                                 float(_bt[2]) + 100.0))
+                break
+    except Exception as _e:
+        log(f"[overhead] xform 갱신 실패: {_e!r}")
+
+
 def _update_inspect_xform():
     """매 step 호출 — base body roll/pitch 격리 (짐벌 stabilization) +
     사용자 pan/tilt 적용 + focalLength 갱신.
@@ -906,6 +930,7 @@ try:
         _apply_cmd()
         _apply_inspect_cmd()
         _apply_npc_cmd()
+        _update_overhead_xform()
         if n in (60, 150):
             _diag()
         # timeline play 자가 복원 — GUI 일시정지나 외부 stop() 으로 멈춰

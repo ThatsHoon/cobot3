@@ -106,46 +106,45 @@ export default function Page() {
           patrol={patrolState}
         />
 
-        {/* HERO: cameras + tactical map — visually dominant */}
+        {/* HERO: cameras + map | CONTROLS column (1 viewport row) */}
         <section
-          className="grid grid-cols-1 xl:grid-cols-2 gap-3 p-3 pb-0"
+          className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3"
           aria-label="hero">
-          <div className="min-h-[420px] flex flex-col">
+          {/* 좌측 6col — DualCameraView */}
+          <div className="xl:col-span-5 min-w-0">
             <DualCameraView />
           </div>
-          <div className="min-h-[420px] flex flex-col">
+          {/* 중앙 4col — MapTrack (정사각형) */}
+          <div className="xl:col-span-4 min-w-0">
             <MapTrack track={track} cur={cur}
                       landmarks={landmarks}
                       intruders={intruders}
                       patrolState={patrolState}
                       alertActive={alertActive} />
           </div>
-        </section>
-
-        {/* CONTROLS: mission · movement · inspector — secondary row */}
-        <section
-          className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 p-3"
-          aria-label="controls">
-          <div className="flex flex-col gap-3 min-w-0">
+          {/* 우측 3col — Controls column */}
+          <div className="xl:col-span-3 flex flex-col gap-2 min-w-0">
             <PatrolControls patrolState={patrolState} />
-            <NpcSpawnButton />
-          </div>
-          <div className="flex flex-col gap-3 min-w-0">
-            {showBaseMv && <BaseMovementPanel />}
-            {showTeleop && <TeleopPad />}
             <DualSenseStatus />
-          </div>
-          <div className="flex flex-col gap-3 min-w-0">
             <InspectorCameraPanel />
           </div>
         </section>
 
-        {/* ALERTS: unified single column stack */}
+        {/* CONTROLS row 2: BaseMovement + Alerts + NPC */}
         <section
-          className="grid grid-cols-1 lg:grid-cols-2 gap-3 px-3 pb-3"
-          aria-label="alerts">
-          <AlertsLog liveEvents={alertEvents} />
-          <AnimalAlertsLog liveEvents={animalAlertEvents} />
+          className="grid grid-cols-1 lg:grid-cols-3 gap-3 px-3 pb-3"
+          aria-label="controls2">
+          <div className="min-w-0">
+            {showBaseMv && <BaseMovementPanel />}
+            {showTeleop && <TeleopPad />}
+          </div>
+          <div className="grid grid-cols-1 gap-2 min-w-0">
+            <AlertsLog liveEvents={alertEvents} />
+            <AnimalAlertsLog liveEvents={animalAlertEvents} />
+          </div>
+          <div className="min-w-0">
+            <NpcSpawnButton />
+          </div>
         </section>
 
         <DiagnosticsStrip
@@ -153,28 +152,25 @@ export default function Page() {
           legQ={snap.leg_q || []}
         />
 
-        {/* FOOTER: event log + legacy control toggles */}
-        <div className="px-3 pb-3 flex flex-wrap items-center gap-2">
+        {/* FOOTER: legacy toggles + EventLog (축소) */}
+        <div className="px-3 pb-1 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setShowBaseMv((v) => !v)}
-            className="text-[10px] px-2 py-1 rounded bg-zinc-800
+            className="text-[10px] px-2 py-0.5 rounded bg-zinc-800
                        hover:bg-zinc-700 text-dim">
-            {showBaseMv ? "▼" : "▶"} BASE MOVEMENT
+            {showBaseMv ? "▼" : "▶"} BASE MV
           </button>
           <button
             type="button"
             onClick={() => setShowTeleop((v) => !v)}
-            className="text-[10px] px-2 py-1 rounded bg-zinc-800
+            className="text-[10px] px-2 py-0.5 rounded bg-zinc-800
                        hover:bg-zinc-700 text-dim">
-            {showTeleop ? "▼" : "▶"} TELEOP (legacy)
+            {showTeleop ? "▼" : "▶"} TELEOP
           </button>
-          <span className="text-[10px] text-dim">
-            Base Movement: 이동/대기 중 추가 보행 명령 (사용자 사양 #4)
-          </span>
         </div>
 
-        <div className="h-[200px] p-3 pt-0">
+        <div className="h-[120px] px-3 pb-3">
           <EventLog events={eventStream} />
         </div>
       </main>
