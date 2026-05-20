@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DMZ Sentry Tactical Map</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="map-panel">
+        <div class="topbar">
+          <div>
+            <h1>DMZ SENTRY</h1>
+            <p>Tactical patrol map</p>
+          </div>
+          <div id="connectionBadge" class="badge offline">ROSBRIDGE OFFLINE</div>
+        </div>
+        <canvas id="mapCanvas" width="980" height="760" aria-label="DMZ tactical map"></canvas>
+        <div class="camera-row">
+          <div class="camera-block">
+            <div class="camera-label">Front Camera <span id="cameraStatus" class="camera-status">OFFLINE</span></div>
+            <img id="cameraFeed" class="camera-feed" src="" alt="front camera feed" />
+          </div>
+          <div class="camera-block">
+            <div class="camera-label">Inspection Camera <span id="inspectionStatus" class="camera-status">OFFLINE</span></div>
+            <img id="inspectionFeed" class="camera-feed" src="" alt="inspection camera feed" />
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="block">
+          <h2>Mission</h2>
+          <div class="button-row">
+            <button id="launchBtn">출격</button>
+            <button id="homeBtn" class="secondary">홈</button>
+            <button id="stopBtn" class="secondary">정지</button>
+            <button id="resumeBtn" class="secondary">재개</button>
+          </div>
+        </section>
+
+        <section class="block">
+          <h2>Status</h2>
+          <dl class="status-grid">
+            <dt>Mode</dt>
+            <dd id="modeText">IDLE</dd>
+            <dt>Position</dt>
+            <dd id="positionText">x 0.00 / y 0.00</dd>
+            <dt>Yaw</dt>
+            <dd id="yawText">0.0 deg</dd>
+            <dt>Patrol WP</dt>
+            <dd id="waypointText">none</dd>
+          </dl>
+        </section>
+
+        <section class="block">
+          <h2>Inspection Camera</h2>
+          <div class="ptz-grid">
+            <span></span>
+            <button id="tiltUpBtn">▲</button>
+            <span></span>
+            <button id="panLeftBtn">◀</button>
+            <button id="centerCameraBtn" class="secondary">●</button>
+            <button id="panRightBtn">▶</button>
+            <span></span>
+            <button id="tiltDownBtn">▼</button>
+            <span></span>
+          </div>
+          <div class="button-row">
+            <button id="zoomInBtn">Zoom +</button>
+            <button id="zoomOutBtn" class="secondary">Zoom -</button>
+            <button id="zoomResetBtn" class="secondary">Reset</button>
+            <button id="clearTargetBtn" class="secondary">Clear</button>
+          </div>
+          <p class="hint">지도 위 unidentified target을 클릭하면 해당 위치를 확인합니다.</p>
+        </section>
+
+        <section class="block alert-block" id="alertBlock">
+          <h2>Alert</h2>
+          <div id="alertText" class="alert-text">No active alert</div>
+        </section>
+
+        <section class="block">
+          <h2>Event Log</h2>
+          <ol id="eventLog" class="event-log"></ol>
+        </section>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

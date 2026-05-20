@@ -142,16 +142,63 @@ CREATE TABLE IF NOT EXISTS robot_state_log (
 CREATE INDEX IF NOT EXISTS idx_rsl_robot_ts ON robot_state_log (robot_id, ts DESC);
 
 -- ============================================================================
+-- DMZ Sentry 통합 (2026-05-20) — alerts / patrol_state_log / intruder_states_log
+-- ============================================================================
+
+-- alerts : YOLO 정책(alert_conf + cooldown) 통과 사람 감지 -------------
+CREATE TABLE IF NOT EXISTS alerts (
+    id          BIGSERIAL PRIMARY KEY,
+    robot_id    TEXT NOT NULL REFERENCES robots(robot_id),
+    ts          TIMESTAMPTZ NOT NULL,
+    level       TEXT NOT NULL,           -- ALERT|WARN|INFO
+    event       TEXT NOT NULL,           -- person_detected_near_fence …
+    confidence  REAL NOT NULL,
+    bbox_xyxy   JSONB,                   -- [x1,y1,x2,y2]
+    count       INT NOT NULL DEFAULT 1,
+    ack         BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_robot_ts ON alerts (robot_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_ack      ON alerts (ack) WHERE ack = FALSE;
+
+-- patrol_state_log : nav2_patrol 상태머신 변경 시 1행 ------------------
+CREATE TABLE IF NOT EXISTS patrol_state_log (
+    id                BIGSERIAL PRIMARY KEY,
+    robot_id          TEXT NOT NULL REFERENCES robots(robot_id),
+    ts                TIMESTAMPTZ NOT NULL,
+    mode              TEXT NOT NULL,     -- IDLE|PATROL|HOME|ALERT_STOP|STOPPED
+    current_waypoint  INT,
+    pose_x            REAL,
+    pose_y            REAL,
+    pose_yaw          REAL
+);
+CREATE INDEX IF NOT EXISTS idx_psl_robot_ts ON patrol_state_log (robot_id, ts DESC);
+
+-- intruder_states_log : 침입자 ground-truth 1Hz 다운샘플 --------------
+CREATE TABLE IF NOT EXISTS intruder_states_log (
+    id           BIGSERIAL PRIMARY KEY,
+    ts           TIMESTAMPTZ NOT NULL,
+    intruder_id  TEXT NOT NULL,
+    x            REAL NOT NULL,
+    y            REAL NOT NULL,
+    z            REAL,
+    label        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_isl_ts ON intruder_states_log USING BRIN (ts);
+
+-- ============================================================================
 -- 보관 정책 (← 0002_retention_policy.sql 적응)
 -- ============================================================================
 DROP FUNCTION IF EXISTS cleanup_old_data();
 CREATE OR REPLACE FUNCTION cleanup_old_data() RETURNS void AS $$
 BEGIN
-    DELETE FROM gps_track          WHERE ts < now() - INTERVAL '14 days';
-    DELETE FROM joint_snapshots    WHERE ts < now() - INTERVAL '14 days';
-    DELETE FROM rosout_warn        WHERE ts < now() - INTERVAL '30 days';
-    DELETE FROM intruder_detections WHERE ts < now() - INTERVAL '30 days';
-    DELETE FROM robot_state_log    WHERE ts < now() - INTERVAL '30 days';
+    DELETE FROM gps_track             WHERE ts < now() - INTERVAL '14 days';
+    DELETE FROM joint_snapshots       WHERE ts < now() - INTERVAL '14 days';
+    DELETE FROM rosout_warn           WHERE ts < now() - INTERVAL '30 days';
+    DELETE FROM intruder_detections   WHERE ts < now() - INTERVAL '30 days';
+    DELETE FROM robot_state_log       WHERE ts < now() - INTERVAL '30 days';
+    DELETE FROM patrol_state_log      WHERE ts < now() - INTERVAL '30 days';
+    DELETE FROM intruder_states_log   WHERE ts < now() - INTERVAL '14 days';
+    DELETE FROM alerts                WHERE ts < now() - INTERVAL '60 days' AND ack = TRUE;
     -- patrol_runs / patrol_events / fire_events : 1년 보관 (삭제 안 함)
 END;
 $$ LANGUAGE plpgsql;

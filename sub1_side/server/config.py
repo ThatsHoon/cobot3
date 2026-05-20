@@ -39,8 +39,50 @@ TOPICS = {
     "speaker":   "/robot/speaker/audio",    # std_msgs/String (JSON: preset/pcm-b64)
     "fire_srv":  "/robot/weapon/fire",      # std_srvs/Trigger (간이) — 설계 §10.2
     "cmd_vel":   "/robot/cmd_vel",          # geometry_msgs/Twist (RELIABLE) — C2→로봇
+    # DMZ Sentry 통합 (2026-05-20)
+    "mission_cmd":  "/mission_command",     # std_msgs/String (sortie/home/stop/resume/idle)
+    "patrol_state": "/patrol_state",        # std_msgs/String (JSON mode/waypoint/route/pose)
+    "alerts":       "/alerts",              # std_msgs/String (JSON YOLO alert 정책 통과)
+    "detections":   "/detections_text",     # std_msgs/String (JSON 모든 detection)
+    "intruders":    "/intruder_states",     # std_msgs/String (JSON 침입자 ground-truth)
+    "landmarks":    "/scene/landmarks",     # std_msgs/String (JSON cube/cone/fence, latched)
+    "inspect_cmd":  "/robot/inspect/command",  # std_msgs/String (JSON pan/tilt/zoom/look_at)
+    "inspect_rgb":  "/cam/inspect/rgb",     # sensor_msgs/Image (검사 카메라 RGB)
+    "cmd_nav_raw":  "/cmd_vel_nav2_raw",    # geometry_msgs/Twist (Nav2→safety filter)
+    "animal_alerts": "/animal_alerts",      # std_msgs/String (JSON 동물 감지 alert, P3)
 }
 
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)
-YOLO_MODEL = os.environ.get("C2_YOLO_MODEL", "yolov8n.pt")
-YOLO_CLASSES = {0: "person"}  # COCO 0=person (동물 등 확장 가능)
+
+
+# YOLO 모델 우선순위 (P3 2026-05-20): C2_YOLO_MODEL env > models/*.pt > yolov8n.pt
+_MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+
+
+def _pick_model() -> str:
+    _env = os.environ.get("C2_YOLO_MODEL", "").strip()
+    if _env:
+        return _env
+    if os.path.isdir(_MODELS_DIR):
+        for _f in sorted(os.listdir(_MODELS_DIR)):
+            if _f.endswith(".pt"):
+                return os.path.join(_MODELS_DIR, _f)
+    return "yolov8n.pt"  # ultralytics 자동 다운로드
+
+
+YOLO_MODEL = _pick_model()
+
+# 클래스 매핑 — person + COCO 동물 + jsy 2-class 호환 (class 1=animal)
+YOLO_CLASSES = {
+    0: "person",
+    1: "animal",
+    16: "bird", 17: "cat", 18: "dog", 19: "horse", 20: "sheep",
+    21: "cow", 22: "elephant", 23: "bear", 24: "zebra", 25: "giraffe",
+}
+
+# YOLO alert 정책 (DMZ Sentry M5 — alert_conf 이상 + cooldown 초과 시 /alerts 발행)
+YOLO_ALERT_CONF = float(os.environ.get("C2_YOLO_ALERT_CONF", "0.55"))
+YOLO_ALERT_COOLDOWN = float(os.environ.get("C2_YOLO_ALERT_COOLDOWN", "3.0"))
+# P3 신규: 동물 alert 정책 (독립 cooldown)
+YOLO_ANIMAL_ALERT_CONF = float(os.environ.get("C2_YOLO_ANIMAL_ALERT_CONF", "0.50"))
+YOLO_ANIMAL_ALERT_COOLDOWN = float(os.environ.get("C2_YOLO_ANIMAL_ALERT_COOLDOWN", "5.0"))

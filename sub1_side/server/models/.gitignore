@@ -1,0 +1,6 @@
+# YOLO 가중치는 git 추적 제외
+*.pt
+*.onnx
+# 단, README/gitignore 자신은 추적
+!README.md
+!.gitignore

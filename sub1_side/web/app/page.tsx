@@ -1,35 +1,44 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import VideoWall from "@/components/VideoWall";
-import ContactsPanel from "@/components/ContactsPanel";
-import ReadinessStrip from "@/components/ReadinessStrip";
+import { useCallback, useEffect, useState } from "react";
+import StatusHeader from "@/components/StatusHeader";
+import TelemetryStrip from "@/components/TelemetryStrip";
+import DualCameraView from "@/components/DualCameraView";
 import MapTrack from "@/components/MapTrack";
-import OpsLedger, { LedgerItem } from "@/components/OpsLedger";
+import PatrolControls from "@/components/PatrolControls";
+import InspectorCameraPanel from "@/components/InspectorCameraPanel";
+import AlertsLog from "@/components/AlertsLog";
+import AnimalAlertsLog from "@/components/AnimalAlertsLog";
+import EventLog from "@/components/EventLog";
 import DiagnosticsStrip from "@/components/DiagnosticsStrip";
-import EngagementConsole from "@/components/EngagementConsole";
 import TeleopPad from "@/components/TeleopPad";
-import ThreatBar, { Contact } from "@/components/ThreatBar";
-import { C2Event, getJSON, ROBOT_ID, useEvents } from "@/lib/api";
+import {
+  C2Event, getJSON, ROBOT_ID, useEvents,
+  LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
+} from "@/lib/api";
 
-const CONTACT_TTL = 8000; // ms — 마지막 탐지 후 위협 유지 시간
+type Snap = {
+  state?: { mode?: string; gait?: string; battery?: number; waypoint?: number };
+  gps?: { lat?: number; lon?: number; alt?: number };
+  odom?: { x?: number; y?: number; z?: number; yaw?: number };
+  arm_q?: number[];
+  leg_q?: number[];
+};
 
 export default function Page() {
-  const [snap, setSnap] = useState<any>({});
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [ledger, setLedger] = useState<LedgerItem[]>([]);
+  const [snap, setSnap] = useState<Snap>({});
   const [track, setTrack] = useState<{ x: number; y: number }[]>([]);
-  const [lastContactTs, setLastContactTs] = useState<number | null>(null);
-  const [, setTick] = useState(0);
-  const lastRef = useRef<number | null>(null);
-  lastRef.current = lastContactTs;
+  const [landmarks, setLandmarks] = useState<LandmarksPayload | null>(null);
+  const [patrolState, setPatrolState] = useState<PatrolStatePayload | null>(null);
+  const [intruders, setIntruders] = useState<IntruderState[]>([]);
+  const [alertEvents, setAlertEvents] =
+    useState<{ ts: string; data: AlertPayload }[]>([]);
+  const [animalAlertEvents, setAnimalAlertEvents] =
+    useState<{ ts: string; data: AlertPayload & { label: string } }[]>([]);
+  const [eventStream, setEventStream] = useState<C2Event[]>([]);
+  const [lastAlertTs, setLastAlertTs] = useState<number | null>(null);
+  const [showTeleop, setShowTeleop] = useState(false);
 
-  // 위협 감쇠용 틱
-  useEffect(() => {
-    const iv = setInterval(() => setTick((t) => t + 1), 500);
-    return () => clearInterval(iv);
-  }, []);
-
-  // 초기 스냅샷 폴백
+  // 초기 스냅샷 폴백 (4초 폴링)
   useEffect(() => {
     const pull = async () => {
       try {
@@ -37,7 +46,7 @@ export default function Page() {
           getJSON<any>(`/robots/${ROBOT_ID}/state`),
           getJSON<any>(`/robots/${ROBOT_ID}/gps`),
         ]);
-        setSnap((s: any) => ({ ...s, ...st, gps: gps.gps }));
+        setSnap((s) => ({ ...s, ...st, gps: gps.gps }));
       } catch {}
     };
     pull();
@@ -45,108 +54,88 @@ export default function Page() {
     return () => clearInterval(iv);
   }, []);
 
-  const pushLedger = (it: LedgerItem) =>
-    setLedger((l) => [...l.slice(-299), it]);
-
   const onEvent = useCallback((e: C2Event) => {
     if (e.type === "state") {
-      setSnap((s: any) => ({
-        ...s,
-        state: e.data,
-        odom: e.data?.odom ?? s.odom,
-      }));
+      setSnap((s) => ({ ...s, state: e.data,
+                       odom: e.data?.odom ?? s.odom }));
     } else if (e.type === "gps") {
-      setSnap((s: any) => ({ ...s, gps: e.data }));
-    } else if (e.type === "log") {
-      pushLedger({
-        ts: e.ts,
-        sev: e.level >= 40 ? "alert" : "warn",
-        tag: e.level >= 40 ? "SYS·ERR" : "SYS·WARN",
-        msg: `${e.name}: ${e.msg}`,
-      });
-    } else if (e.type === "detection") {
-      const items: Contact[] = (e.items || []).map((d: any) => ({
-        ts: e.ts,
-        class_name: d.class_name,
-        conf: d.conf,
-        bbox: d.bbox,
-      }));
-      if (items.length) {
-        setContacts((c) => [...items, ...c].slice(0, 14));
-        setLastContactTs(Date.now());
-        const top = items[0];
-        pushLedger({
-          ts: e.ts,
-          sev: "alert",
-          tag: "CONTACT",
-          msg: `${top.class_name} ${(top.conf * 100).toFixed(0)}% (x${items.length})`,
-        });
-      }
-    } else if (e.type === "fire") {
-      pushLedger({
-        ts: e.ts,
-        sev: e.hit ? "hit" : "warn",
-        tag: "FIRE",
-        msg: `${e.hit ? "HIT" : "MISS"} d=${e.distance_m ?? "?"}m by ${e.operator}`,
-      });
+      setSnap((s) => ({ ...s, gps: e.data }));
+    } else if (e.type === "landmarks") {
+      setLandmarks(e.data);
+    } else if (e.type === "patrol_state") {
+      setPatrolState(e.data);
+    } else if (e.type === "intruder_state") {
+      const items = Array.isArray(e.data) ? e.data : (e.data?.items ?? []);
+      setIntruders(items);
+    } else if (e.type === "alert") {
+      setAlertEvents((p) => [...p.slice(-49), { ts: e.ts, data: e.data }]);
+      setLastAlertTs(Date.now());
+    } else if (e.type === "animal_alert") {
+      setAnimalAlertEvents((p) =>
+        [...p.slice(-49), { ts: e.ts, data: e.data }]);
     }
+    setEventStream((p) => [...p.slice(-99), e]);
   }, []);
 
   const wsOk = useEvents(onEvent);
 
   useEffect(() => {
     const od = snap.odom;
-    if (od?.x != null) setTrack((t) => [...t.slice(-400), { x: od.x, y: od.y }]);
+    if (od?.x != null && od.y != null)
+      setTrack((t) => [...t.slice(-400), { x: od.x!, y: od.y! }]);
   }, [snap.odom]);
 
-  const active =
-    lastContactTs != null && Date.now() - lastContactTs < CONTACT_TTL;
-  const contact = active ? contacts[0] : null;
-  const cur = snap.odom?.x != null ? { x: snap.odom.x, y: snap.odom.y } : null;
+  const cur = snap.odom?.x != null
+    ? { x: snap.odom.x, y: snap.odom.y! }
+    : null;
+  const alertActive = lastAlertTs != null
+    && Date.now() - lastAlertTs < 8000;
 
   return (
-    <div className={active ? "alert-active" : ""}>
-      <main className="relative z-10 min-h-screen p-4 flex flex-col gap-3">
-        <header className="flex items-end justify-between">
-          <div>
-            <h1 className="font-display text-xl tracking-[0.28em] text-phos">
-              GP · 지휘통제실
-            </h1>
-            <p className="text-[10px] text-dim tracking-[0.35em] mt-0.5">
-              BORDER GUARD QUADRUPED · C2 OPERATIONS CONSOLE
-            </p>
-          </div>
-          <div className="text-right text-[10px] text-dim leading-relaxed">
-            <span className="text-ink">{ROBOT_ID.toUpperCase()}</span> ·{" "}
-            <span className={wsOk ? "text-phos" : "text-alert"}>
-              {wsOk ? "STREAM ●" : "OFFLINE ○"}
-            </span>
-          </div>
-        </header>
+    <div className={alertActive ? "alert-active" : ""}>
+      <main className="relative z-10 min-h-screen flex flex-col">
+        <StatusHeader wsOk={wsOk} landmarks={landmarks} />
+        <TelemetryStrip
+          state={snap.state ?? null}
+          gps={snap.gps ?? null}
+          odom={snap.odom ?? null}
+          patrol={patrolState}
+        />
 
-        {/* 1순위: 위협 상태 */}
-        <ThreatBar contact={contact} lastTs={lastContactTs} />
-
-        {/* 2순위: 대응 가능 여부 (컴팩트 타일) */}
-        <ReadinessStrip s={snap} wsOk={wsOk} />
-
-        {/* 감시 코어: 영상 + 접촉/맵 */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 flex-1 min-h-0">
-          <div className="xl:col-span-2 flex flex-col gap-3 min-h-0">
-            <div className="flex-1 min-h-[340px]">
-              <VideoWall detCount={contacts.length} contact={active} />
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <EngagementConsole contact={active} wsOk={wsOk} />
-              <TeleopPad />
-            </div>
-          </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 p-3 flex-1 min-h-0">
+          {/* 좌: 영상 + 컨트롤 */}
           <div className="flex flex-col gap-3 min-h-0">
-            <div className="flex-1 min-h-[200px]">
-              <ContactsPanel items={active ? contacts : contacts.slice(0, 4)} />
+            <div className="flex-1 min-h-[360px]">
+              <DualCameraView />
             </div>
-            <div className="h-[240px]">
-              <MapTrack track={track} cur={cur} />
+            <PatrolControls patrolState={patrolState} />
+            <div className="flex gap-2 items-center">
+              <button
+                onClick={() => setShowTeleop((v) => !v)}
+                className="text-[10px] px-2 py-1 rounded bg-zinc-800
+                           hover:bg-zinc-700 text-dim">
+                {showTeleop ? "▼" : "▶"} TELEOP
+              </button>
+              <span className="text-[10px] text-dim">
+                (Nav2 사용 시 비활성 권장)
+              </span>
+            </div>
+            {showTeleop && <TeleopPad />}
+          </div>
+
+          {/* 우: 지도 + 검사 + 알람 */}
+          <div className="flex flex-col gap-3 min-h-0">
+            <div className="flex-1 min-h-[360px]">
+              <MapTrack track={track} cur={cur}
+                        landmarks={landmarks}
+                        intruders={intruders}
+                        patrolState={patrolState}
+                        alertActive={alertActive} />
+            </div>
+            <InspectorCameraPanel />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <AlertsLog liveEvents={alertEvents} />
+              <AnimalAlertsLog liveEvents={animalAlertEvents} />
             </div>
           </div>
         </div>
@@ -155,10 +144,8 @@ export default function Page() {
           armQ={snap.arm_q || []}
           legQ={snap.leg_q || []}
         />
-
-        {/* 통합 작전 로그 */}
-        <div className="h-[180px]">
-          <OpsLedger items={ledger} />
+        <div className="h-[200px] p-3 pt-0">
+          <EventLog events={eventStream} />
         </div>
       </main>
     </div>

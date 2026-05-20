@@ -1,23 +1,31 @@
 {
   "configById": {
-    "3D!spot": {
+    "3D!go2": {
       "followTf": "base",
       "followMode": "follow-pose",
-      "scene": { "enableStats": false },
+      "scene": { "enableStats": false, "backgroundColor": "#000000" },
       "transforms": {},
       "topics": {
         "/tf": { "visible": true },
-        "/robot/odom": { "visible": true }
+        "/robot/odom": { "visible": true },
+        "/cam/front/points": {
+          "visible": true,
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "colorField": "z",
+          "pointSize": 3,
+          "decayTime": 0
+        }
       },
       "layers": {
-        "spot-urdf": {
+        "go2-urdf": {
           "visible": true,
           "frameLocked": true,
-          "label": "Spot Robot",
-          "instanceId": "spot-urdf",
+          "label": "Go2 Robot",
+          "instanceId": "go2-urdf",
           "layerId": "foxglove.Urdf",
           "sourceType": "url",
-          "url": "http://192.168.10.94:8766/spot_isaac.urdf",
+          "url": "http://192.168.10.94:8766/go2_description/urdf/go2.urdf",
           "filePath": "",
           "parameter": "",
           "topic": "",
@@ -28,9 +36,9 @@
         }
       },
       "cameraState": {
-        "distance": 2,
+        "distance": 3,
         "perspective": true,
-        "phi": 70,
+        "phi": 60,
         "thetaOffset": 45,
         "target": [0, 0, 0],
         "targetOffset": [0, 0, 0],
@@ -40,25 +48,50 @@
         "far": 5000
       }
     },
-    "RawMessages!state": {
-      "topicPath": "/robot/state"
-    },
-    "Plot!leg": {
-      "title": "leg joints",
+    "Plot!joint_position": {
+      "title": "Joint Position (Go2 leg 12-DOF)",
       "paths": [
-        { "value": "/robot/leg_joint_states.position[:]", "enabled": true, "timestampMethod": "receiveTime" }
+        { "value": "/robot/leg_joint_states.position[0]",  "label": "FL_hip",   "color": "#ff4040", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[1]",  "label": "FL_thigh", "color": "#ff9040", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[2]",  "label": "FL_calf",  "color": "#ffd040", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[3]",  "label": "FR_hip",   "color": "#40ff60", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[4]",  "label": "FR_thigh", "color": "#40ffd0", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[5]",  "label": "FR_calf",  "color": "#40c0ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[6]",  "label": "RL_hip",   "color": "#5060ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[7]",  "label": "RL_thigh", "color": "#9050ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[8]",  "label": "RL_calf",  "color": "#d050ff", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[9]",  "label": "RR_hip",   "color": "#ff50d0", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[10]", "label": "RR_thigh", "color": "#ff5090", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.position[11]", "label": "RR_calf",  "color": "#ff7070", "enabled": true, "timestampMethod": "receiveTime" }
       ],
       "xAxisVal": "timestamp",
-      "showLegend": true
+      "showLegend": true,
+      "isSynced": false
+    },
+    "Plot!foot_position": {
+      "title": "Foot Position (effort z component)",
+      "paths": [
+        { "value": "/robot/leg_joint_states.effort[2]",  "label": "FL_foot", "color": "#ff5050", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.effort[5]",  "label": "FR_foot", "color": "#ffaa50", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.effort[8]",  "label": "RL_foot", "color": "#ffee50", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/leg_joint_states.effort[11]", "label": "RR_foot", "color": "#50ff80", "enabled": true, "timestampMethod": "receiveTime" }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "isSynced": false
+    },
+    "Plot!cmd_vel": {
+      "title": "Commanded velocity",
+      "paths": [
+        { "value": "/robot/cmd_vel.linear.x",  "label": "linear.x",  "color": "#ff4040", "enabled": true, "timestampMethod": "receiveTime" },
+        { "value": "/robot/cmd_vel.angular.z", "label": "angular.z", "color": "#4080ff", "enabled": true, "timestampMethod": "receiveTime" }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "isSynced": false
     },
     "Image!cam_front": {
       "cameraTopic": "/c2/front/compressed",
-      "transformMarkers": false,
-      "synchronize": false,
-      "mode": "fit"
-    },
-    "Image!cam_rear": {
-      "cameraTopic": "/c2/rear/compressed",
       "transformMarkers": false,
       "synchronize": false,
       "mode": "fit"
@@ -69,23 +102,23 @@
   "playbackConfig": { "speed": 1 },
   "layout": {
     "direction": "row",
-    "first": "3D!spot",
+    "first": "3D!go2",
+    "splitPercentage": 50,
     "second": {
       "direction": "column",
-      "first": "RawMessages!state",
+      "first": "Plot!joint_position",
+      "splitPercentage": 33,
       "second": {
         "direction": "column",
-        "first": "Plot!leg",
+        "first": "Plot!foot_position",
+        "splitPercentage": 33,
         "second": {
           "direction": "column",
-          "first": "Image!cam_front",
-          "second": "Image!cam_rear",
-          "splitPercentage": 50
-        },
-        "splitPercentage": 40
-      },
-      "splitPercentage": 28
-    },
-    "splitPercentage": 55
+          "first": "Plot!cmd_vel",
+          "splitPercentage": 50,
+          "second": "Image!cam_front"
+        }
+      }
+    }
   }
 }

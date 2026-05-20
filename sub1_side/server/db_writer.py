@@ -27,6 +27,12 @@ COLUMNS = {
     "joint_snapshots":  ["robot_id", "ts", "arm_q", "leg_q"],
     "robot_state_log":  ["robot_id", "ts", "mode", "gait",
                          "battery", "waypoint", "extra"],
+    # DMZ Sentry M8 (2026-05-20)
+    "alerts":           ["robot_id", "ts", "level", "event", "confidence",
+                         "bbox_xyxy", "count", "ack"],
+    "patrol_state_log": ["robot_id", "ts", "mode", "current_waypoint",
+                         "pose_x", "pose_y", "pose_yaw"],
+    "intruder_states_log": ["ts", "intruder_id", "x", "y", "z", "label"],
 }
 
 

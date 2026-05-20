@@ -12,6 +12,9 @@ ROS_DOMAIN_ID=130, RMW=rmw_fastrtps_cpp, FastDDS UDP-only
 |------|------|-----|----|-------|-------|
 | `/cam/front/rgb` | sensor_msgs/Image | BEST_EFFORT depth=5 | ~50 | OG CamFront | video_degrade_node (front) |
 | `/cam/rear/rgb` | sensor_msgs/Image | BEST_EFFORT depth=5 | ~50 | OG CamRear | video_degrade_node (rear) |
+| `/cam/front/depth` | sensor_msgs/Image (32FC1) | BEST_EFFORT depth=5 | ~50 | OG CamDepth | Lichtblick Image!depth |
+| `/cam/front/camera_info` | sensor_msgs/CameraInfo | BEST_EFFORT depth=5 | ~50 | OG CamInfo | Foxglove (intrinsics, fallback 투영) |
+| `/cam/front/points` | sensor_msgs/PointCloud2 | BEST_EFFORT depth=5 | ~50 | OG CamPCL (type=depth_pcl) | Foxglove Bridge → Lichtblick 3D!go2 보울 |
 | `/c2/front/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("front") |
 | `/c2/rear/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("rear") |
 | `/robot/odom` | nav_msgs/Odometry | RELIABLE depth=10 | ~63 | OG OdoPub | telemetry_bridge_node, ros_bridge._on_odom |
@@ -25,10 +28,64 @@ ROS_DOMAIN_ID=130, RMW=rmw_fastrtps_cpp, FastDDS UDP-only
 
 | 토픽/서비스 | 타입 | QoS | 발행자 | 구독자 |
 |-----------|------|-----|-------|-------|
-| `/robot/cmd_vel` | geometry_msgs/Twist | RELIABLE depth=10 | ros_bridge.pub_cmd_vel | OG SubCmd → SpotController |
-| `/robot/nav/goal` | geometry_msgs/PoseStamped | RELIABLE depth=10 | ros_bridge.publish_goal | SpotController.set_nav_goal |
+| `/robot/cmd_vel` | geometry_msgs/Twist | RELIABLE depth=10 | ros_bridge.pub_cmd_vel · cmd_vel_safety_filter | OG SubCmd → Go2WtwController |
+| `/robot/nav/goal` | geometry_msgs/PoseStamped | RELIABLE depth=10 | ros_bridge.publish_goal | (Nav2 사용 시 미사용) |
 | `/robot/speaker/audio` | std_msgs/String (JSON) | RELIABLE depth=10 | ros_bridge.send_speaker | (미구현 소비자 — C2측 발행만) |
 | `/robot/weapon/fire` | std_srvs/Trigger (service) | RELIABLE | ros_bridge.fire() (client) | (서버: C2 명령 노드 예정) |
+| `/robot/inspect/command` | std_msgs/String (JSON) | RELIABLE depth=10 | ros_bridge.pub_inspect_cmd | OG SubInspect → camera_publisher._apply_inspect_cmd |
+
+### DMZ Sentry 신규 토픽 (2026-05-20 통합)
+
+| 토픽 | 타입 | QoS | Hz | 발행자 | 구독자 |
+|------|------|-----|----|-------|-------|
+| `/cam/inspect/rgb` | sensor_msgs/Image | BEST_EFFORT depth=5 | ~50 | OG CamInspect | (Foxglove · 향후 MJPEG) |
+| `/cam/inspect/camera_info` | sensor_msgs/CameraInfo | BEST_EFFORT depth=5 | ~50 | OG CamInspect | (intrinsics) |
+| `/scene/landmarks` | std_msgs/String (JSON) | RELIABLE+TRANSIENT_LOCAL (latched) | 0.5 | landmarks_pub.py | nav2_patrol._on_landmarks, ros_bridge._on_landmarks |
+| `/intruder_states` | std_msgs/String (JSON) | RELIABLE depth=10 | (장래 5Hz) | (미구현 — intruder NPC 미스폰) | ros_bridge._on_intruders |
+| `/alerts` | std_msgs/String (JSON) | RELIABLE depth=10 | on-event | ros_bridge `_on_video` alert 정책 | nav2_patrol._on_alert · web AlertsLog |
+| `/detections_text` | std_msgs/String (JSON) | RELIABLE depth=10 | on-event | ros_bridge `_on_video` | (선택 소비자) |
+| `/mission_command` | std_msgs/String | RELIABLE depth=10 | on-event | app.py POST /missions/command → ros_bridge.pub_mission | nav2_patrol._on_mission |
+| `/patrol_state` | std_msgs/String (JSON) | RELIABLE depth=10 | 5 | nav2_patrol._publish_state | ros_bridge._on_patrol_state · web PatrolControls |
+| `/navigate_to_pose` | nav2_msgs/NavigateToPose (action) | — | on-goal | nav2_patrol._send_next_goal (client) | Nav2 bt_navigator (server) |
+| `/cmd_vel_nav2_raw` | geometry_msgs/Twist | RELIABLE depth=10 | 10 | Nav2 velocity_smoother | cmd_vel_safety_filter |
+| `world→odom` TF | tf2_msgs/TFMessage (static) | RELIABLE+TRANSIENT_LOCAL | 1 (latched) | world_odom_tf_pub.py | Nav2 tf_buffer |
+
+### DMZ Sentry 토픽 JSON 스키마
+
+**`/scene/landmarks`**:
+```json
+{ "cube": {"x":-714.32,"y":952.93,"z":30.57},
+  "cone": {"x":-937.07,"y":938.98,"z":0.0},
+  "fence": [{"x":...,"y":...,"z":...}, ...] }
+```
+
+**`/mission_command`**: 단일 문자열 (`sortie|home|stop|resume|idle`).
+
+**`/patrol_state`**:
+```json
+{ "mode":"PATROL", "waypoint":{"x":-937.1,"y":939.0},
+  "home":{"x":-714.3,"y":952.9}, "route":[...],
+  "pose":{"x":...,"y":...,"yaw":...},
+  "landmarks_received": true }
+```
+
+**`/alerts`**:
+```json
+{ "level":"ALERT", "event":"person_detected_near_fence",
+  "confidence":0.78, "bbox_xyxy":[x1,y1,x2,y2],
+  "count":1, "action":"report_and_track" }
+```
+
+**`/robot/inspect/command`**:
+```json
+{ "pan":0.5, "tilt":0.0, "zoom":1.25,
+  "look_at":[x,y,z], "absolute":true, "reset":false }
+```
+
+**`/intruder_states`**:
+```json
+[ {"id":"i0", "x":..., "y":..., "z":..., "label":"person"}, ... ]
+```
 
 ---
 

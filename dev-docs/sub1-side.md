@@ -143,27 +143,36 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 ## Next.js 컴포넌트
 
 ### 메인 페이지 (`/`)
-`app/page.tsx` — 실시간 전술 콘솔
+`app/page.tsx` — 실시간 전술 콘솔 (2026-05-20 재구조화: 실 데이터 중심 11 컴포넌트)
 
 | 컴포넌트 | props | 기능 |
 |---------|-------|------|
-| `VideoWall` | detCount, contact | 전방(front)/후방(rear) 듀얼 MJPEG 패널, 전방 HUD 레티클 |
-| `ThreatBar` | contact, lastTs | 위협 상태 표시 (8s TTL) |
-| `ReadinessStrip` | state, wsOk | MODE/BATTERY/LINK/WAYPOINT/GPS 타일 |
-| `MapTrack` | track[], cur | ±60m 캔버스 전술 지도, 더블클릭→goto |
-| `ContactsPanel` | items[] | 탐지 목록 + 신뢰도 바 |
-| `EngagementConsole` | contact, wsOk | 확성기→ARM→FIRE 워크플로 |
-| `TeleopPad` | — | D-패드 + 속도 슬라이더, 100ms 주기 cmd_vel |
-| `DiagnosticsStrip` | armQ, legQ | 관절 스파크차트 (접기/펼치기) |
-| `OpsLedger` | items[] | 통합 이벤트 로그 (최대 300개) |
+| `StatusHeader` | wsOk, landmarks | 헤더(robot id · zone · WS 상태 · 시간) |
+| `TelemetryStrip` | state, gps, odom, patrol | 1-row 텔레메트리(mode·gait·battery·waypoint·pose·gps) |
+| `DualCameraView` | — | 전방+검사 MJPEG 2-panel (`/c2/video/mjpeg?camera=front\|inspect`) |
+| `MapTrack` | track, cur, landmarks, intruders, patrolState, alertActive | 전술 지도 (Cube/Cone/DMZ 마커, fence 점선, intruder, alert overlay) |
+| `PatrolControls` | patrolState | sortie/home/stop/resume/idle 미션 버튼 + 상태 표시 |
+| `TeleopPad` | — | (선택 토글) D-패드 + 속도, Nav2 비활성 시 보조 |
+| `InspectorCameraPanel` | — | 검사 카메라 pan/tilt/zoom/look_at REST |
+| `AlertsLog` | liveEvents | person alert 누적 (최근 20, ACK 가능) |
+| `AnimalAlertsLog` | liveEvents | animal alert 누적 (label·conf·bbox) |
+| `EventLog` | events[] | 모든 C2Event 14줄 스크롤 |
+| `DiagnosticsStrip` | armQ, legQ | 관절 스파크차트 |
+
+**제거된 컴포넌트 (2026-05-20):** `VideoWall`(↔DualCameraView 중복), `ThreatBar`/`EngagementConsole`(사격 위협 — 실 데이터 무관), `ContactsPanel`(↔AlertsLog 중복), `ReadinessStrip`(↔TelemetryStrip 대체), `OpsLedger`(↔EventLog 중복).
 
 ### 디버그 페이지 (`/debug`)
-`app/debug/page.tsx` — 진단 도구
+`app/debug/page.tsx` — Lichtblick iframe 풀스크린 (Three.js SpotSurroundView 제거 — Lichtblick 만 사용)
 
-| 패널 | 구성 |
-|------|------|
-| `SpotSurroundView` | Three.js 3D: 로봇 바디, 전/후방 카메라 75° frustum, 2.5m 커버리지 링. odom yaw 200ms 폴링 |
-| `iframe` (Lichtblick) | `http://host:8080/?ds=foxglove-websocket&ds.url=ws://host:8765` |
+`sub1_side/lichtblick/layout.json` 기본 layout (2026-05-20 강화, 이미지 #5 퀄리티):
+
+| 패널 | 위치 | 토픽/구성 |
+|---|---|---|
+| `3D!go2` | 좌 50% | URDF Go2 + `/tf` + `/robot/odom` follow + `/cam/front/points` Z-turbo PointCloud |
+| `Plot!joint_position` | 우상 33% | `/robot/leg_joint_states.position[0..11]` 12 라인 (FL/FR/RL/RR × hip/thigh/calf) |
+| `Plot!foot_position` | 우중 33% | `/robot/leg_joint_states.effort[2,5,8,11]` 4 foot z 추정 |
+| `Plot!cmd_vel` | 우하 상반 | `/robot/cmd_vel.linear.x` (red) + `.angular.z` (blue) |
+| `Image!cam_front` | 우하 하반 | `/c2/front/compressed` |
 
 **SpotSurroundView 구현 세부:**
 - `import type * as THREE from "three"` (타입 전용, SSR safe)
@@ -188,21 +197,28 @@ useEvents(handlers)      // WS /events 자동 재연결 + ping keepalive
 
 | 패널 | 토픽 | 설정 |
 |------|------|------|
-| 3D!spot | /tf, /robot/odom | URDF: http://192.168.10.94:8766/spot_isaac.urdf, follow base, 2m distance |
+| 3D!go2 | /tf, /robot/odom, **/cam/front/points** | go2.urdf(http://192.168.10.94:8766/go2_description/urdf/go2.urdf), follow base, 3m distance, PointCloud Z-turbo 컬러맵 "볼록렌즈/보울" |
 | RawMessages!state | /robot/state | JSON 원문 표시 |
-| Plot!leg | /robot/leg_joint_states.position[:] | 12관절 시계열 |
+| Plot!leg | /robot/leg_joint_states.position[:] | Go2 12관절 시계열 |
 | Image!cam_front | /c2/front/compressed | 전방 카메라 |
 | Image!cam_rear | /c2/rear/compressed | 후방 카메라 |
+| Image!depth | /cam/front/depth | 전방 깊이(32FC1 컬러맵) |
 
 **레이아웃 트리:**
 ```
 Row (55% / 45%)
-├─ 3D!spot
+├─ 3D!go2  (PointCloud 보울 + go2.urdf)
 └─ Column
-   ├─ RawMessages!state (28%)
+   ├─ RawMessages!state (25%)
    └─ Column
-      ├─ Plot!leg (40%)
-      └─ Column (60%)
+      ├─ Plot!leg (35%)
+      └─ Column
          ├─ Image!cam_front (50%)
-         └─ Image!cam_rear  (50%)
+         └─ Column
+            ├─ Image!cam_rear (50%)
+            └─ Image!depth
 ```
+> 보울 시각화: Isaac OG `CamPCL`(type=depth_pcl)가 `/cam/front/points`
+> (PointCloud2) 발행 → foxglove_bridge → 3D!go2 패널이 Z 컬러맵 보울 렌더.
+> depth_pcl 미지원 빌드 시 `/cam/front/depth`+`/cam/front/camera_info`
+> 기반 Lichtblick 투영 fallback.

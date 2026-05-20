@@ -1,0 +1,17 @@
+DMZ Sentry 자산 라이선스 (2026-05-20)
+
+본 디렉토리(`main_side/scene/assets/dmz/`)의 USDZ/PBR 자산은 hi 브랜치
+(cobot3_need_to_merge_for_functions) 의 `assets/` 사본이다.
+
+| 파일 | 출처 | 라이선스 |
+|---|---|---|
+| materials/Ground081_2K-JPG/* | ambientcg.com/view?id=Ground081 | CC0 1.0 Universal |
+| props/guard_tower/Guard_Tower_Free_Asset.usdz | (TBD — hi 브랜치 미명시) | (TBD) |
+| props/chainlink_fence/chainlink_fence_tileable.usdz | (TBD — hi 브랜치 미명시) | (TBD) |
+
+**중요**: Guard_Tower 와 chainlink_fence 의 출처·라이선스가 hi 브랜치
+`docs/assets.md` 에서 미명시(TBD) 상태. **데모/연구 목적 한정**으로
+사용하며, 공개 배포 전에 출처 확인 + 라이선스 확보 또는 자체 모델로
+대체 필요.
+
+본 자산을 cobot3 외부에 재배포하지 말 것.

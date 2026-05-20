@@ -127,6 +127,39 @@ async def fire_events(rid: str = config.ROBOT_ID, limit: int = 50):
     return [dict(r) for r in rows]
 
 
+@app.get("/telemetry/alerts")
+async def alerts(rid: str = config.ROBOT_ID, limit: int = 100,
+                 only_open: bool = False):
+    sql = ("SELECT id, ts, level, event, confidence, bbox_xyxy, count, ack "
+           "FROM alerts WHERE robot_id=$1")
+    args = [rid]
+    if only_open:
+        sql += " AND ack = FALSE"
+    sql += " ORDER BY ts DESC LIMIT $2"
+    args.append(limit)
+    rows = await _query(sql, *args)
+    return [dict(r) for r in rows]
+
+
+@app.get("/telemetry/patrol_state")
+async def patrol_state(rid: str = config.ROBOT_ID, limit: int = 100):
+    rows = await _query(
+        "SELECT ts, mode, current_waypoint, pose_x, pose_y, pose_yaw "
+        "FROM patrol_state_log WHERE robot_id=$1 ORDER BY ts DESC LIMIT $2",
+        rid, limit)
+    return [dict(r) for r in rows]
+
+
+@app.get("/missions/state")
+async def mission_state():
+    """현재 patrol/intruder/landmarks 상태 즉시 조회 (WS 미수신 시 폴 백업)."""
+    return {
+        "patrol_state": ros.latest.get("patrol_state", {}),
+        "intruders": ros.latest.get("intruders", []),
+        "landmarks": ros.latest.get("landmarks", {}),
+    }
+
+
 async def _query(sql: str, *args):
     pool = db._pool
     if pool is None:
@@ -215,6 +248,53 @@ async def speaker(rid: str, body: dict):
     # body: {"preset": "엎드려"} 또는 {"pcm_b64": "...", "rate": 16000}
     ros.send_speaker(body)
     return {"ok": True}
+
+
+# ---- DMZ Sentry M7 신규 엔드포인트 -------------------------------------
+_MISSION_VALID = {"sortie", "home", "stop", "resume", "idle",
+                  "start", "halt", "continue", "rtb", "standby"}
+
+
+@app.post("/missions/command", dependencies=[Depends(require_key)])
+async def mission_command(body: dict):
+    """body: {"command": "sortie|home|stop|resume|idle"} → /mission_command."""
+    cmd = str(body.get("command", "")).strip().lower()
+    if cmd not in _MISSION_VALID:
+        raise HTTPException(400, f"unknown mission command: {cmd!r}")
+    ros.pub_mission(cmd)
+    return {"ok": True, "command": cmd}
+
+
+@app.post("/robots/{rid}/inspect", dependencies=[Depends(require_key)])
+async def inspect_command(rid: str, body: dict):
+    """검사 카메라 짐벌 명령 → /robot/inspect/command.
+
+    body 키:
+      pan, tilt (rad)
+      zoom (focal multiplier) 또는 focal_length (mm)
+      look_at: [x, y, z]
+      absolute: bool (기본 True)
+      reset: bool
+    """
+    payload = {k: body[k] for k in
+               ("pan", "tilt", "zoom", "focal_length", "look_at",
+                "absolute", "reset", "target_id")
+               if k in body}
+    if not payload:
+        raise HTTPException(400, "empty inspect command")
+    ros.pub_inspect_cmd(payload)
+    return {"ok": True, "payload": payload}
+
+
+@app.post("/alerts/{alert_id}/ack", dependencies=[Depends(require_key)])
+async def ack_alert(alert_id: int):
+    """alert 행 ack=TRUE 마킹."""
+    pool = db._pool
+    if pool is None:
+        raise HTTPException(503, "DB unavailable")
+    async with pool.acquire() as c:
+        r = await c.execute("UPDATE alerts SET ack=TRUE WHERE id=$1", alert_id)
+    return {"ok": True, "result": r}
 
 
 if __name__ == "__main__":

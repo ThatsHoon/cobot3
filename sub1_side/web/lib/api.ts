@@ -36,12 +36,48 @@ export async function postJSON<T>(path: string, body: unknown): Promise<T> {
   return r.json();
 }
 
+export type Landmark = { x: number; y: number; z?: number };
+export type Pose2D = { x: number; y: number; yaw: number };
+export type IntruderState = { id?: string; x: number; y: number; z?: number; label?: string };
+export type LandmarksPayload = {
+  cube?: Landmark;
+  cone?: Landmark;
+  fence?: Landmark[];
+  // P2 (DMZ_Zone): 별도 평지 patrol home/cone/fence
+  zone?: "cube" | "dmz";
+  dmz_home?: Landmark;
+  dmz_cone?: Landmark;
+  dmz_patrol_w?: Landmark;
+  dmz_fence?: Landmark[];
+};
+export type PatrolStatePayload = {
+  mode: string;
+  waypoint: { x: number; y: number } | null;
+  home: { x: number; y: number };
+  route: { x: number; y: number }[];
+  pose: Pose2D | null;
+  landmarks_received?: boolean;
+};
+export type AlertPayload = {
+  level: string;
+  event: string;
+  confidence: number;
+  bbox_xyxy: [number, number, number, number];
+  count: number;
+  action?: string;
+};
+
 export type C2Event =
   | { type: "state"; ts: string; data: any }
   | { type: "gps"; ts: string; data: { lat: number; lon: number; alt: number } }
   | { type: "log"; ts: string; level: number; name: string; msg: string }
   | { type: "detection"; ts: string; items: any[] }
-  | { type: "fire"; ts: string; target: string; hit: boolean; distance_m: number | null; operator: string };
+  | { type: "fire"; ts: string; target: string; hit: boolean; distance_m: number | null; operator: string }
+  | { type: "alert"; ts: string; data: AlertPayload }
+  | { type: "animal_alert"; ts: string; data: AlertPayload & { label: string } }
+  | { type: "patrol_state"; ts: string; data: PatrolStatePayload }
+  | { type: "intruder_state"; ts: string; data: IntruderState[] | { items: IntruderState[] } }
+  | { type: "landmarks"; ts: string; data: LandmarksPayload };
 
 /** WS /events 구독. 자동 재연결. */
 export function useEvents(onEvent: (e: C2Event) => void) {

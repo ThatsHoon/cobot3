@@ -40,6 +40,10 @@
 ```
 OnTick (OnPlaybackTick)  — render_dt=1/50 → 50Hz 펄스
   ├─→ RPFront → CamFront          /cam/front/rgb (Image, BEST_EFFORT)
+  │            → CamDepth         /cam/front/depth (Image 32FC1, BEST_EFFORT)
+  │            → CamInfo          /cam/front/camera_info (CameraInfo, BEST_EFFORT)
+  │            → CamPCL           /cam/front/points (PointCloud2, BEST_EFFORT)
+  │              (Foxglove 3D 보울; frameId=camera_front, RPFront 공유)
   ├─→ RPRear  → CamRear           /cam/rear/rgb  (Image, BEST_EFFORT)
   ├─→ LegJS                       /robot/leg_joint_states (JointState, RELIABLE)
   ├─→ Odo → OdoPub                /robot/odom (Odometry, RELIABLE)
@@ -76,8 +80,12 @@ _SENSOR_QOS = '{"history":"keepLast","depth":5,"reliability":"bestEffort",\
 
 | 카메라 | prim 경로 | 위치 (xyz) | 회전 (rotateXYZ) | 초점거리 |
 |--------|-----------|-----------|----------------|---------|
-| 전방 | `/World/Robot/base/camera_front` | (0.35, 0.0, 0.10) | (0.0, -90.0, 0.0) | 1.93mm |
-| 후방 | `/World/Robot/base/camera_rear`  | (-0.35, 0.0, 0.10) | (0.0, 90.0, 0.0)  | 1.93mm |
+| 전방 | `/World/Go2/base/camera_front` | (0.22, 0.0, 0.06) | (0.0, -90.0, 0.0) | 10.5mm |
+| 후방 | `/World/Go2/base/camera_rear`  | (-0.22, 0.0, 0.06) | (0.0, 90.0, 0.0)  | 10.5mm |
+
+> Go2 전환: prim `/World/Go2/...`. 카메라 내부파라미터 D455 (focalLength
+> 10.5mm + horizontalAperture 20.955 → ~90° FOV) — Foxglove PointCloud
+> 보울 스케일 정합. 구 Spot 잔재 1.93mm 초광각 제거.
 
 **UsdGeom.Camera** API로 생성 (rsd455.usd 시각 메시 불필요).
 
