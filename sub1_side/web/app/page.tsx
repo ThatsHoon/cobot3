@@ -13,6 +13,7 @@ import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import TeleopPad from "@/components/TeleopPad";
 import BaseMovementPanel from "@/components/BaseMovementPanel";
 import NpcSpawnButton from "@/components/NpcSpawnButton";
+import DualSenseStatus from "@/components/DualSenseStatus";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
   LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
@@ -105,56 +106,74 @@ export default function Page() {
           patrol={patrolState}
         />
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 p-3 flex-1 min-h-0">
-          {/* 좌: 영상 + 컨트롤 */}
-          <div className="flex flex-col gap-3 min-h-0">
-            <div className="flex-1 min-h-[360px]">
-              <DualCameraView />
-            </div>
+        {/* HERO: cameras + tactical map — visually dominant */}
+        <section
+          className="grid grid-cols-1 xl:grid-cols-2 gap-3 p-3 pb-0"
+          aria-label="hero">
+          <div className="min-h-[420px] flex flex-col">
+            <DualCameraView />
+          </div>
+          <div className="min-h-[420px] flex flex-col">
+            <MapTrack track={track} cur={cur}
+                      landmarks={landmarks}
+                      intruders={intruders}
+                      patrolState={patrolState}
+                      alertActive={alertActive} />
+          </div>
+        </section>
+
+        {/* CONTROLS: mission · movement · inspector — secondary row */}
+        <section
+          className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 p-3"
+          aria-label="controls">
+          <div className="flex flex-col gap-3 min-w-0">
             <PatrolControls patrolState={patrolState} />
-            <div className="flex gap-2 items-center flex-wrap">
-              <button
-                onClick={() => setShowBaseMv((v) => !v)}
-                className="text-[10px] px-2 py-1 rounded bg-zinc-800
-                           hover:bg-zinc-700 text-dim">
-                {showBaseMv ? "▼" : "▶"} BASE MOVEMENT
-              </button>
-              <button
-                onClick={() => setShowTeleop((v) => !v)}
-                className="text-[10px] px-2 py-1 rounded bg-zinc-800
-                           hover:bg-zinc-700 text-dim">
-                {showTeleop ? "▼" : "▶"} TELEOP (legacy)
-              </button>
-              <span className="text-[10px] text-dim">
-                Base Movement: 이동/대기 중 추가 보행 명령 (사용자 사양 #4)
-              </span>
-            </div>
-            {showBaseMv && <BaseMovementPanel />}
-            {showTeleop && <TeleopPad />}
             <NpcSpawnButton />
           </div>
-
-          {/* 우: 지도 + 검사 + 알람 */}
-          <div className="flex flex-col gap-3 min-h-0">
-            <div className="flex-1 min-h-[360px]">
-              <MapTrack track={track} cur={cur}
-                        landmarks={landmarks}
-                        intruders={intruders}
-                        patrolState={patrolState}
-                        alertActive={alertActive} />
-            </div>
-            <InspectorCameraPanel />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <AlertsLog liveEvents={alertEvents} />
-              <AnimalAlertsLog liveEvents={animalAlertEvents} />
-            </div>
+          <div className="flex flex-col gap-3 min-w-0">
+            {showBaseMv && <BaseMovementPanel />}
+            {showTeleop && <TeleopPad />}
+            <DualSenseStatus />
           </div>
-        </div>
+          <div className="flex flex-col gap-3 min-w-0">
+            <InspectorCameraPanel />
+          </div>
+        </section>
+
+        {/* ALERTS: unified single column stack */}
+        <section
+          className="grid grid-cols-1 lg:grid-cols-2 gap-3 px-3 pb-3"
+          aria-label="alerts">
+          <AlertsLog liveEvents={alertEvents} />
+          <AnimalAlertsLog liveEvents={animalAlertEvents} />
+        </section>
 
         <DiagnosticsStrip
           armQ={snap.arm_q || []}
           legQ={snap.leg_q || []}
         />
+
+        {/* FOOTER: event log + legacy control toggles */}
+        <div className="px-3 pb-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowBaseMv((v) => !v)}
+            className="text-[10px] px-2 py-1 rounded bg-zinc-800
+                       hover:bg-zinc-700 text-dim">
+            {showBaseMv ? "▼" : "▶"} BASE MOVEMENT
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTeleop((v) => !v)}
+            className="text-[10px] px-2 py-1 rounded bg-zinc-800
+                       hover:bg-zinc-700 text-dim">
+            {showTeleop ? "▼" : "▶"} TELEOP (legacy)
+          </button>
+          <span className="text-[10px] text-dim">
+            Base Movement: 이동/대기 중 추가 보행 명령 (사용자 사양 #4)
+          </span>
+        </div>
+
         <div className="h-[200px] p-3 pt-0">
           <EventLog events={eventStream} />
         </div>

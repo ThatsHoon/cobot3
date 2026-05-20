@@ -10,3 +10,5 @@ numpy<2
 python-multipart==0.0.*
 # YOLO (서버측 추론) — 선택. 미설치 시 탐지 비활성(graceful).
 ultralytics==8.3.*
+# DualSense 게임패드 (SDL2 + hid-playstation). 미설치 시 비활성 (graceful).
+pygame>=2.5

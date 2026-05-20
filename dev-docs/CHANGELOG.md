@@ -7,6 +7,16 @@
 
 ## 2026-05-20
 
+### 웹 메인 페이지 레이아웃 시각 위계 재정렬
+**변경 파일:** `sub1_side/web/app/page.tsx` (수정), `dev-docs/sub1-side.md` (수정)
+- 좌·우 2-column → 4 섹션 stack (HERO / CONTROLS / ALERTS / FOOTER)
+- HERO: DualCameraView + MapTrack (xl 2-column, min-h 420px) — 시각적 dominant
+- CONTROLS: mission · movement · inspector 3-column (xl breakpoint)
+- legacy TELEOP/BASE MOVEMENT 토글 버튼은 푸터로 이동
+- AlertsLog + AnimalAlertsLog 단일 row (lg 2-column) 로 통합 표시
+- 다른 컴포넌트 내부 변경 없음, panel/panel-hd/phos 변수 유지
+- `npm run build` 통과 (page 9.32 kB / First Load 96.4 kB)
+
 ### Go2 정찰 신사양 통합 (단일 미션 4-mode FSM + BaseMovement + YOLO 0.7)
 
 **사용자 요구사항 (8개):**

@@ -13,6 +13,7 @@ export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTRTPS_DEFAULT_PROFILES_FILE:-$PWD/fa
 PY="/home/rokey/dev_ws/isaac_sim/cobot3/sub1_side/server/.venv/bin/python"
 [ -x "$PY" ] || PY="python3"
 
-DEGRADE_IN=/cam/rear/rgb     DEGRADE_OUT=/c2/rear/compressed     "$PY" video_degrade_node.py &
-DEGRADE_IN=/cam/inspect/rgb  DEGRADE_OUT=/c2/inspect/compressed  "$PY" video_degrade_node.py &
+DEGRADE_IN=/cam/rear/rgb      DEGRADE_OUT=/c2/rear/compressed      "$PY" video_degrade_node.py &
+DEGRADE_IN=/cam/inspect/rgb   DEGRADE_OUT=/c2/inspect/compressed   "$PY" video_degrade_node.py &
+DEGRADE_IN=/cam/overhead/rgb  DEGRADE_OUT=/c2/overhead/compressed  "$PY" video_degrade_node.py &
 wait

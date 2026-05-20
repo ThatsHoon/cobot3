@@ -57,9 +57,10 @@ class RosBridge:
         self._intr_last_log = 0.0   # /intruder_states DB 적재 다운샘플
         self._patrol_last_log = None
         self._video_lock = threading.Lock()
-        # 2026-05-20: front 제거, inspect 추가
-        self._video_rear:    np.ndarray | None = None  # BGR 후방(real) 카메라
-        self._video_inspect: np.ndarray | None = None  # BGR 검사 카메라(짐벌)
+        # 2026-05-20: front 제거, inspect 추가. overhead 추가 (TACTICAL MAP 배경).
+        self._video_rear:     np.ndarray | None = None  # BGR 후방(real) 카메라
+        self._video_inspect:  np.ndarray | None = None  # BGR 검사 카메라(짐벌)
+        self._video_overhead: np.ndarray | None = None  # BGR 오버헤드 카메라
         self._loop = None
         self._db = None
         self._ev_cb = None           # asyncio: 이벤트 브로드캐스트 콜백
@@ -121,16 +122,23 @@ class RosBridge:
             self._loop.call_soon_threadsafe(self._ev_cb, event)
 
     # ---- 영상 프레임 (WebRTC/MJPEG 가 읽음) ---------------------------
-    # 2026-05-20: front 카메라 제거, inspect 추가. camera in {rear, inspect}.
+    # 2026-05-20: front 제거. camera in {rear, inspect, overhead}.
     def get_video_frame(self, camera: str = "rear"):
         with self._video_lock:
-            frame = self._video_inspect if camera == "inspect" else self._video_rear
+            if camera == "inspect":
+                frame = self._video_inspect
+            elif camera == "overhead":
+                frame = self._video_overhead
+            else:
+                frame = self._video_rear
             return None if frame is None else frame.copy()
 
     def _set_video_frame(self, bgr, camera: str = "rear"):
         with self._video_lock:
             if camera == "inspect":
                 self._video_inspect = bgr
+            elif camera == "overhead":
+                self._video_overhead = bgr
             else:
                 self._video_rear = bgr
 
@@ -194,11 +202,13 @@ if RCLPY_OK:
             self.create_subscription(NavSatFix, T["gps"], self._on_gps, rel_qos)
             self.create_subscription(Odometry, T["odom"], self._on_odom, rel_qos)
             self.create_subscription(JointState, T["leg_joint"], self._on_leg, rel_qos)
-            # 2026-05-20: front 제거, rear+inspect 만 구독
+            # 2026-05-20: front 제거. rear + inspect + overhead 구독
             self.create_subscription(CompressedImage, T["video_rear"],
                                      lambda m: self._on_video(m, "rear"), sensor_qos)
             self.create_subscription(CompressedImage, T["video_inspect"],
                                      lambda m: self._on_video(m, "inspect"), sensor_qos)
+            self.create_subscription(CompressedImage, T["video_overhead"],
+                                     lambda m: self._on_video(m, "overhead"), sensor_qos)
             self.create_subscription(Log, T["rosout"], self._on_rosout, rel_qos)
             # ---- DMZ Sentry M5/M7 신규 다운링크 ----
             self.create_subscription(String, T["intruders"],
@@ -221,7 +231,7 @@ if RCLPY_OK:
             self._det_pub = self.create_publisher(String, T["detections"], rel_qos)
             # ---- 진단 카운터 + 주기 헬스 ----
             self._rx = {"state": 0, "gps": 0,
-                        "video_rear": 0, "video_inspect": 0,
+                        "video_rear": 0, "video_inspect": 0, "video_overhead": 0,
                         "leg": 0, "rosout": 0,
                         "intruders": 0, "patrol_state": 0, "landmarks": 0}
             self.create_timer(5.0, self._health)

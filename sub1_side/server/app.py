@@ -26,6 +26,7 @@ from fastapi.responses import StreamingResponse
 
 import config
 from db_writer import DBWriter
+from dualsense_worker import DualSenseService
 from ros_bridge import RosBridge
 from webrtc_video import BridgeVideoTrack
 from yolo_infer import YoloInfer
@@ -38,6 +39,9 @@ log = logging.getLogger("c2.app")
 db = DBWriter()
 ros = RosBridge()
 yolo = YoloInfer()
+dualsense = DualSenseService(
+    ros,
+    patrol_state_getter=lambda: ros.latest.get("patrol_state", {}))
 _ws_clients: set[WebSocket] = set()
 _pcs: set[RTCPeerConnection] = set()
 _main_loop: asyncio.AbstractEventLoop | None = None
@@ -61,9 +65,12 @@ async def lifespan(_: FastAPI):
     _main_loop = asyncio.get_running_loop()
     await db.start()
     ros.start(_main_loop, db, _broadcast, yolo if yolo.enabled else None)
-    log.info("C2 web_server up (robot=%s, domain=%s, yolo=%s)",
-             config.ROBOT_ID, config.ROS_DOMAIN_ID, yolo.enabled)
+    dualsense.start()
+    log.info("C2 web_server up (robot=%s, domain=%s, yolo=%s, dualsense=%s)",
+             config.ROBOT_ID, config.ROS_DOMAIN_ID, yolo.enabled,
+             dualsense.status()["pygame_available"])
     yield
+    dualsense.stop()
     ros.stop()
     await db.stop()
     for pc in list(_pcs):
@@ -206,8 +213,8 @@ async def webrtc_offer(req: Request):
 # ---- 영상: MJPEG 폴백 (저대역) ------------------------------------------
 @app.get("/c2/video/mjpeg")
 async def mjpeg(camera: str = "rear"):
-    # 2026-05-20: front 제거, rear/inspect 두 카메라 노출
-    cam = camera if camera in ("rear", "inspect") else "rear"
+    # 2026-05-20: front 제거. rear/inspect/overhead 세 카메라 노출
+    cam = camera if camera in ("rear", "inspect", "overhead") else "rear"
     async def gen():
         while True:
             f = ros.get_video_frame(cam)
@@ -313,6 +320,12 @@ async def spawn_npc(rid: str, body: dict | None = None):
     return {"ok": True, "payload": payload}
 
 
+@app.get("/c2/dualsense/status")
+async def dualsense_status():
+    """DualSense 게임패드 연결·키매핑·현재 speed_scale 상태."""
+    return dualsense.status()
+
+
 @app.get("/c2/sample")
 async def sample_snapshot():
     """ros_bridge.latest dict snapshot — 다음 세션 foxglove 패널 설계용.
@@ -321,7 +334,7 @@ async def sample_snapshot():
     landmarks/intruders/leg_q 등 JSON 직렬화 가능한 데이터만.
     """
     out = {}
-    for k, v in ros.br.latest.items():
+    for k, v in ros.latest.items():
         if k.startswith("video_"):
             continue
         out[k] = v

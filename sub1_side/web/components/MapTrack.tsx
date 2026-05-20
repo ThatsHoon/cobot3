@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { postJSON, ROBOT_ID, LandmarksPayload, IntruderState,
+import { getApiBase, postJSON, ROBOT_ID, LandmarksPayload, IntruderState,
          PatrolStatePayload } from "@/lib/api";
 
 type Pt = { x: number; y: number };
@@ -272,7 +272,13 @@ export default function MapTrack({
           {patrolState?.mode && ` · ${patrolState.mode}`}
         </span>
       </div>
-      <div className="relative flex-1">
+      <div className="relative flex-1 bg-black">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${getApiBase()}/c2/video/mjpeg?camera=overhead`}
+          alt="overhead"
+          className="absolute inset-0 w-full h-full object-cover opacity-55 pointer-events-none"
+        />
         <canvas
           ref={cv}
           onClick={(e) => e.shiftKey ? onShiftClick(e) : onClick(e)}

@@ -143,7 +143,14 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 ## Next.js 컴포넌트
 
 ### 메인 페이지 (`/`)
-`app/page.tsx` — 실시간 전술 콘솔 (2026-05-20 재구조화: 실 데이터 중심 11 컴포넌트)
+`app/page.tsx` — 실시간 전술 콘솔 (2026-05-20 레이아웃 재정렬: 시각 위계 강화)
+
+**레이아웃 섹션** (위→아래):
+1. `StatusHeader` + `TelemetryStrip` — 상단 status bar
+2. **HERO** (`grid xl:2`): `DualCameraView` + `MapTrack` — 가장 큰 시각 영역 (min-h 420px)
+3. **CONTROLS** (`grid xl:3`): mission(PatrolControls + NpcSpawnButton) · movement(BaseMovementPanel + DualSenseStatus, 선택적 TeleopPad) · inspector(InspectorCameraPanel)
+4. **ALERTS** (`grid lg:2`): `AlertsLog` + `AnimalAlertsLog` — 1-row 통합
+5. `DiagnosticsStrip` + legacy 토글(BASE MOVEMENT / TELEOP) + `EventLog` (200px) — 푸터
 
 | 컴포넌트 | props | 기능 |
 |---------|-------|------|
@@ -152,7 +159,10 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 | `DualCameraView` | — | 전방+검사 MJPEG 2-panel (`/c2/video/mjpeg?camera=front\|inspect`) |
 | `MapTrack` | track, cur, landmarks, intruders, patrolState, alertActive | 전술 지도 (Cube/Cone/DMZ 마커, fence 점선, intruder, alert overlay) |
 | `PatrolControls` | patrolState | sortie/home/stop/resume/idle 미션 버튼 + 상태 표시 |
-| `TeleopPad` | — | (선택 토글) D-패드 + 속도, Nav2 비활성 시 보조 |
+| `BaseMovementPanel` | — | 4족 8-방향 + WASD/QE/Space + 속도 슬라이더 (기본 표시) |
+| `TeleopPad` | — | (legacy 토글) D-패드 + 속도, Nav2 비활성 시 보조 |
+| `DualSenseStatus` | — | 게임패드 연결 상태 + 키매핑 표시 |
+| `NpcSpawnButton` | — | NPC 소환 (fwd/drop/count + 버튼) |
 | `InspectorCameraPanel` | — | 검사 카메라 pan/tilt/zoom/look_at REST |
 | `AlertsLog` | liveEvents | person alert 누적 (최근 20, ACK 가능) |
 | `AnimalAlertsLog` | liveEvents | animal alert 누적 (label·conf·bbox) |

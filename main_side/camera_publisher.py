@@ -372,6 +372,25 @@ _mk_cam(CAM_REAR_PATH, Gf.Vec3f(-0.235, 0.0, 0.10), _Q_REAR, "후방(real) 카�
 CAM_INSPECT_PATH = "/World/Go2/base/camera_inspect"
 _mk_cam(CAM_INSPECT_PATH, Gf.Vec3f(0.235, 0.0, 0.10), _Q_FRONT, "검사 카메라(짐벌, 전방 끄트머리)")
 
+# 오버헤드(TACTICAL MAP 배경용) 카메라 — base 위 100m, 시선 −Z(지면 보기).
+# USD Camera default 가 시선 −Z, up +Y 라 identity quat 으로 충분. up 이 base
+# 의 +Y(좌측) → 영상 위쪽은 robot 좌측. yaw 같이 회전 (base 자식).
+CAM_OVERHEAD_PATH = "/World/Go2/base/camera_overhead"
+_Q_DOWN = Gf.Quatf(1.0, Gf.Vec3f(0.0, 0.0, 0.0))
+if stage.GetPrimAtPath(CAM_OVERHEAD_PATH).IsValid():
+    stage.RemovePrim(CAM_OVERHEAD_PATH)
+_cam_ov = UsdGeom.Camera.Define(stage, CAM_OVERHEAD_PATH)
+_xf_ov = UsdGeom.Xformable(_cam_ov.GetPrim())
+_xf_ov.ClearXformOpOrder()
+_xf_ov.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 100.0))
+_xf_ov.AddOrientOp().Set(_Q_DOWN)
+_cam_ov.GetFocalLengthAttr().Set(8.0)     # ~광각, ±70m 시야 @ 100m
+_cam_ov.GetHorizontalApertureAttr().Set(_HAP)
+_cam_ov.GetVerticalApertureAttr().Set(_VAP)
+# clippingRange: 카메라가 base 위 100m 이고 지면 ≈ base.z, near/far 범위 보장
+_cam_ov.GetClippingRangeAttr().Set(Gf.Vec2f(1.0, 1000.0))
+log(f"오버헤드 카메라(고도 100m, 지면) 생성: {CAM_OVERHEAD_PATH}")
+
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
     import omni.graph.tools.ogn as _ogn  # noqa
@@ -414,6 +433,7 @@ ODOM_TOPIC = "/robot/odom"
 
 K = og.Controller.Keys
 # 사용자 요청 (2026-05-20): RPFront/CamFront 제거 — front 카메라 미사용.
+# 신규: RPOverhead/CamOverhead — TACTICAL MAP 배경용 (고도 100m, 지면).
 _CN = [
     ("OnTick",   "omni.graph.action.OnPlaybackTick"),
     ("Ctx",      "isaacsim.ros2.bridge.ROS2Context"),
@@ -421,6 +441,8 @@ _CN = [
     ("CamRear",  "isaacsim.ros2.bridge.ROS2CameraHelper"),
     ("RPInspect",  "isaacsim.core.nodes.IsaacCreateRenderProduct"),
     ("CamInspect", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+    ("RPOverhead",  "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+    ("CamOverhead", "isaacsim.ros2.bridge.ROS2CameraHelper"),
 ]
 _SV = [
     ("Ctx.inputs:domain_id",        DOMAIN),
@@ -438,12 +460,23 @@ _SV = [
     ("CamInspect.inputs:frameId",    "camera_inspect"),
     ("CamInspect.inputs:type",       "rgb"),
     ("CamInspect.inputs:qosProfile", _SENSOR_QOS),
+    ("RPOverhead.inputs:cameraPrim",  CAM_OVERHEAD_PATH),
+    ("RPOverhead.inputs:width",       640),
+    ("RPOverhead.inputs:height",      640),       # 정방형 (지도용)
+    ("CamOverhead.inputs:topicName",  "/cam/overhead/rgb"),
+    ("CamOverhead.inputs:frameId",    "camera_overhead"),
+    ("CamOverhead.inputs:type",       "rgb"),
+    ("CamOverhead.inputs:qosProfile", _SENSOR_QOS),
 ]
 _CC = [
     ("OnTick.outputs:tick",              "RPRear.inputs:execIn"),
     ("RPRear.outputs:execOut",           "CamRear.inputs:execIn"),
     ("RPRear.outputs:renderProductPath", "CamRear.inputs:renderProductPath"),
     ("Ctx.outputs:context",              "CamRear.inputs:context"),
+    ("OnTick.outputs:tick",                  "RPOverhead.inputs:execIn"),
+    ("RPOverhead.outputs:execOut",           "CamOverhead.inputs:execIn"),
+    ("RPOverhead.outputs:renderProductPath", "CamOverhead.inputs:renderProductPath"),
+    ("Ctx.outputs:context",                  "CamOverhead.inputs:context"),
     ("OnTick.outputs:tick",                "RPInspect.inputs:execIn"),
     ("RPInspect.outputs:execOut",          "CamInspect.inputs:execIn"),
     ("RPInspect.outputs:renderProductPath", "CamInspect.inputs:renderProductPath"),
@@ -503,7 +536,7 @@ og.Controller.edit(
     {"graph_path": GRAPH, "evaluator_name": "execution"},
     {K.CREATE_NODES: _CN, K.SET_VALUES: _SV, K.CONNECT: _CC},
 )
-log(f"OG {GRAPH} fresh 생성 완료 → /cam/rear/rgb, /cam/inspect/rgb (domain {DOMAIN})")
+log(f"OG {GRAPH} fresh 생성 완료 → /cam/rear/rgb, /cam/inspect/rgb, /cam/overhead/rgb (domain {DOMAIN})")
 if _TELEM:
     log(f"OG 텔레메트리 발행: {LEG_TOPIC}, {ODOM_TOPIC}, /tf "
         f"(RELIABLE) — gps/state 는 telemetry_bridge_node 가 odom 에서 파생")
@@ -602,7 +635,7 @@ def _apply_cmd():
 
 def _diag():
     try:
-        for cam in ("RPRear", "RPInspect"):
+        for cam in ("RPRear", "RPInspect", "RPOverhead"):
             rp = og.Controller.attribute(
                 f"{GRAPH}/{cam}.outputs:renderProductPath").get()
             cp = og.Controller.attribute(
