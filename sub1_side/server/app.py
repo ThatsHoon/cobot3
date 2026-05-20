@@ -340,7 +340,7 @@ async def sample_snapshot():
         out[k] = v
     rx = None
     try:
-        rx = dict(ros.br._node._rx) if ros.br._node else None
+        rx = dict(ros._node._rx) if (ros._node and hasattr(ros._node, "_rx")) else None
     except Exception:
         pass
     return {"latest": out, "rx": rx}
