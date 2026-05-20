@@ -12,3 +12,5 @@ python-multipart==0.0.*
 ultralytics==8.3.*
 # DualSense 게임패드 (SDL2 + hid-playstation). 미설치 시 비활성 (graceful).
 pygame>=2.5
+# Foxglove Python SDK (native schema 발행 사이드카) — system Python 도 동일 패키지 필요.
+foxglove-sdk>=0.24
