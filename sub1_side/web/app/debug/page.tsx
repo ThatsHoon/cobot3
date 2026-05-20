@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import TripleCameraView from "@/components/TripleCameraView";
 import TopicHealthMonitor from "@/components/TopicHealthMonitor";
 import RawJsonInspector from "@/components/RawJsonInspector";
 import EventLog from "@/components/EventLog";
@@ -67,10 +66,11 @@ export default function DebugPage() {
       </header>
 
       <div className="flex-1 min-h-0 grid grid-cols-12 gap-2 p-2"
-           style={{ gridTemplateRows: "minmax(0,2.0fr) minmax(0,0.9fr) minmax(0,1fr) auto auto" }}>
-        {/* row1 전체 (12col): Lichtblick — Go2 URDF + 3D + 카메라 패널 통합.
+           style={{ gridTemplateRows: "minmax(0,3.5fr) minmax(0,1fr) auto auto" }}>
+        {/* row1 전체 (12col): Lichtblick — Go2 URDF + 3D + 카메라 + Plot 통합.
             layout.json 의 3D!go2 (62%) + Image×3 + Plot×2 로 Spot SDK 스타일
-            시각화. CRT scanline 오버레이로 watch-officer 미감. */}
+            시각화. CRT scanline 오버레이로 watch-officer 미감.
+            (2026-05-20 TripleCameraView 제거 + 높이 확대 3.5fr) */}
         <div className="col-span-12 min-h-0 bg-black border border-line/40
                         rounded-sm overflow-hidden relative">
           {src ? (
@@ -95,11 +95,6 @@ export default function DebugPage() {
                style={{
                  boxShadow: "inset 0 0 120px rgba(0,0,0,0.6)",
                }} />
-        </div>
-
-        {/* row2 전체: 3-카메라 grid (REAR/INSPECT/OVERHEAD) — Lichtblick 외부 백업 */}
-        <div className="col-span-12 min-h-0">
-          <TripleCameraView />
         </div>
 
         {/* row2 좌: 토픽 헬스 모니터 */}
