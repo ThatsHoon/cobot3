@@ -684,10 +684,15 @@ def _update_inspect_xform():
         def _qz(a):
             return Gf.Quatf(float(_math.cos(a*0.5)),
                             Gf.Vec3f(0.0, 0.0, float(_math.sin(a*0.5))))
-        q_user = _qz(_inspect_state["pan"]) * _qy(_inspect_state["tilt"])
-        # base 자식 → local = inverse(base roll/pitch) * Q_FRONT * user
+        # base frame 에서 pan = yaw(Z) · tilt = pitch(Y). carmera local axes 가
+        # 아니라 base axes 기준으로 회전해야 "고개 좌우/상하" 가 됨 (사용자
+        # 요청 2026-05-20: 좌우 이동이 시선축 roll 이 아닌 yaw 회전).
+        # _Q_FRONT 가 base→camera-local 매핑이므로, q_user 를 _Q_FRONT 의 왼쪽에
+        # 곱해 base frame 에 적용.
+        q_user_base = _qz(_inspect_state["pan"]) * _qy(_inspect_state["tilt"])
+        # base 자식 → local = inverse(base roll/pitch) * (q_user_base * Q_FRONT)
         q_stab = _qy(-_pitch_w) * _qx(-_roll_w)
-        q_total = q_stab * _Q_FRONT * q_user
+        q_total = q_stab * q_user_base * _Q_FRONT
         _xf = UsdGeom.Xformable(_cam_prim)
         for _op in _xf.GetOrderedXformOps():
             if _op.GetOpType() == UsdGeom.XformOp.TypeOrient:
