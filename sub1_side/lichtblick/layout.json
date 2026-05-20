@@ -24,13 +24,26 @@
           "lineWidth": 0.03,
           "color": "rgba(0, 255, 128, 0.95)"
         },
-        "/cam/front/points": {
+        "/c2/rear/compressed": {
           "visible": true,
-          "colorMode": "colormap",
-          "colorMap": "turbo",
-          "colorField": "z",
-          "pointSize": 3,
-          "decayTime": 0
+          "calibrationTopic": "/cam/rear/camera_info",
+          "frameLocked": true,
+          "color": "rgba(255, 200, 100, 0.85)",
+          "distance": 1.5
+        },
+        "/c2/inspect/compressed": {
+          "visible": true,
+          "calibrationTopic": "/cam/inspect/camera_info",
+          "frameLocked": true,
+          "color": "rgba(100, 255, 150, 0.85)",
+          "distance": 1.5
+        },
+        "/c2/overhead/compressed": {
+          "visible": true,
+          "calibrationTopic": "/cam/overhead/camera_info",
+          "frameLocked": true,
+          "color": "rgba(100, 180, 255, 0.85)",
+          "distance": 3.0
         }
       },
       "layers": {
