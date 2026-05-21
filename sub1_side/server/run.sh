@@ -13,8 +13,22 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 # placeholder 폴백. main_side 런처와 대칭(IP 단일소스). 설정: ../FASTDDS.md
 [ -f ../../common/site.sh ] && source ../../common/site.sh
 if [ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" ]; then
-  command -v cobot3_fastdds_profile >/dev/null 2>&1 && _P="$(cobot3_fastdds_profile web 2>/dev/null || true)"
+  # WHY: 'set -e' + '&&' short-circuit 함정 — noninteractive 셸에 cobot3_fastdds_profile
+  # 함수가 없으면 'command -v ... && _P=...' 전체 exit=1 → set -e 가 export 라인
+  # 도달 전에 종료 → FASTRTPS_DEFAULT_PROFILES_FILE 미설정 → fastdds 기본 단방향
+  # 디스커버리 → C2 발행 publisher 가 cross-PC 광고 안됨 (실측 2026-05-21).
+  # 수정: if-then 블록으로 분리, export 는 무조건 실행.
+  _P=""
+  if command -v cobot3_fastdds_profile >/dev/null 2>&1; then
+    _P="$(cobot3_fastdds_profile web 2>/dev/null || true)"
+  fi
+  # 폴백: site.sh 미source 또는 함수 부재 시 ~/.config/cobot3 (site.sh 가 생성)
+  # 또는 repo 의 fastdds_web.xml.
+  if [ -z "$_P" ] && [ -f "$HOME/.config/cobot3/fastdds_web.xml" ]; then
+    _P="$HOME/.config/cobot3/fastdds_web.xml"
+  fi
   export FASTRTPS_DEFAULT_PROFILES_FILE="${_P:-$(cd .. && pwd)/fastdds_web.xml}"
+  echo "[run.sh] FASTRTPS_DEFAULT_PROFILES_FILE=$FASTRTPS_DEFAULT_PROFILES_FILE"
 fi
 
 # 로컬 Postgres / 인증 (설계 §4.3 / §13)
