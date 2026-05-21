@@ -1,16 +1,13 @@
-"""Nav2 bringup — cobot3 Go2 적용. ament_index 의존 0, 절대경로 기본값.
+"""Nav2 bringup — cobot3 Go2 적용. Main PC 에서 실행 (2026-05-21 이동).
+로봇 측 onboard nav2 패턴 — Isaac OG sensor → costmap → planner → controller
+→ /cmd_vel_nav → smoother → /cmd_vel_nav2_raw → safety_filter → /robot/cmd_vel.
 
-기본 params: sub1_side/server/nav2_params.yaml
-기본 map:    main_side/scene/maps/gp_static.yaml (양 PC 동일 경로 가정)
-
-teleop vs Nav2 cmd_vel mux:
-- Nav2 controller_server → /cmd_vel_nav
-- velocity_smoother → /cmd_vel_nav2_raw
-- cmd_vel_safety_filter (별도 노드, 본 launch 외부) → /robot/cmd_vel
+기본 params: main_side/nav2_params.yaml
+기본 map:    main_side/scene/maps/gp_static.yaml
 
 실행:
-    ros2 launch sub1_side/server/nav2_bringup.launch.py
-    ros2 launch sub1_side/server/nav2_bringup.launch.py map:=/path/to/other.yaml
+    ros2 launch main_side/nav2_bringup.launch.py
+    ros2 launch main_side/nav2_bringup.launch.py map:=/path/to/other.yaml
 """
 from pathlib import Path
 
@@ -20,10 +17,9 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 _HERE = Path(__file__).resolve().parent
-_COBOT3_ROOT = _HERE.parent.parent
 
 DEFAULT_PARAMS = _HERE / "nav2_params.yaml"
-DEFAULT_MAP = _COBOT3_ROOT / "main_side" / "scene" / "maps" / "gp_static.yaml"
+DEFAULT_MAP = _HERE / "scene" / "maps" / "gp_static.yaml"
 
 
 def generate_launch_description():
