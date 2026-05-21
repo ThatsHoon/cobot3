@@ -600,7 +600,12 @@ if _TELEM:
         # robot base 위치 못 찾는 원인이었음 — 2026-05-20 라이브 검증).
         ("OdoPub.inputs:chassisFrameId",   "Go2"),
         ("OdoPub.inputs:qosProfile",       _REL_QOS),
-        ("TF.inputs:targetPrims",          [ROBOT_PRIM]),
+        # 2026-05-21 fix: ROBOT_PRIM(/World/Go2) USD Xform 은 spawn 정적 위치.
+        # 보행 중 동적 변위는 articulation 의 base link 가 가짐. TF 가 spawn
+        # 위치만 발행 → Nav2 가 robot 안 움직인다고 판단 → yaw 정렬 무한 회전
+        # (사용자 보고). BASE_PRIM(/World/Go2/base) = articulation root → 동적
+        # world pose 반영.
+        ("TF.inputs:targetPrims",          [BASE_PRIM]),
         # Nav2 TransformListener 는 RELIABLE 기대 — BEST_EFFORT 발행 시
         # "incompatible QoS" 로 메시지 폐기 → odom→base_link 미수신 → 모든 goal 실패.
         ("TF.inputs:qosProfile",           _REL_QOS),
