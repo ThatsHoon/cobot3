@@ -186,20 +186,47 @@ export default function MapTrack({
       ctx.arc(px, py, 12, 0, Math.PI * 2);
       ctx.stroke();
     });
-    // 현재 위치
+    // 현재 위치 + 시야각 (inspect 전방 + rear 후방)
     if (cur) {
       const { px, py } = toPx(cur);
+      const yaw = patrolState?.pose?.yaw ?? 0;
+
+      // FOV cone — Isaac 카메라 spec: W=1280, aperture=20.955, focal=18mm
+      //   hFOV = 2 * atan(W/2 / fx) = 2 * atan(0.5 / (18/20.955)) ≈ 60°
+      // 시각화 거리: 25 m (정상 보행 시야).
+      const FOV_RAD = (60 * Math.PI) / 180;
+      const HALF = FOV_RAD / 2;
+      const RANGE_M = 25;
+      const rangePx = (RANGE_M / view.extent) * (W / 2);
+      const drawCone = (centerYaw: number, fill: string, stroke: string) => {
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        // canvas: +y down → screen yaw = -world yaw
+        const a0 = -(centerYaw - HALF);
+        const a1 = -(centerYaw + HALF);
+        ctx.arc(px, py, rangePx, a0, a1, true);
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      };
+      // inspect (전방) — cyan 반투명
+      drawCone(yaw, "rgba(80,200,255,0.10)", "rgba(80,200,255,0.55)");
+      // rear (후방) — orange 반투명
+      drawCone(yaw + Math.PI, "rgba(255,170,80,0.07)", "rgba(255,170,80,0.4)");
+
+      // robot 원 + yaw 화살표
       ctx.fillStyle = "#46f4a8";
       ctx.beginPath();
       ctx.arc(px, py, 5, 0, Math.PI * 2);
       ctx.fill();
-      // yaw 화살표
-      const yaw = patrolState?.pose?.yaw ?? 0;
       ctx.strokeStyle = "#46f4a8";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(px, py);
-      ctx.lineTo(px + Math.cos(yaw) * 12, py - Math.sin(yaw) * 12);
+      ctx.lineTo(px + Math.cos(yaw) * 14, py - Math.sin(yaw) * 14);
       ctx.stroke();
       ctx.lineWidth = 1;
     }
@@ -272,7 +299,7 @@ export default function MapTrack({
           {patrolState?.mode && ` · ${patrolState.mode}`}
         </span>
       </div>
-      <div className="relative aspect-square w-full mx-auto bg-black">
+      <div className="relative aspect-square w-full max-w-sm mx-auto bg-black">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={`${getApiBase()}/c2/video/mjpeg?camera=overhead`}
@@ -285,6 +312,12 @@ export default function MapTrack({
           onDoubleClick={onDouble}
           className="absolute inset-0 w-full h-full cursor-crosshair"
         />
+        {/* 시야각 범례 */}
+        <div className="absolute bottom-1 left-1 text-[9px] font-mono
+                        bg-black/70 px-1.5 py-0.5 flex gap-2 leading-tight">
+          <span className="text-cyan-300">▲ INSPECT 60°·25m</span>
+          <span className="text-amber-300">▼ REAR 60°·25m</span>
+        </div>
       </div>
       <div className="px-3 py-1.5 text-[11px] text-amber border-t border-line min-h-[26px]">
         {msg || "맵 클릭=목표지정 · 더블클릭=GOTO · Shift+클릭=검사 카메라 look_at"}

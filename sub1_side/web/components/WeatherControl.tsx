@@ -1,23 +1,30 @@
 "use client";
 import { useState } from "react";
 import { postJSON, WeatherCommand } from "@/lib/api";
+import {
+  Sunrise, Sun, Sunset, Moon,
+  Cloud, CloudFog, CloudRain, CloudSnow,
+  Wind,
+} from "lucide-react";
 
 /** 날씨·바람 제어 패널. POST /weather → /weather/command (Main camera_publisher
  *  + wind_publisher 양쪽 구독). hi 브랜치의 time_of_day + weather + 신규
  *  wind_mode/dir/speed 통합.
+ *  2026-05-21: 이모지 → lucide-react 아이콘 (퀄리티 향상).
  */
-const TODS: { value: WeatherCommand["time_of_day"]; icon: string; label: string }[] = [
-  { value: "morning", icon: "🌅", label: "MORN" },
-  { value: "noon",    icon: "🌞", label: "NOON" },
-  { value: "evening", icon: "🌇", label: "EVE"  },
-  { value: "night",   icon: "🌙", label: "NGHT" },
+type Icon = typeof Sun;
+const TODS: { value: WeatherCommand["time_of_day"]; Icon: Icon; label: string }[] = [
+  { value: "morning", Icon: Sunrise, label: "MORN" },
+  { value: "noon",    Icon: Sun,     label: "NOON" },
+  { value: "evening", Icon: Sunset,  label: "EVE"  },
+  { value: "night",   Icon: Moon,    label: "NGHT" },
 ];
-const WEATHERS: { value: WeatherCommand["weather"]; icon: string; label: string }[] = [
-  { value: "clear",  icon: "☀️",  label: "CLEAR"  },
-  { value: "cloudy", icon: "☁️",  label: "CLOUDY" },
-  { value: "fog",    icon: "🌫️", label: "FOG"    },
-  { value: "rain",   icon: "🌧️", label: "RAIN"   },
-  { value: "snow",   icon: "❄️",  label: "SNOW"   },
+const WEATHERS: { value: WeatherCommand["weather"]; Icon: Icon; label: string }[] = [
+  { value: "clear",  Icon: Sun,       label: "CLEAR"  },
+  { value: "cloudy", Icon: Cloud,     label: "CLOUDY" },
+  { value: "fog",    Icon: CloudFog,  label: "FOG"    },
+  { value: "rain",   Icon: CloudRain, label: "RAIN"   },
+  { value: "snow",   Icon: CloudSnow, label: "SNOW"   },
 ];
 const WINDS: WeatherCommand["wind_mode"][] = ["calm", "breeze", "windy", "gale", "storm"];
 
@@ -51,15 +58,15 @@ export default function WeatherControl() {
         {/* TIME OF DAY */}
         <div className="flex items-center gap-1">
           <span className="text-dim w-12">TIME</span>
-          {TODS.map(t => (
-            <button key={t.value}
-              onClick={() => { setTod(t.value); apply({ time_of_day: t.value }); }}
+          {TODS.map(({ value, Icon, label }) => (
+            <button key={value}
+              onClick={() => { setTod(value); apply({ time_of_day: value }); }}
               disabled={busy}
-              className={`flex-1 px-1 py-1 border ${tod === t.value
+              className={`flex-1 flex flex-col items-center gap-0.5 px-1 py-1.5 border ${tod === value
                 ? "border-phos bg-phos/15 text-phos"
                 : "border-line text-ink hover:bg-zinc-800"}`}>
-              <div className="text-base leading-none">{t.icon}</div>
-              <div className="text-[9px] tracking-wider">{t.label}</div>
+              <Icon size={18} strokeWidth={1.8} />
+              <span className="text-[9px] tracking-wider">{label}</span>
             </button>
           ))}
         </div>
@@ -67,27 +74,29 @@ export default function WeatherControl() {
         {/* WEATHER */}
         <div className="flex items-center gap-1">
           <span className="text-dim w-12">WX</span>
-          {WEATHERS.map(w => (
-            <button key={w.value}
-              onClick={() => { setWx(w.value); apply({ weather: w.value }); }}
+          {WEATHERS.map(({ value, Icon, label }) => (
+            <button key={value}
+              onClick={() => { setWx(value); apply({ weather: value }); }}
               disabled={busy}
-              className={`flex-1 px-1 py-1 border ${wx === w.value
+              className={`flex-1 flex flex-col items-center gap-0.5 px-1 py-1.5 border ${wx === value
                 ? "border-phos bg-phos/15 text-phos"
                 : "border-line text-ink hover:bg-zinc-800"}`}>
-              <div className="text-base leading-none">{w.icon}</div>
-              <div className="text-[9px] tracking-wider">{w.label}</div>
+              <Icon size={18} strokeWidth={1.8} />
+              <span className="text-[9px] tracking-wider">{label}</span>
             </button>
           ))}
         </div>
 
         {/* WIND MODE */}
         <div className="flex items-center gap-1">
-          <span className="text-dim w-12">WIND</span>
+          <span className="text-dim w-12 flex items-center gap-1">
+            <Wind size={12} strokeWidth={1.8} /> WIND
+          </span>
           {WINDS.map(m => (
             <button key={m}
               onClick={() => { setWm(m); apply({ wind_mode: m }); }}
               disabled={busy}
-              className={`flex-1 px-1 py-1 border uppercase tracking-wider ${wm === m
+              className={`flex-1 px-1 py-1.5 border uppercase tracking-wider ${wm === m
                 ? "border-amber-400 bg-amber-400/15 text-amber-300"
                 : "border-line text-ink hover:bg-zinc-800"}`}>
               {m}
