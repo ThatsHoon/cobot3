@@ -8,26 +8,42 @@
 ```bash
 cobot3-start_all   # 역할=MAIN 자동판별 (MAIN_SIDE_IP 일치 확인)
 ```
-실행 내용:
-- `_cobot3_isaac_gui_up` → `run_camera_pub_gui.sh` (GP_HEADLESS=0)
-- `run_degrade.sh` (front+rear 2인스턴스)
+실행 내용 (2026-05-21):
+- 강력 좀비 정리 (SIGTERM → 2s → SIGKILL 2-pass, PAT 기반)
+- `_cobot3_isaac_gui_up` → `run_camera_pub_gui.sh` (GP_HEADLESS=0,
+  GP_GO2_NAV=0, GP_GO2_SETTLE=500)
+- `run_degrade.sh` (rear+inspect+overhead **3인스턴스**)
 - `run_telemetry_bridge.sh`
-- **(DMZ Sentry M9)** `world_odom_tf_pub.py` (Nav2 TF 트리: world→odom static)
-- **(DMZ Sentry M9)** `landmarks_pub.py` (/scene/landmarks latched 발행)
+- `world_odom_tf_pub.py` (world→odom + Go2→base 2개 static TF)
+- `landmarks_pub.py` (/scene/landmarks latched 발행)
+- `inspect_relay.py` (/robot/inspect/command → /tmp/cobot3_inspect_cmd.json)
+- `mission_echo.py` (/mission_command Isaac console echo)
+- `npc_relay.py` (/npc/* 명령 릴레이)
+- `camera_info_publisher.py` (3-카메라 CameraInfo 1Hz latched)
+- `run_urdf_server.sh` (:8766 Go2 URDF + DAE 서빙)
 
 **C2 PC:**
 ```bash
 cobot3-start_all   # 역할=C2 자동판별
 ```
-실행 내용:
-- `_cobot3_pg_up` → PostgreSQL 시작 + 스키마 확인 (alerts/patrol_state_log/intruder_states_log 포함)
+실행 내용 (2026-05-21):
+- 강력 좀비 정리 (SIGTERM → 2s → SIGKILL 2-pass)
+- `_cobot3_pg_up` → PostgreSQL 시작 + 스키마 확인
+  (alerts/patrol_state_log/intruder_states_log 포함)
 - `_cobot3_web_up` → uvicorn :8000 + next dev :3000
 - `_cobot3_foxglove_up` → foxglove_bridge :8765 + Lichtblick Docker :8080
-- **(DMZ Sentry M9)** `run_nav2.sh` (Nav2 stack: map_server/planner/controller/BT/velocity_smoother)
-- **(DMZ Sentry M9)** `cmd_vel_safety_filter.py` (Nav2 → /robot/cmd_vel drive/turn 분리)
-- **(DMZ Sentry M9)** `nav2_patrol.py` (mission_command 상태머신 + alert hold)
+- **`foxglove_sdk_publisher.py` :8767** (foxglove SDK native 채널)
+- `dualsense_worker.py` (PS5 게임패드 폴링 50Hz)
+- `run_nav2.sh` (Nav2 stack: map_server/planner/controller/BT/velocity_smoother)
+- `cmd_vel_safety_filter.py` (Nav2 → /robot/cmd_vel, MUTE_MODES={"PAUSED"})
+- `nav2_patrol.py` (FSM IDLE/PATROL/HOME/PAUSED, HOME=(212.8,890.53),
+  GOAL=(287.59,1129.728), ±10m 사각 도착)
 
-로그 파일: `/tmp/cobot3_{world_odom_tf,landmarks_pub,nav2,cmd_vel_safety,nav2_patrol}.log`
+로그 파일: `/tmp/cobot3_{world_odom_tf,landmarks_pub,nav2,cmd_vel_safety,
+nav2_patrol,foxglove_sdk,dualsense,mission_echo,npc_relay,camera_info,
+urdf_server,inspect_relay}.log`
+
+> `sb` 별칭 — `source ~/.bashrc` (rokey1234 sudo 없이 환경 변수만 재로드).
 
 ### 단계별 기동 (디버그)
 
@@ -110,19 +126,21 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `C2_YOLO_ANIMAL_ALERT_CONF` | `0.50` | animal alert 최소 confidence |
 | `C2_YOLO_ANIMAL_ALERT_COOLDOWN` | `5.0` | animal alert cooldown(s) |
 
-### Main PC (Isaac Sim)
+### Main PC (Isaac Sim, 2026-05-21 Go2)
 | 변수 | 기본값 | 설명 |
 |------|-------|------|
 | `GP_HEADLESS` | `0` | `1`=헤드리스, `0`=GUI 창 표시 |
 | `GP_SCENE` | `scene/gp_scene.usd` | 로드할 USD 씬 |
-| `GP_SPOT_CONTROL` | `1` | SpotController + RL 정책 활성 |
 | `GP_ROS2_TELEM` | `1` | OG 텔레메트리 노드 활성 |
 | `GP_ROS2_CMD` | `1` | OG cmd_vel 구독 활성 |
-| `DEGRADE_IN` | `/cam/front/rgb` | video_degrade 입력 토픽 |
-| `DEGRADE_OUT` | `/c2/front/compressed` | video_degrade 출력 토픽 |
-| `URDF_SERVER_PORT` | `8766` | URDF HTTP 서버 포트 |
+| `GP_GO2_NAV` | `0` | 1=Go2WtwController 내부 NAV P-ctrl, 0=Nav2 stack 단독 |
+| `GP_GO2_SETTLE` | `500` | spawn 후 NAV P-ctrl 진입 settle step 수 |
+| `GP_GO2_CMD_MODE` | (없음) | `cal`=캘리브레이션 (vx=0.5 고정) |
+| `DEGRADE_IN` | (인스턴스별) | `/cam/{rear,inspect,overhead}/rgb` 중 하나 |
+| `DEGRADE_OUT` | (인스턴스별) | `/c2/{rear,inspect,overhead}/compressed` 중 하나 |
+| `URDF_SERVER_PORT` | `8766` | Go2 URDF HTTP 서버 포트 |
 
-### C2 PC (web_server)
+### C2 PC (web_server, 2026-05-21)
 | 변수 | 기본값 | 설명 |
 |------|-------|------|
 | `COBOT3_DB_URL` | `postgresql:///cobot3` | PostgreSQL 연결 |
@@ -133,8 +151,11 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `C2_HTTP_PORT` | `8000` | 서버 포트 |
 | `C2_DB_FLUSH_SEC` | `1.0` | DB 배치 flush 주기 (초) |
 | `C2_DB_QUEUE_MAX` | `20000` | 텔레메트리 큐 최대 크기 |
-| `C2_YOLO_MODEL` | `yolov8n.pt` | YOLO 모델 파일 |
-| `NEXT_PUBLIC_C2_API` | `http://localhost:8000` | 프론트엔드 API URL (빌드타임) |
+| `C2_YOLO_MODEL` | (없음) | `/home/rokey/Downloads/dmz_sentry_best.pt` 등 절대경로. 비우면 `server/models/*.pt` → `yolov8n.pt` 폴백 |
+| `FOXGLOVE_SDK_HOST` | `0.0.0.0` | foxglove SDK 자체 WS 서버 호스트 |
+| `FOXGLOVE_SDK_PORT` | `8767` | foxglove SDK 자체 WS 서버 포트 |
+| `NEXT_PUBLIC_C2_API` | (없음) | 프론트엔드 API URL — 비우면 런타임 `window.location.hostname:8000` |
+| `NEXT_PUBLIC_LICHTBLICK_URL` | `http://localhost:8080` | 프론트엔드 Lichtblick iframe URL |
 | `NEXT_PUBLIC_GP_ROBOT` | `gp0` | 프론트엔드 로봇 ID (빌드타임) |
 
 ---
@@ -186,6 +207,14 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | `/robot/odom` 좌표가 world 와 크게 다름(예: (-161,46) 인데 robot 은 Cube(-714,952) 위치에 있음) | OG `IsaacComputeOdometry` 출력은 chassisPrim 의 **누적 변위(odometry)** 이지 world 좌표 자체가 아님 | world 좌표는 `ros2 run tf2_ros tf2_echo world Go2` 로 확인. Nav2 도 TF tree 기반이므로 odom 토픽 좌표와 무관 |
 | nav2_patrol sortie 시 부적절한 좌표(e.g. -208,-208,z=118) 로 plan 시도 | `/scene/landmarks` 의 fence 항목이 gp_scene `/World/Fence/*` prim 의 metadata 좌표를 그대로 잡음 | 단기: `nav2_patrol._on_landmarks` 에서 fence 무시 (현재 cube↔cone 만). 장기: ros2 parameter `patrol_waypoints_xy` 외부 주입 (2026-05-20 B5 수정) |
 | Lichtblick 컨테이너 기동 실패 (Docker 다운그레이드 후) | docker-ce 20.10 ↔ containerd.io 2.2.x mismatch 가능성 | `sudo docker run --rm hello-world` daemon healthy 확인, `apt-mark hold docker-ce` 로 자동 업그레이드 차단, 필요 시 containerd.io=1.6.* 페어 맞춤 |
+| Go2 가 zero-cmd 상태에서 평면상 작은 원 드리프트 | walk-these-ways fallback `_CMD_BASE` 가 step_freq=3.6 / footswing=0.15 → 정책이 계속 step 페달링 → noise 가 yaw drift 로 누적 | `go2_controller._command()` 에서 `active_teleop=False` 시 `cmd[4]=0`/`cmd[9]=0` 강제 (standstill clamp, 2026-05-21) |
+| Lichtblick 에서 Go2 URDF mesh 미렌더 (link 만 표시) | URDF 루트 link 이름="base" 이지만 OG TF frame 이름="Go2" → URDFLayer 가 TF 트리에 link 없다고 인식 | `main_side/world_odom_tf_pub.py` 가 `Go2→base` identity static TF 추가 발행 (2026-05-21) |
+| `/c2/sample` rx 카운터 모두 0 으로 표시 | `ros.br._node._rx` 잘못된 attribute path | `ros._node._rx` (`hasattr` 가드, 2026-05-21) |
+| Next.js 빌드 `window is not defined` | `lib/api.ts` 의 `API_BASE` 가 모듈 상수 → SSR prerender 시 window 없음 | `getApiBase()` 런타임 함수 + `typeof window` guard (2026-05-19) |
+| ImmersiveCameraView 런타임 `Cannot read properties of undefined (reading 'S')` | `@react-three/fiber@9.x` 가 React 19 요구, 현 프로젝트는 React 18.3.1 | `@react-three/fiber@8.18` + `@react-three/drei@9.122` 다운그레이드 (2026-05-21) |
+| inspect 카메라 walking 중 흔들림 / pan 이 roll 처럼 보임 | 카메라 local axes 에 q_user 적용 + base body roll/pitch 미보정 | `_update_inspect_xform()` 에서 `q_stab=qy(-pitch)*qx(-roll)` × `q_user_base` × `_Q_FRONT` (base frame, 2026-05-21) |
+| Stop 버튼 눌러도 보행 지속 | velocity_smoother/dualsense/web teleop 의 multi-publisher 잔여 발행이 ros_bridge.pub_cmd_vel 을 통과 | `ros_bridge.pub_cmd_vel` 진입 시 `patrol_state.mode==PAUSED` 면 즉시 return (2026-05-21) |
+| FastDDS cross-PC discovery 실패 | `fastdds_web.xml` `__MAIN_PC_IP__` 미치환 + interfaceWhiteList 에 127.0.0.1 누락 | `~/.config/cobot3/fastdds_web.xml` 로 복사 후 sed 치환 + 127.0.0.1 추가 (2026-05-21) |
 
 ---
 
@@ -194,12 +223,18 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | 로그 경로 | 내용 |
 |-----------|------|
 | `/tmp/cobot3_isaac_gui.console.log` | Isaac Sim stdout (스팸 필터 후) |
-| `/tmp/cobot3_degrade.log` | video_degrade_node (front+rear) |
+| `/tmp/cobot3_degrade.log` | video_degrade_node (rear+inspect+overhead) |
 | `/tmp/cobot3_telemetry_bridge.log` | telemetry_bridge_node |
 | `/tmp/cobot3_server.log` | FastAPI uvicorn |
-| `/tmp/cobot3_foxglove.log` | Foxglove Bridge |
+| `/tmp/cobot3_foxglove.log` | Foxglove Bridge (:8765) |
+| `/tmp/cobot3_foxglove_sdk.log` | foxglove SDK 사이드카 (:8767, 신규) |
+| `/tmp/cobot3_dualsense.log` | DualSense PS5 polling worker (신규) |
+| `/tmp/cobot3_camera_info.log` | 3-카메라 CameraInfo latched 발행 (Main, 신규) |
+| `/tmp/cobot3_mission_echo.log` | /mission_command Isaac console echo (Main, 신규) |
+| `/tmp/cobot3_npc_relay.log` | /npc/* 명령 릴레이 (Main, 신규) |
+| `/tmp/cobot3_urdf_server.log` | Go2 URDF HTTP 서버 (:8766) |
 | `/tmp/cobot3_web.log` | Next.js dev server |
-| `/tmp/cobot3_world_odom_tf.log` | world→odom static TF (Main, M9 신규) |
+| `/tmp/cobot3_world_odom_tf.log` | world→odom + Go2→base static TF (Main) |
 | `/tmp/cobot3_landmarks_pub.log` | /scene/landmarks latched 발행 (Main) |
 | `/tmp/cobot3_inspect_relay.log` | /robot/inspect/command 사이드카 (Main) |
 | `/tmp/cobot3_nav2.log` | Nav2 stack launch (C2) |

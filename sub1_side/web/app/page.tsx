@@ -11,9 +11,11 @@ import AnimalAlertsLog from "@/components/AnimalAlertsLog";
 import TeleopPad from "@/components/TeleopPad";
 import BaseMovementPanel from "@/components/BaseMovementPanel";
 import NpcSpawnButton from "@/components/NpcSpawnButton";
+import FallStatusBadge from "@/components/FallStatusBadge";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
   LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
+  FallPayload,
 } from "@/lib/api";
 
 type Snap = {
@@ -34,6 +36,8 @@ export default function Page() {
     useState<{ ts: string; data: AlertPayload }[]>([]);
   const [animalAlertEvents, setAnimalAlertEvents] =
     useState<{ ts: string; data: AlertPayload & { label: string } }[]>([]);
+  const [fallEvents, setFallEvents] =
+    useState<{ ts: string; data: FallPayload }[]>([]);
   const [eventStream, setEventStream] = useState<C2Event[]>([]);
   const [lastAlertTs, setLastAlertTs] = useState<number | null>(null);
   const [showTeleop, setShowTeleop] = useState(false);
@@ -74,6 +78,10 @@ export default function Page() {
     } else if (e.type === "animal_alert") {
       setAnimalAlertEvents((p) =>
         [...p.slice(-49), { ts: e.ts, data: e.data }]);
+    } else if (e.type === "fall_alert") {
+      setFallEvents((p) => [...p.slice(-29), { ts: e.ts, data: e.data }]);
+      // FALLEN edge → 화면 빨강 깜빡 트리거(기존 alertActive 재사용)
+      if (e.data.state === "FALLEN") setLastAlertTs(Date.now());
     }
     setEventStream((p) => [...p.slice(-99), e]);
   }, []);
@@ -95,7 +103,12 @@ export default function Page() {
   return (
     <div className={alertActive ? "alert-active" : ""}>
       <main className="relative z-10 min-h-screen flex flex-col">
-        <StatusHeader wsOk={wsOk} landmarks={landmarks} />
+        <div className="flex items-stretch">
+          <div className="flex-1"><StatusHeader wsOk={wsOk} landmarks={landmarks} /></div>
+          <div className="flex items-center pr-3 border-b border-line bg-black/40">
+            <FallStatusBadge liveFallEvents={fallEvents} />
+          </div>
+        </div>
         <TelemetryStrip
           state={snap.state ?? null}
           gps={snap.gps ?? null}

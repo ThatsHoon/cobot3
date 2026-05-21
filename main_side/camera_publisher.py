@@ -261,13 +261,43 @@ log(f"{ROBOT_PRIM} 생성 → go2.usd ref @ {tuple(round(float(v),2) for v in _s
 for _ in range(120):
     simulation_app.update()
 
-# ── 접지 마찰 안전망 (씬에 이미 있으면 스킵) ──────────────────────────
+# ── 접지 collider+마찰 안전망 (씬에 이미 있으면 스킵) ─────────────────
 # 원칙: 마찰은 gp_scene.usd 에 GUI 로 저작·저장된 것이 단일 소스.
-# 단, 씬에 마찰 바인딩이 없을 때(미저장/구버전 씬)만 무마찰→전복을
-# 막기 위한 안전망으로 런타임 0.8 바인딩(학습 분포 0.05~4.5 내)을 적용.
+# 단, 씬 GUI 저장 과정에서 Terrain 메시의 CollisionAPI 가 누락되거나
+# (실측 2026-05-21: Go2 가 지형을 통과해 z<0 으로 추락), physics material
+# 바인딩만 빠진 경우 무마찰→전복을 막기 위한 안전망 발동.
+# - PRE-FIX: Terrain 하위 Mesh 중 CollisionAPI 가 없으면
+#   CollisionAPI + MeshCollisionAPI(approximation="none" trimesh) 적용
+# - POST-FIX: physics material(0.8) 정의 + Terrain·Go2 collider 에 바인딩
 try:
     from pxr import UsdShade as _UsdShade, UsdPhysics as _UP
-    # 지형 collider 중 이미 physics material 바인딩된 게 있나?
+
+    # 0) Terrain 하위 Mesh 진단 + CollisionAPI 누락 시 추가 적용
+    _terr_root = stage.GetPrimAtPath("/World/Terrain")
+    _mesh_total = _mesh_with_col = _added_col = 0
+    if _terr_root and _terr_root.IsValid():
+        from pxr import Usd as _UsdT
+        for _m in _UsdT.PrimRange(_terr_root):
+            if _m.GetTypeName() != "Mesh":
+                continue
+            _mesh_total += 1
+            if _m.HasAPI(_UP.CollisionAPI):
+                _mesh_with_col += 1
+                continue
+            try:
+                _UP.CollisionAPI.Apply(_m)
+                _UP.MeshCollisionAPI.Apply(_m)
+                _mca = _UP.MeshCollisionAPI(_m)
+                # static 지형이므로 trimesh("none") 안전 (Go2 는 dynamic
+                # 이지만 base/legs collider 는 robot prim 쪽에서 처리).
+                _mca.CreateApproximationAttr("none")
+                _added_col += 1
+            except Exception as _ce:
+                log(f"⚠ Terrain CollisionAPI apply fail {_m.GetPath()}: {_ce!r}")
+        log(f"Terrain mesh diag: total={_mesh_total} "
+            f"pre_collider={_mesh_with_col} added_collider={_added_col}")
+
+    # 1) 이미 binding 있나? (collider 가 모두 새로 추가됐다면 binding 0 → fix 진행)
     _scene_has_fric = False
     for _p in stage.Traverse():
         if not _p.HasAPI(_UP.CollisionAPI):
@@ -278,7 +308,7 @@ try:
             if _r and _r.GetTargets():
                 _scene_has_fric = True
                 break
-    if _scene_has_fric:
+    if _scene_has_fric and _added_col == 0:
         log("접지 마찰: 씬에 이미 바인딩됨 → 런타임 패치 스킵(씬이 단일 소스)")
     else:
         _PM = "/World/Physics_Materials/physics_material"
@@ -311,9 +341,68 @@ try:
                     or "GP_NoiseTerrain" in _pp
                     or _pp.startswith(ROBOT_PRIM)):
                 _bind_phys(_p); _nb += 1
-        log(f"접지 마찰 안전망 적용(씬 미저장) — collider {_nb}개 0.8 바인딩")
+        log(f"접지 마찰 안전망 적용 — collider {_nb}개 0.8 바인딩 "
+            f"(터레인 신규 collider={_added_col})")
 except Exception as _e:
     log(f"⚠ 마찰 안전망 처리 실패: {_e!r}")
+
+# ── Go2 physics material + 질량 안전망 (2026-05-21) ──────────────────
+# 발견(MCP 진단): import_go2_unitree.py 가 ref 한 go2.usd 는 collider 가
+# instanceable prim(/Go2/<link>/collisions → /__Prototype_N) 안에
+# Cube/Cylinder/Sphere(Gprim) 형태로 모두 정의돼 있다. CollisionAPI 도
+# prototype 쪽에 적용됨 → 우리가 직접 mesh 순회로 적용할 필요 없음.
+# 단 physics material 바인딩이 모두 누락 → PhysX default(~0.5) 사용 →
+# Terrain 0.8 과 combine 시 effective ≈ 0.65 → 학습 분포(0.8 가정)보다
+# 낮음 → "정지 시 미끄러짐" 의 직접 원인. ROBOT_PRIM 루트에 단일 binding
+# 을 weakerThanDescendants 로 두면 USD inheritance 가 모든 collider
+# (instance prototype 포함) 까지 적용됨 — 1줄로 끝.
+#
+# 추가 mass: import 직후 base mass 가 6.92 kg 으로 들어오는 케이스 관측
+# (Go2 실측 ~12 kg → 58% → OOD). 차이 0.5 kg 이상이면 12.0 으로 보정.
+try:
+    from pxr import UsdShade as _US2, UsdPhysics as _UP2
+    _g2 = stage.GetPrimAtPath(ROBOT_PRIM)
+    if _g2 and _g2.IsValid():
+        # 1) PhysicsMaterial 정의 (없으면 신규)
+        _GO2_PM = "/World/Physics_Materials/go2_material"
+        _gpmp = stage.GetPrimAtPath(_GO2_PM)
+        if not (_gpmp and _gpmp.IsValid()):
+            _US2.Material.Define(stage, _GO2_PM)
+            _gpmp = stage.GetPrimAtPath(_GO2_PM)
+        if not _gpmp.HasAPI(_UP2.MaterialAPI):
+            _UP2.MaterialAPI.Apply(_gpmp)
+        _gmapi = _UP2.MaterialAPI(_gpmp)
+        for _attr, _v in (("CreateStaticFrictionAttr", 0.8),
+                          ("CreateDynamicFrictionAttr", 0.8),
+                          ("CreateRestitutionAttr", 0.0)):
+            getattr(_gmapi, _attr)(_v)
+        _go2_mat = _US2.Material(_gpmp)
+
+        # 2) ROBOT_PRIM 루트 1회 binding — inheritance 로 자식 collider 전체 적용
+        _US2.MaterialBindingAPI.Apply(_g2)
+        _US2.MaterialBindingAPI(_g2).Bind(
+            _go2_mat,
+            bindingStrength=_US2.Tokens.weakerThanDescendants,
+            materialPurpose="physics")
+        log(f"Go2 physics material 루트 binding (mu=0.8, inheritance)")
+
+        # 3) Base link mass 보정 — Unitree Go2 실측 ~12 kg
+        _base = stage.GetPrimAtPath(f"{ROBOT_PRIM}/base")
+        if _base and _base.IsValid():
+            if not _base.HasAPI(_UP2.MassAPI):
+                _UP2.MassAPI.Apply(_base)
+            _mass_api = _UP2.MassAPI(_base)
+            _mass_attr = _mass_api.GetMassAttr() or _mass_api.CreateMassAttr()
+            _old_mass = _mass_attr.Get()
+            _GO2_MASS_TARGET = float(os.environ.get("GP_GO2_MASS", "12.0"))
+            if _old_mass is None or abs(float(_old_mass) - _GO2_MASS_TARGET) > 0.5:
+                _mass_attr.Set(_GO2_MASS_TARGET)
+                log(f"Go2 base mass {float(_old_mass or 0):.2f} → "
+                    f"{_GO2_MASS_TARGET:.2f} kg")
+            else:
+                log(f"Go2 base mass 이미 적정({float(_old_mass):.2f} kg) → 스킵")
+except Exception as _e:
+    log(f"⚠ Go2 material/mass 안전망 실패: {_e!r}")
 
 # 진단: go2.usd 컴포지션 후 실제 ArticulationRoot 경로 1회 덤프
 try:

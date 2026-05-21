@@ -53,6 +53,9 @@ TOPICS = {
     "cmd_nav_raw":  "/cmd_vel_nav2_raw",    # geometry_msgs/Twist (Nav2→safety filter)
     "animal_alerts": "/animal_alerts",      # std_msgs/String (JSON 동물 감지 alert, P3)
     "npc_spawn":     "/robot/npc/spawn",    # std_msgs/String (JSON forward_m/z_offset/count)
+    # FALL 감지 (2026-05-21) — go2_controller IPC → fall_relay 사이드카가 발행
+    "fall_alert":   "/robot/fall_alert",    # std_msgs/String (JSON edge, FALLEN/RECOVERING/RECOVERED/UPRIGHT)
+    "fall_state":   "/robot/fall_state",    # std_msgs/String (JSON 2Hz 스냅샷)
 }
 
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)

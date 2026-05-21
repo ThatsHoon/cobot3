@@ -5,6 +5,130 @@
 
 ---
 
+## 2026-05-21
+
+### Go2 zero-cmd drift 근본 원인 수정 — walk-these-ways standstill clamp
+
+**변경 파일:** `main_side/go2_controller.py` (수정)
+- **증상:** Nav2/teleop 둘 다 미발행 상태에서 Go2 가 평면상 작은 원을 그리며
+  드리프트. cmd_rx 가 동결돼 있음에도 보행이 멈추지 않음.
+- **근본 원인:** `_command()` fallback `_CMD_BASE` 가 step_freq=3.6,
+  footswing=0.15 으로 채워져 있어 vx/vy/wz=0 이라도 walk-these-ways 정책이
+  계속 step 페달링 → 정책 noise 가 yaw drift 로 누적.
+- **수정:** `active_teleop=False` 이면 `cmd[4]=0.0`(step_freq),
+  `cmd[9]=0.0`(footswing) 강제 — standstill clamp.
+- 영향 확인: zero-cmd 보행 정지, teleop/nav 입력 시 정상 보행.
+
+### Foxglove Python SDK 사이드카 + Immersive Camera + DualSense 통합
+
+**신규 사이드카(서버):**
+- `sub1_side/server/foxglove_sdk_publisher.py` (신규) — rclpy + foxglove SDK
+  동거. `foxglove.start_server(host="0.0.0.0", port=8767)` 자체 WS 서버.
+  ROS String JSON 토픽 5종을 native schema 채널로 변환·발행:
+  - `/sdk/intruder_markers` (SceneUpdate · SpherePrimitive, level=ALERT 빨강)
+  - `/sdk/landmark_markers` (SceneUpdate · home/goal CubePrimitive + arrive_box
+    CylinderPrimitive + TextPrimitive)
+  - `/sdk/patrol_goal_pose` (PoseInFrame)
+  - `/sdk/inspect_annotations` (ImageAnnotations · YOLO bbox LINE_STRIP)
+  - `/sdk/alert_log` (Log · WARNING)
+- `sub1_side/server/dualsense_worker.py` (신규) — pygame.joystick PS5 컨트롤러
+  폴링(50Hz). L-stick → INSPECT pan/tilt(±70°), L2/R2 → zoom, D-pad → 전·후·
+  좌·우 strafe, R-stick L/R → yaw, ×=stop_toggle, △=sortie, ○=home.
+- `main_side/camera_info_publisher.py` (신규) — 3-카메라(rear/inspect/overhead)
+  CameraInfo 1Hz latched(TRANSIENT_LOCAL). `fx=(W/aperture_mm)*focal_mm`
+  공식, plumb_bob D=0.
+- `main_side/mission_echo.py` (신규) — `/mission_command` rclpy 사이드카,
+  Isaac console.log 에 명령 수신 echo (사용자 디버깅 요청 #7).
+- `main_side/npc_relay.py` (신규) — `/npc/spawn` 등 NPC 명령 릴레이.
+- `main_side/world_odom_tf_pub.py` (확장) — 기존 world→odom 외에 Go2→base
+  identity static TF 추가 발행 (URDF 루트 link "base" 와 OG TF frame "Go2"
+  매칭 — Lichtblick URDF 렌더링 실패 근본 원인).
+
+**Go2 전환 (camera_publisher / go2_controller):**
+- `main_side/camera_publisher.py` (대수정)
+  - SPOT_PRIM/SpotController 제거 → `/World/Go2` + Go2WtwController 호출.
+  - 카메라: front 제거, **rear/inspect/overhead 3-카메라** 구성.
+    rear=`/World/Go2/base/camera_rear`(-0.22, 0, 0.06),
+    inspect=`/World/Go2/base/camera_inspect` (gimbal, pan/tilt ±70° clamp,
+    base body roll/pitch 보정 stabilization),
+    overhead=`/World/Overhead_Camera` (Go2 child 가 아닌 world 직속,
+    매 step `_update_overhead_xform()` 으로 xy 동기 + North-up 고정).
+  - `_update_inspect_xform()` — `q_stab = qy(-pitch)*qx(-roll)`,
+    `q_total = q_stab * q_user_base * _Q_FRONT` (base frame yaw/pitch).
+  - 자동 명시 spawn (212.8, 890.53, 5.0), `GP_GO2_NAV=0` 가드로 NAV 분리.
+- `main_side/go2_controller.py` (Go2WtwController) — walk-these-ways RL 정책
+  (42-dim obs × 15-step history = 630, JIT adaptation_module+body,
+  PD kp=25/kd=0.6, action_scale 0.25, hip ×0.5). standstill clamp 포함.
+
+**Web (next.js 14):**
+- `sub1_side/web/components/ImmersiveCameraView.tsx` (신규) — `ssr:false`
+  next/dynamic wrapper.
+- `sub1_side/web/components/ImmersiveCameraViewClient.tsx` (신규) — Spot SDK
+  fisheye sphere wrapping 패턴 차용. `@react-three/fiber@8.18` +
+  `@react-three/drei@9.122` + `three@0.184` (R18 호환 핀). SphereGeometry
+  inside-out(BackSide) 에 3-카메라 VideoTexture 섹터 매핑 (rear:180°,
+  inspect:0°, overhead:88° pitch), 중앙 Go2 silhouette (box+legs+head 노랑),
+  OrbitControls, scanline overlay.
+- `sub1_side/web/components/BaseMovementPanel.tsx` (신규) — quadruped_example
+  base_command 누적 패턴, 8-방향 + WASD/QE/Space + 속도 슬라이더 (100ms POST).
+- `sub1_side/web/components/DualSenseStatus.tsx` (신규) — 게임패드 연결/키맵.
+- `sub1_side/web/components/TripleCameraView.tsx` (신규, 메인) — rear/inspect/
+  overhead MJPEG 3-panel.
+- `sub1_side/web/components/{TopicHealthMonitor,RawJsonInspector}.tsx` (신규,
+  debug 페이지) — `/c2/sample` 1Hz 폴링 → rx 카운터·publishers·env·hint 표시
+  + raw JSON 인스펙터.
+- `sub1_side/web/components/NpcSpawnButton.tsx` (신규) — NPC fwd/drop/count
+  + 소환.
+- `sub1_side/web/lib/api.ts` — `getApiBase()` 런타임 함수(SSR `typeof window`
+  guard), `LICHTBLICK_URL` export 추가.
+- `sub1_side/web/app/page.tsx` — DualCameraView/ImmersiveCameraView 분리,
+  ROBOT CONTROL 컨테이너 안에 INSPECT CAM + BASE MOVEMENT 가로 2-column.
+- `sub1_side/web/app/debug/page.tsx` — Lichtblick iframe 8col + Immersive
+  4col + TopicHealthMonitor + RawJsonInspector + DualSenseStatus +
+  DiagnosticsStrip + EventLog 12-column grid.
+
+**Lichtblick layout (`sub1_side/lichtblick/layout.json`):**
+- 12 패널 + 4 userNodes (patrol_mode_extractor, battery_extractor,
+  intruders_to_scene, landmarks_to_scene) — String JSON → SceneUpdate.
+- `3D!go2` 레이어: go2-urdf (http://192.168.10.94:8766/go2_description/
+  urdf/go2.urdf), follow base, /tf, /robot/odom, /cam/front/points
+  PointCloud Z-turbo.
+- 두 데이터 소스 동시 연결 가능: `ws://host:8765` (foxglove_bridge — 모든
+  ROS topic) + `ws://host:8767` (SDK — native 시각화).
+
+**ros_bridge / safety_filter 변경:**
+- `sub1_side/server/ros_bridge.py` — pub_cmd_vel 에 PAUSED 가드 (race fix),
+  front 카메라 구독 제거, inspect/overhead 추가, YOLO 추론을 front→inspect
+  카메라로 이동.
+- `sub1_side/server/cmd_vel_safety_filter.py` — `MUTE_MODES = {"PAUSED"}`
+  (IDLE 제거 — teleop freedom 회복).
+
+**Patrol / 기본 좌표:**
+- `sub1_side/server/nav2_patrol.py` — DEFAULT_HOME=(212.8, 890.53),
+  **DEFAULT_GOAL=(287.59, 1129.728)** (구 620.36, 499.72 폐기).
+- `main_side/bake_go2_recon_map.sh` — 신 AABB 재베이크 헬퍼.
+
+**환경/스크립트:**
+- `~/.bashrc` `cobot3-start_all` — 신규 사이드카 추가 (mission_echo,
+  npc_relay, urdf_server, camera_info_publisher, foxglove_sdk_publisher,
+  dualsense_worker). 강력 좀비 정리 (SIGTERM→2s→SIGKILL 2-pass). env:
+  `GP_GO2_NAV=0`, `GP_GO2_SETTLE=500`.
+- `~/.bashrc` `sb` 별칭 — `source ~/.bashrc`.
+- `~/.config/cobot3/fastdds_web.xml` — __MAIN_PC_IP__ 치환 + 127.0.0.1
+  interfaceWhiteList 추가 (cross-PC discovery 실패 fix).
+
+**핵심 결함 수정 모음:**
+- inspect 카메라 보행 중 흔들림 → `_update_inspect_xform()` stabilization.
+- inspect pan/tilt 가 roll 로 보임 → base frame yaw/pitch 합성.
+- URDF mesh Lichtblick 미렌더 → Go2→base identity static TF 추가.
+- `/c2/sample` 토픽 rx all=0 → `ros.br._node._rx` 잘못된 path → `ros._node._rx`.
+- SSR 빌드 `window not defined` → `getApiBase()` typeof window guard.
+- R3F 9.x 런타임 "Cannot read 'S'" → 8.18 + drei 9.122 (R18 호환) 다운그레이드.
+- 정지/재개 버튼 race → ros_bridge PAUSED 가드 + safety_filter mute set
+  재설계.
+
+---
+
 ## 2026-05-20
 
 ### 웹 메인 페이지 레이아웃 시각 위계 재정렬

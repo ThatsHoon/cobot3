@@ -70,6 +70,17 @@ export type AlertPayload = {
   action?: string;
 };
 
+// FALL 감지 (2026-05-21) — fall_relay 사이드카 → /robot/fall_alert/state
+export type FallPayload = {
+  level: "ALERT" | "WARN" | "INFO";
+  event: string;     // robot_fall_detected / robot_recovery_in_progress / robot_recovery_done / robot_upright
+  state: "FALLEN" | "RECOVERING" | "RECOVERED" | "UPRIGHT";
+  up_z: number;      // 직립=1.0, 누움≈0
+  stage: number | null;  // RECOVERING 시 0..3
+  pose?: { x: number; y: number; z: number };
+  ts: number;
+};
+
 export type C2Event =
   | { type: "state"; ts: string; data: any }
   | { type: "gps"; ts: string; data: { lat: number; lon: number; alt: number } }
@@ -78,6 +89,7 @@ export type C2Event =
   | { type: "fire"; ts: string; target: string; hit: boolean; distance_m: number | null; operator: string }
   | { type: "alert"; ts: string; data: AlertPayload }
   | { type: "animal_alert"; ts: string; data: AlertPayload & { label: string } }
+  | { type: "fall_alert"; ts: string; data: FallPayload }
   | { type: "patrol_state"; ts: string; data: PatrolStatePayload }
   | { type: "intruder_state"; ts: string; data: IntruderState[] | { items: IntruderState[] } }
   | { type: "landmarks"; ts: string; data: LandmarksPayload };

@@ -222,6 +222,11 @@ if RCLPY_OK:
                                      self._on_patrol_state, rel_qos)
             self.create_subscription(String, T["landmarks"],
                                      self._on_landmarks, latched_qos)
+            # ---- FALL 감지 (2026-05-21) ----
+            self.create_subscription(String, T["fall_alert"],
+                                     self._on_fall_alert, rel_qos)
+            self.create_subscription(String, T["fall_state"],
+                                     self._on_fall_state, rel_qos)
             # ---- 업링크 발행/클라이언트 ----
             self._cmd_pub  = self.create_publisher(Twist, T["cmd_vel"], rel_qos)
             self._goal_pub = self.create_publisher(PoseStamped, T["nav_goal"], rel_qos)
@@ -238,7 +243,8 @@ if RCLPY_OK:
             self._rx = {"state": 0, "gps": 0,
                         "video_rear": 0, "video_inspect": 0, "video_overhead": 0,
                         "leg": 0, "rosout": 0,
-                        "intruders": 0, "patrol_state": 0, "landmarks": 0}
+                        "intruders": 0, "patrol_state": 0, "landmarks": 0,
+                        "fall_alert": 0, "fall_state": 0}
             self.create_timer(5.0, self._health)
             self.get_logger().info(
                 "구독: state/gps/odom/leg/rosout/video_rear/video_inspect/"
@@ -438,6 +444,32 @@ if RCLPY_OK:
                 return
             self.br.latest["landmarks"] = d
             self.br._emit({"type": "landmarks", "ts": _now_iso(), "data": d})
+
+        def _on_fall_alert(self, msg):
+            self._rx["fall_alert"] += 1
+            try:
+                d = json.loads(msg.data)
+            except Exception:
+                return
+            self.br.latest["fall_alert"] = d
+            ts = _now_iso()
+            self.br._emit({"type": "fall_alert", "ts": ts, "data": d})
+            # DB alerts 테이블 재사용 — level=ALERT 일 때만 영구 저장 (FALLEN edge)
+            if str(d.get("level", "")).upper() == "ALERT" and self.br._db:
+                self.br._db.put("alerts", (
+                    config.ROBOT_ID, ts,
+                    "ALERT", str(d.get("event", "robot_fall_detected")),
+                    1.0,
+                    json.dumps([]),  # bbox_xyxy 없음
+                    1, False))
+
+        def _on_fall_state(self, msg):
+            self._rx["fall_state"] += 1
+            try:
+                d = json.loads(msg.data)
+            except Exception:
+                return
+            self.br.latest["fall_state"] = d
 
         # ---- 업링크 ----
         def pub_cmd_vel(self, lin: float, ang: float, vy: float = 0.0):

@@ -1,7 +1,12 @@
-# cobot3 — GP 경계근무 4족보행(Spot+팔) 로봇 시스템
+# cobot3 — GP 경계근무 4족보행 로봇 시스템 (Unitree Go2)
 
-Isaac Sim 안에서 spot_with_arm(4족+팔)을 구동하고, 카메라 영상/텔레메트리를
-별도 PC의 지휘통제실(C2) 웹 UI로 실시간 송출·조작하는 프로젝트.
+Isaac Sim 안에서 Unitree **Go2** 를 구동(walk-these-ways RL locomotion)하고,
+3-카메라 영상/텔레메트리/Foxglove SDK native 시각화를 별도 PC 의 지휘통제실(C2)
+웹 UI 로 실시간 송출·조작하는 프로젝트.
+
+> 2026-05 Spot+팔 → **Go2** 전환 완료. walk-these-ways RL 정책(42-dim obs ×
+> 15-step history) 으로 경사면 보행 가능. spot_controller.py 와 spot_isaac.urdf
+> 는 legacy 잔재.
 
 ---
 
@@ -14,16 +19,21 @@ cobot3/
 │                 IP·FastDDS 단일소스. 배포지 바뀌면 site.env만 수정.
 │
 ├── main_side/    Isaac Sim PC 측
-│                 카메라/텔레메트리 발행, SpotController(RL 보행),
-│                 씬·에셋, 런처 스크립트, FastDDS 설정
+│                 카메라/텔레메트리 발행, Go2WtwController(walk-these-ways RL),
+│                 OG sensor_bridge, camera_info_publisher, mission_echo,
+│                 npc_relay, world_odom_tf_pub, 씬·에셋, 런처, FastDDS
 │
 ├── sub1_side/    지휘통제실(C2) PC 측
 │                 FastAPI 서버, Next.js UI, PostgreSQL 스키마,
-│                 ROS2 구독·cmd_vel 발행(ros_bridge), Foxglove 런북
+│                 ROS2 구독·cmd_vel 발행(ros_bridge), Nav2 patrol FSM,
+│                 cmd_vel_safety_filter, dualsense_worker (게임패드 텔레옵),
+│                 foxglove_sdk_publisher (native SceneUpdate :8767),
+│                 Foxglove Bridge :8765, Lichtblick :8080
 │
 └── dev-docs/     설계·환경·트러블슈팅 문서
                   project_requirments.md — 개발환경·기동절차·트러블슈팅 ★먼저 읽기
                   gp-quadruped-system-design.md — 권위 설계서
+                  CHANGELOG.md — 변경 이력 (Go2 전환·SDK·DualSense 등)
 ```
 
 ---
@@ -67,8 +77,9 @@ source ~/.bashrc
 cd /home/rokey/dev_ws/isaac_sim/cobot3/sub1_side/server
 python3 -m venv --system-site-packages .venv
 ./.venv/bin/pip install -r requirements.txt
+# foxglove-sdk 포함 (native SceneUpdate :8767)
 
-# Next.js UI
+# Next.js UI (Three.js R3F 포함)
 cd ../web && npm install
 
 # DB 스키마 (멱등)
@@ -78,23 +89,30 @@ psql -d cobot3 -f ../db/schema.sql
 
 ### 실행
 
-**Isaac PC (main_side)**
+**Isaac PC (main_side)** — `cobot3-start_all` (역할 자동 감지)
 ```bash
-# GUI 모드 (모니터 있을 때)
-~/dev_ws/isaac_sim/cobot3/main_side/run_camera_pub_gui.sh
-
-# headless 모드
-~/dev_ws/isaac_sim/cobot3/main_side/run_camera_pub.sh
+cobot3-start_all
+# → run_camera_pub_gui.sh (Isaac GUI + OG)
+# → run_degrade.sh (3-카메라 압축)
+# → run_telemetry_bridge.sh
+# → mission_echo.py · npc_relay.py · world_odom_tf_pub.py
+# → camera_info_publisher.py (3-카메라 CameraInfo latched)
+# → run_urdf_server.sh (:8766 Go2 URDF 서빙)
 ```
 
-**C2 PC (sub1_side)**
+**C2 PC (sub1_side)** — `cobot3-start_all`
 ```bash
-# 웹서버+UI+DB 일괄 기동 (~/.bashrc 함수)
-cobot3-cobot3_web-restart_full
-
-# 브라우저
-# http://localhost:3000        — 전술 콘솔 UI
-# http://localhost:3000/debug  — Foxglove 텔레메트리 뷰어
+cobot3-start_all
+# → PostgreSQL + 스키마
+# → uvicorn :8000 + next dev :3000
+# → foxglove_bridge :8765 + Lichtblick :8080
+# → foxglove_sdk_publisher.py :8767 (native SceneUpdate)
+# → Nav2 stack + cmd_vel_safety_filter + nav2_patrol + dualsense_worker
 ```
 
-상세 트러블슈팅: `dev-docs/project_requirments.md`
+브라우저:
+- `http://localhost:3000` — 전술 콘솔 (DualCameraView · MapTrack · PatrolControls · BaseMovementPanel · ImmersiveCameraView 등)
+- `http://localhost:3000/debug` — Lichtblick(8765+8767) 임베드 + ImmersiveCameraView + TopicHealthMonitor + RawJsonInspector
+- `ws://<host>:8767` — Foxglove SDK native 채널 (`/sdk/intruder_markers` 등)
+
+상세 트러블슈팅: `dev-docs/project_requirments.md`, `dev-docs/ops.md`

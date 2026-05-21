@@ -6,23 +6,28 @@ ROS_DOMAIN_ID=130, RMW=rmw_fastrtps_cpp, FastDDS UDP-only
 
 ## 토픽 목록
 
-### 다운링크 (Main PC → C2 PC)
+### 다운링크 (Main PC → C2 PC, 2026-05-21 3-카메라 구성)
 
 | 토픽 | 타입 | QoS | Hz | 발행자 | 구독자 |
 |------|------|-----|----|-------|-------|
-| `/cam/front/rgb` | sensor_msgs/Image | BEST_EFFORT depth=5 | ~50 | OG CamFront | video_degrade_node (front) |
 | `/cam/rear/rgb` | sensor_msgs/Image | BEST_EFFORT depth=5 | ~50 | OG CamRear | video_degrade_node (rear) |
-| `/cam/front/depth` | sensor_msgs/Image (32FC1) | BEST_EFFORT depth=5 | ~50 | OG CamDepth | Lichtblick Image!depth |
-| `/cam/front/camera_info` | sensor_msgs/CameraInfo | BEST_EFFORT depth=5 | ~50 | OG CamInfo | Foxglove (intrinsics, fallback 투영) |
-| `/cam/front/points` | sensor_msgs/PointCloud2 | BEST_EFFORT depth=5 | ~50 | OG CamPCL (type=depth_pcl) | Foxglove Bridge → Lichtblick 3D!go2 보울 |
-| `/c2/front/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("front") |
+| `/cam/inspect/rgb` | sensor_msgs/Image | BEST_EFFORT depth=5 | ~50 | OG CamInspect | video_degrade_node (inspect) — YOLO 입력 |
+| `/cam/overhead/rgb` | sensor_msgs/Image | BEST_EFFORT depth=5 | ~50 | OG CamOverhead | video_degrade_node (overhead) |
+| `/cam/rear/depth` | sensor_msgs/Image (32FC1) | BEST_EFFORT depth=5 | ~50 | OG CamRearDepth | Lichtblick |
+| `/cam/{rear,inspect,overhead}/camera_info` | sensor_msgs/CameraInfo | **RELIABLE + TRANSIENT_LOCAL** | 1 latched | `camera_info_publisher.py` | Lichtblick 3D frustum/투영 |
+| `/cam/rear/points` | sensor_msgs/PointCloud2 | BEST_EFFORT depth=5 | ~50 | OG CamRearPCL (type=depth_pcl) | Foxglove → 3D!go2 보울 |
 | `/c2/rear/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("rear") |
-| `/robot/odom` | nav_msgs/Odometry | RELIABLE depth=10 | ~63 | OG OdoPub | telemetry_bridge_node, ros_bridge._on_odom |
+| `/c2/inspect/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("inspect") **+ YOLO** |
+| `/c2/overhead/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("overhead") |
+| `/robot/odom` | nav_msgs/Odometry | RELIABLE depth=10 | ~63 | OG OdoPub (chassisFrameId=Go2) | telemetry_bridge, ros_bridge._on_odom |
 | `/robot/gps` | sensor_msgs/NavSatFix | RELIABLE depth=10 | 5 | telemetry_bridge_node | ros_bridge._on_gps |
 | `/robot/state` | std_msgs/String (JSON) | RELIABLE depth=10 | 5 | telemetry_bridge_node | ros_bridge._on_state |
 | `/robot/leg_joint_states` | sensor_msgs/JointState | RELIABLE depth=10 | ~500 | OG LegJS | ros_bridge._on_leg |
-| `/tf` | tf2_msgs/TFMessage | BEST_EFFORT depth=5 | ~50 | OG TF | Foxglove Bridge |
+| `/tf` | tf2_msgs/TFMessage | **RELIABLE** depth=10 | ~50 | OG TF (Nav2 호환) | Foxglove, Nav2 tf_buffer |
+| `/tf_static` | tf2_msgs/TFMessage | RELIABLE+TRANSIENT_LOCAL | latched | `world_odom_tf_pub.py` (world→odom, Go2→base 2개) | Nav2, Lichtblick URDF |
 | `/rosout` | rcl_interfaces/Log | RELIABLE depth=10 | on-event | 각 ROS2 노드 | ros_bridge._on_rosout (level>=30만) |
+
+> 구 `/cam/front/*` 토픽은 모두 제거. inspect 카메라가 YOLO 입력 역할 인수.
 
 ### 업링크 (C2 PC → Main PC)
 
@@ -86,6 +91,21 @@ ROS_DOMAIN_ID=130, RMW=rmw_fastrtps_cpp, FastDDS UDP-only
 ```json
 [ {"id":"i0", "x":..., "y":..., "z":..., "label":"person"}, ... ]
 ```
+
+### Foxglove SDK native 채널 (`ws://host:8767`, 2026-05-21 신규)
+
+`server/foxglove_sdk_publisher.py` 가 자체 WS 서버를 띄워 ROS String JSON 을
+foxglove well-known schema 로 변환 발행. ROS 토픽이 아니라 SDK 채널 — 일반
+`ros2 topic list` 에는 안 나옴. Lichtblick UI 에서 Open Connection →
+`ws://192.168.10.105:8767` 로 별도 source 추가.
+
+| SDK 채널 | well-known schema | 입력 ROS 토픽 |
+|---|---|---|
+| `/sdk/intruder_markers` | `foxglove.SceneUpdate` | `/intruder_states` |
+| `/sdk/landmark_markers` | `foxglove.SceneUpdate` | `/scene/landmarks` |
+| `/sdk/patrol_goal_pose` | `foxglove.PoseInFrame` | `/patrol_state.waypoint` |
+| `/sdk/inspect_annotations` | `foxglove.ImageAnnotations` | `/detections_text` |
+| `/sdk/alert_log` | `foxglove.Log` | `/alerts` |
 
 ---
 

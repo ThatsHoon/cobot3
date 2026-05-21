@@ -1,6 +1,6 @@
 # cobot3 개발문서
 
-GP 경계근무 4족보행 로봇 시스템 — Isaac Sim 5.1 + ROS2 Humble + FastAPI + Next.js 14
+GP 경계근무 4족보행 로봇 시스템 — Isaac Sim 5.1 + Unitree **Go2** (walk-these-ways RL) + ROS2 Humble + FastAPI + Next.js 14 + Foxglove SDK
 
 ---
 
@@ -35,38 +35,48 @@ cobot3-start_all   # 역할=C2 자동판별 → PG + web_server + Next.js + Foxg
 
 ### 확인
 ```bash
-ros2 topic hz /robot/odom          # ~63 Hz (Main PC에서)
-ros2 topic hz /c2/front/compressed # ~5 Hz  (Main PC에서)
-curl http://localhost:8000/healthz  # C2 서버 정상 확인
+ros2 topic hz /robot/odom              # ~63 Hz (Main PC에서)
+ros2 topic hz /c2/inspect/compressed   # ~5 Hz  (Main PC에서)
+curl http://localhost:8000/healthz      # C2 서버 정상 확인
+curl -I http://localhost:8767           # foxglove SDK WS 서버 (101 Switching Protocols)
 ```
 
 ---
 
-## 시스템 한눈에 보기
+## 시스템 한눈에 보기 (2026-05-21 Go2)
 
 ```
-┌─────────────────── Main PC (192.168.10.94) ───────────────────┐
-│  Isaac Sim 5.1 (spot.usd, gp_scene.usd)                       │
-│  ┌─ camera_publisher.py ─────────────────────────────────┐    │
-│  │  OmniGraph: sensor_bridge                             │    │
-│  │  RPFront/RPRear → CamFront/CamRear (50Hz)             │    │
-│  │  LegJS → /robot/leg_joint_states                      │    │
-│  │  Odo → OdoPub → /robot/odom                           │    │
-│  │  TF  → /tf                                            │    │
-│  │  SubCmd ← /robot/cmd_vel                              │    │
-│  └────────────────────────────────────────────────────────┘   │
-│  SpotController (RL policy, 500 Hz physics)                    │
-│  video_degrade_node × 2 (5fps JPEG /c2/{front,rear}/compressed)│
-│  telemetry_bridge_node (/robot/odom → /robot/gps + /robot/state)│
-└──────────────────────── ROS2 DDS domain=130 ──────────────────┘
+┌─────────────────── Main PC (192.168.10.94) ────────────────────┐
+│  Isaac Sim 5.1 (go2.usd, gp_scene.usd)                          │
+│  ┌─ camera_publisher.py ─────────────────────────────────────┐  │
+│  │  OmniGraph: sensor_bridge                                 │  │
+│  │  RP{Rear,Inspect,Overhead} → Cam{Rear,Inspect,Overhead}   │  │
+│  │  LegJS → /robot/leg_joint_states                          │  │
+│  │  Odo → OdoPub(frame=Go2) → /robot/odom                    │  │
+│  │  TF  → /tf (RELIABLE, Nav2 호환)                          │  │
+│  │  SubCmd ← /robot/cmd_vel                                  │  │
+│  │  inspect 짐벌 stabilization + overhead North-up           │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│  Go2WtwController (walk-these-ways RL, 42×15 obs, standstill 클램프)│
+│  video_degrade × 3 (rear+inspect+overhead → /c2/*/compressed)   │
+│  telemetry_bridge_node + mission_echo + npc_relay               │
+│  world_odom_tf_pub (world→odom + Go2→base 2-static TF)          │
+│  camera_info_publisher (3-카메라 CameraInfo latched)            │
+│  HTTP :8766 (Go2 URDF + DAE)                                    │
+└─────────────────── ROS2 DDS domain=130 ────────────────────────┘
                               ↕ LAN (FastDDS UDP-only)
-┌─────────────────── C2 PC  (192.168.10.105) ───────────────────┐
-│  FastAPI :8000 ← ros_bridge (rclpy thread)                     │
-│    REST: /robots/gp0/state, /gps, /goto, /fire, /cmd_vel       │
-│    WS:   /events  (state·gps·detection·fire·log·diag)          │
-│    MJPEG: /c2/video/mjpeg                                       │
+┌─────────────────── C2 PC  (192.168.10.105) ────────────────────┐
+│  FastAPI :8000 ← ros_bridge (rclpy thread, PAUSED 가드)        │
+│    REST: /robots/gp0/state, /gps, /missions/command,           │
+│          /robots/{rid}/{cmd_vel,inspect,fire}, /c2/sample      │
+│    WS:   /events  (state·gps·alert·patrol_state·diag·…)        │
+│    MJPEG: /c2/video/mjpeg?camera={rear,inspect,overhead}        │
+│  Nav2 stack + cmd_vel_safety_filter + nav2_patrol FSM          │
+│  dualsense_worker (PS5 폴링 50Hz)                              │
+│  foxglove_sdk_publisher :8767 (native SceneUpdate/PoseInFrame) │
 │  PostgreSQL :5432 ← db_writer (asyncpg batch)                  │
-│  Next.js  :3000  (VideoWall, MapTrack, EngagementConsole …)    │
-│  Foxglove Bridge :8765  ←→ Lichtblick :8080                    │
-└───────────────────────────────────────────────────────────────┘
+│  Next.js  :3000  (DualCameraView, MapTrack, BaseMovementPanel, │
+│                   PatrolControls, ImmersiveCameraView…)         │
+│  Foxglove Bridge :8765  ←→ Lichtblick :8080 (8765+8767 동시)   │
+└─────────────────────────────────────────────────────────────────┘
 ```

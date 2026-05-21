@@ -184,6 +184,29 @@ class Go2WtwController:
         self._v_l = np.zeros(12, dtype=np.float32)    # vel last
         self._v_ll = np.zeros(12, dtype=np.float32)   # vel last_last
 
+        # fall 감지 + 자동 기립 상태 머신 (2026-05-21)
+        # walk-these-ways 는 누운 상태 OOD → PD 스크립트로 4-stage 기립.
+        self._fall_up_z = 1.0            # smoothed up axis (직립=1.0, 누움≈0)
+        self._fallen = False
+        self._fall_since: Optional[float] = None      # 첫 감지 시각
+        self._recovering = False
+        self._recover_t0: Optional[float] = None      # 시퀀스 시작 시각
+        self._recover_kps_active = False              # gains 일시 변경 여부
+        self._last_fall_event = ""                    # IPC dedup
+        # FALL 임계값(직립=up_z=1.0) — 0.4 이하 1초 지속 시 fall, 0.85 이상 0.5초 복구
+        self._FALL_ENTER_UPZ = 0.40
+        self._FALL_ENTER_DUR = 1.0
+        self._FALL_EXIT_UPZ  = 0.85
+        # 4-stage 기립 시퀀스 (총 ≈3.2s). 각 stage 의 (duration, [hip,thigh,calf])
+        # 정책 순서 [FL_hip,FL_thigh,FL_calf, FR_*, RL_*, RR_*] 모두 동일 패턴.
+        self._RECOVER_STAGES = [
+            (0.8, ( 0.00,  2.50, -2.50)),   # 1) tuck: 다리를 몸 아래로 접음
+            (0.8, ( 0.00,  1.60, -2.00)),   # 2) push: 몸을 들어올림
+            (0.8, ( 0.10,  1.10, -1.90)),   # 3) spread: 4발 정렬
+            (0.8, ( 0.00,  0.90, -1.80)),   # 4) stand: 보행 자세 (≈DEFAULT_ANGLES)
+        ]
+        self._RECOVER_TIMEOUT = 5.0       # 시퀀스 후에도 미직립 → teleport fallback
+
         _log(f"init: walk-these-ways-go2 -> {prim_path}")
         self._adapt = torch.jit.load(_CKPT + "/adaptation_module_latest.jit")
         self._body = torch.jit.load(_CKPT + "/body_latest.jit")
@@ -246,8 +269,9 @@ class Go2WtwController:
         # 정책: decim(=4 @200Hz → 50Hz)마다 joint_pos_target 갱신
         if self._phys_ctr % self._decim == 0:
             self._policy_tick()
-        # actuator net 토크: 매 physics substep 평가 + 히스토리 갱신
-        self._apply_actuator()
+        # 복구 중에는 actuator_net 우회(PD position drive 가 servo 함). 그 외엔 정상.
+        if not self._recovering:
+            self._apply_actuator()
         self._phys_ctr += 1
 
     # -- setup ------------------------------------------------------------
@@ -461,6 +485,11 @@ class Go2WtwController:
                 float(quat[0]), float(quat[1]),
                 float(quat[2]), float(quat[3])).astype(np.float32)
 
+            # FALL 감지·복구 (정책 obs 계산 전에 분기 — 복구 중이면 PD 시퀀스 실행).
+            if self._tick_fall_recover(grav):
+                self._step_n += 1
+                return
+
             cmd = self._command()
             cmd_scaled = cmd * CMD_SCALE
 
@@ -536,6 +565,207 @@ class Go2WtwController:
             if self._step_n % 500 == 0:
                 _log(f"policy_tick err: {exc!r}")
             self._step_n += 1
+
+    # -- fall 감지 + 자동 기립 ------------------------------------------------
+
+    def _write_fall_ipc(self, state: str, up_z: float,
+                        stage: Optional[int] = None) -> None:
+        """fall_relay 가 mtime 폴 + content 변화 시 ROS 발행. dedup 으로 IO 절약."""
+        import json as _json
+        evt = f"{state}|{stage if stage is not None else ''}"
+        # state 변화 또는 stage 변화 시에만 기록 (heartbeat 는 별도 2Hz 로직 외부)
+        if evt == self._last_fall_event:
+            return
+        self._last_fall_event = evt
+        try:
+            try:
+                pos, _ = self._art.get_world_pose()
+                px, py, pz = (float(pos[0]), float(pos[1]), float(pos[2]))
+            except Exception:
+                px = py = pz = 0.0
+            payload = {
+                "ts": time.time(),
+                "state": state,        # "UPRIGHT" | "FALLEN" | "RECOVERING" | "RECOVERED"
+                "up_z": float(up_z),
+                "stage": stage,        # 0..3 in RECOVERING, else null
+                "pose": {"x": px, "y": py, "z": pz},
+            }
+            with open('/tmp/cobot3_fall_state.json.tmp', 'w') as _f:
+                _json.dump(payload, _f)
+            os.replace('/tmp/cobot3_fall_state.json.tmp',
+                       '/tmp/cobot3_fall_state.json')
+        except Exception as exc:
+            _log(f"fall IPC write err: {exc!r}")
+
+    def _tick_fall_recover(self, grav: np.ndarray) -> bool:
+        """매 정책 tick(50Hz) 호출.
+        반환 True = 복구 시퀀스 진행 중 → 호출자가 일반 정책 obs/action 스킵.
+        반환 False = 정상 보행 모드."""
+        # up_z: -grav[2] 이 직립=1.0, 누움≈0. EMA smoothing 으로 잡음 억제.
+        up_z = float(-grav[2])
+        self._fall_up_z = 0.85 * self._fall_up_z + 0.15 * up_z
+        smoothed = self._fall_up_z
+
+        now = time.time()
+
+        # 1) 복구 중이면 시퀀스 진행
+        if self._recovering:
+            self._run_recover_stage(now, smoothed)
+            return True
+
+        # 2) 직립 상태 — fall 진입 판정
+        if smoothed >= self._FALL_EXIT_UPZ:
+            if self._fallen:
+                # 자체적으로 회복(외부 도움) — 알람만 해제
+                self._fallen = False
+                self._fall_since = None
+                self._write_fall_ipc("UPRIGHT", smoothed)
+            return False
+
+        # 3) 임계값 이하 — 1초 지속 판정
+        if smoothed < self._FALL_ENTER_UPZ:
+            if self._fall_since is None:
+                self._fall_since = now
+            elif (now - self._fall_since) >= self._FALL_ENTER_DUR \
+                    and not self._fallen:
+                self._fallen = True
+                _log(f"FALL 감지 (up_z={smoothed:.2f}) → 자동 기립 시퀀스 시작")
+                self._write_fall_ipc("FALLEN", smoothed)
+                self._begin_recovery(now)
+                return True
+        else:
+            # 회색지대(0.4~0.85) — 카운터 초기화
+            self._fall_since = None
+        return False
+
+    def _begin_recovery(self, now: float) -> None:
+        """복구 시퀀스 시작: gains 를 PD position-drive 용으로 강화 + flags."""
+        self._recovering = True
+        self._recover_t0 = now
+        # actuator_net 우회 + Isaac 내부 PD 활성. kps 강함 / kds 적당.
+        try:
+            ctrl = self._art.get_articulation_controller()
+            ctrl.set_gains(
+                kps=np.full(self._n_dofs, 80.0, dtype=np.float32),
+                kds=np.full(self._n_dofs, 2.0, dtype=np.float32))
+            self._recover_kps_active = True
+        except Exception as exc:
+            _log(f"recover set_gains err: {exc!r}")
+        # 0 속도로 시작
+        try:
+            self._art.set_joint_velocities(np.zeros(self._n_dofs))
+        except Exception:
+            pass
+        self._write_fall_ipc("RECOVERING", self._fall_up_z, stage=0)
+
+    def _end_recovery(self, success: bool, up_z: float) -> None:
+        """복구 종료: gains 원복(actuator_net 토크 모드) + flags + IPC."""
+        self._recovering = False
+        self._recover_t0 = None
+        try:
+            ctrl = self._art.get_articulation_controller()
+            ctrl.set_gains(
+                kps=np.zeros(self._n_dofs, dtype=np.float32),
+                kds=np.zeros(self._n_dofs, dtype=np.float32))
+            self._recover_kps_active = False
+        except Exception as exc:
+            _log(f"recover restore gains err: {exc!r}")
+        # 정책 history 재설정 — 누운 채로 쌓인 obs 가 보행 정책을 교란하므로
+        # zero 로 reset 후 default_policy 자세에서 재시작.
+        try:
+            torch = self._torch
+            self._obs_hist = torch.zeros(1, OBS_HIST, dtype=torch.float32)
+            self._actions = torch.zeros(1, 12, dtype=torch.float32)
+            self._last_actions = torch.zeros(1, 12, dtype=torch.float32)
+            self._pe_l[:] = 0
+            self._pe_ll[:] = 0
+            self._v_l[:] = 0
+            self._v_ll[:] = 0
+            self._jpt = None
+        except Exception:
+            pass
+        if success:
+            self._fallen = False
+            self._fall_since = None
+            _log(f"FALL 복구 성공 (up_z={up_z:.2f})")
+            self._write_fall_ipc("RECOVERED", up_z)
+        else:
+            # 시퀀스 실패 → sim teleport fallback (시연용 — 실로봇 배포 시 제거)
+            _log(f"FALL 복구 실패 (up_z={up_z:.2f}) → teleport reset fallback")
+            self._reset_stand_upright()
+            self._fallen = False
+            self._fall_since = None
+            self._write_fall_ipc("RECOVERED", 1.0)
+
+    def _run_recover_stage(self, now: float, up_z: float) -> None:
+        """시퀀스 stage 진행. 각 stage 동일 패턴을 4 다리에 적용."""
+        elapsed = now - (self._recover_t0 or now)
+        # 시퀀스 누적 종료 시점 계산
+        acc = 0.0
+        stage_idx = None
+        stage_target = None
+        for i, (dur, tgt) in enumerate(self._RECOVER_STAGES):
+            if elapsed < acc + dur:
+                stage_idx = i
+                stage_target = tgt
+                break
+            acc += dur
+        # 시퀀스 끝 — 직립 검사
+        if stage_idx is None:
+            if up_z >= self._FALL_EXIT_UPZ:
+                self._end_recovery(success=True, up_z=up_z)
+                return
+            # 5초 timeout 초과 시 teleport fallback
+            if elapsed >= self._RECOVER_TIMEOUT:
+                self._end_recovery(success=False, up_z=up_z)
+                return
+            # 마지막 stand 자세 유지하며 대기
+            stage_idx = len(self._RECOVER_STAGES) - 1
+            stage_target = self._RECOVER_STAGES[-1][1]
+
+        # 4 다리에 동일 (hip, thigh, calf) 패턴 — policy 순서에 맞춰 12-vec 구성
+        hip_t, thigh_t, calf_t = stage_target
+        tgt_policy = np.empty(12, dtype=np.float32)
+        for leg in range(4):
+            tgt_policy[leg * 3 + 0] = hip_t
+            tgt_policy[leg * 3 + 1] = thigh_t
+            tgt_policy[leg * 3 + 2] = calf_t
+        # policy→sim 매핑 + hip 부호 반전(_SGN)
+        tgt_policy_signed = tgt_policy * _SGN
+        tgt_sim = self._default_sim.copy()
+        for pi, si in enumerate(self._p2s):
+            tgt_sim[si] = tgt_policy_signed[pi]
+
+        try:
+            from isaacsim.core.utils.types import ArticulationAction
+            self._art.apply_action(
+                ArticulationAction(joint_positions=tgt_sim))
+        except Exception as exc:
+            if int(elapsed * 50) % 50 == 0:
+                _log(f"recover apply err: {exc!r}")
+
+        # stage 변화 시 IPC 발행 (dedup)
+        self._write_fall_ipc("RECOVERING", up_z, stage=stage_idx)
+
+    def _reset_stand_upright(self) -> None:
+        """실패 fallback — yaw 보존, roll/pitch=0 + base z=0.42 + default joints.
+        sim-only 비물리 teleport. 실로봇은 RL recovery 정책 또는 사람 개입."""
+        try:
+            self._art.set_joint_positions(self._default_sim.copy())
+            self._art.set_joint_velocities(np.zeros(self._n_dofs))
+            pos, ori = self._art.get_world_pose()
+            # ori 에서 yaw 만 추출 → roll/pitch 0 인 quat 재구성
+            w, x, y, z = (float(ori[0]), float(ori[1]),
+                          float(ori[2]), float(ori[3]))
+            yaw = math.atan2(2.0 * (w * z + x * y),
+                             1.0 - 2.0 * (y * y + z * z))
+            qw = math.cos(yaw / 2.0)
+            qz = math.sin(yaw / 2.0)
+            self._art.set_world_pose(
+                position=np.array([float(pos[0]), float(pos[1]), 0.42]),
+                orientation=np.array([qw, 0.0, 0.0, qz]))
+        except Exception as exc:
+            _log(f"reset_stand_upright err: {exc!r}")
 
     def _advance_gait(self, cmd: np.ndarray) -> None:
         freq = float(cmd[4])

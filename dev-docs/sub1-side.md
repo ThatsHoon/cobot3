@@ -4,18 +4,23 @@
 
 | 파일/디렉토리 | 역할 |
 |-------------|------|
-| `server/app.py` | FastAPI 앱 (REST + WS /events + WebRTC offer + MJPEG) |
-| `server/config.py` | 환경변수 중심 설정 (토픽명, API키, CORS, DB URL) |
-| `server/ros_bridge.py` | ROS2 구독/발행 (rclpy, MultiThreadedExecutor) |
+| `server/app.py` | FastAPI 앱 (REST + WS /events + WebRTC offer + MJPEG + /c2/sample) |
+| `server/config.py` | 환경변수 중심 설정 (토픽명, API키, CORS, DB URL, YOLO 정책) |
+| `server/ros_bridge.py` | ROS2 구독/발행 (rclpy, MultiThreadedExecutor) — PAUSED 가드 |
 | `server/db_writer.py` | asyncpg 배치 적재 (1초 flush, copy_records_to_table) |
-| `server/yolo_infer.py` | YOLOv8 추론 (선택, 없으면 graceful skip) |
+| `server/yolo_infer.py` | YOLO 추론 (`dmz_sentry_best.pt` 2-class: person, animal) |
 | `server/webrtc_video.py` | aiortc VideoStreamTrack (5fps, H264) |
+| `server/nav2_patrol.py` | Nav2 patrol FSM (IDLE/PATROL/HOME/PAUSED), HOME=(212.8,890.53) GOAL=(287.59,1129.728), ±10m 사각 도착 |
+| `server/cmd_vel_safety_filter.py` | Nav2 `/cmd_vel_nav2_raw` → `/robot/cmd_vel`, `MUTE_MODES={"PAUSED"}` |
+| `server/nav2_bringup.launch.py` | Nav2 stack launch |
+| `server/dualsense_worker.py` | **(신규)** PS5 DualSense 폴링(50Hz) → cmd_vel/inspect/mission |
+| `server/foxglove_sdk_publisher.py` | **(신규)** rclpy + foxglove SDK :8767, ROS JSON → native SceneUpdate/ImageAnnotations/PoseInFrame/Log |
 | `server/run.sh` | 서버 런처 (ROS2 소싱 + uvicorn :8000) |
 | `web/app/page.tsx` | 전술 콘솔 메인 페이지 |
-| `web/app/debug/page.tsx` | Lichtblick iframe + SpotSurroundView 3D 패널 |
-| `web/components/*.tsx` | VideoWall, TeleopPad, MapTrack, EngagementConsole 등 |
-| `web/lib/api.ts` | REST fetch 래퍼 + WS /events useEvents() 훅 |
-| `lichtblick/layout.json` | Lichtblick 패널 레이아웃 (3D, 그래프, 카메라) |
+| `web/app/debug/page.tsx` | Lichtblick(8765+8767) iframe + Immersive + TopicHealth + RawJsonInspector |
+| `web/components/*.tsx` | DualCameraView, ImmersiveCameraView, BaseMovementPanel, PatrolControls, DualSenseStatus, NpcSpawnButton, TripleCameraView, TopicHealthMonitor, RawJsonInspector 등 |
+| `web/lib/api.ts` | `getApiBase()` 런타임 함수 (SSR 안전) + WS /events useEvents() 훅 |
+| `lichtblick/layout.json` | 12 패널 + 4 userNodes (3D!go2 URDF, Plot×3, Image, SceneUpdate 변환) |
 | `run_foxglove_bridge.sh` | Foxglove Bridge 런처 (:8765) |
 
 ---
@@ -46,7 +51,12 @@
 | Method | Path | 설명 |
 |--------|------|------|
 | POST | `/c2/webrtc/offer` | SDP 교환 (aiortc) |
-| GET | `/c2/video/mjpeg?camera=front\|rear` | multipart/x-mixed-replace 5fps JPEG 스트림 (기본: front) |
+| GET | `/c2/video/mjpeg?camera=rear\|inspect\|overhead` | multipart/x-mixed-replace 5fps JPEG 스트림 (기본: inspect, 3-카메라) |
+
+### 진단
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/c2/sample` | 1Hz 폴링용: `latest` 토픽 스냅샷 + rx 카운터 + publishers + env (디버그 페이지 TopicHealthMonitor·RawJsonInspector) |
 
 ---
 
@@ -87,24 +97,35 @@
 - `RosBridge.start(loop, db, event_cb)`: MultiThreadedExecutor를 daemon thread에서 spin
 - `RosBridge._emit(event)`: `loop.call_soon_threadsafe(event_cb, event)` — thread safe
 
-### 구독 (downlink)
+### 구독 (downlink, 2026-05-21)
 | 토픽 | 타입 | 콜백 | 동작 |
 |------|------|------|------|
 | `/robot/state` | String | `_on_state` | JSON 파싱 → latest["state"] + DB + emit |
 | `/robot/gps` | NavSatFix | `_on_gps` | lat/lon/alt → latest["gps"] + DB + emit |
 | `/robot/odom` | Odometry | `_on_odom` | quaternion→yaw → latest["odom"]{x,y,z,yaw} |
 | `/robot/leg_joint_states` | JointState | `_on_leg` | positions → latest["leg_q"] + DB 10Hz |
-| `/c2/front/compressed` | CompressedImage | `_on_video(…,"front")` | OpenCV decode + YOLO + frame cache |
 | `/c2/rear/compressed` | CompressedImage | `_on_video(…,"rear")` | OpenCV decode + frame cache |
+| `/c2/inspect/compressed` | CompressedImage | `_on_video(…,"inspect")` | OpenCV decode + **YOLO 추론** (dmz_sentry_best.pt) + frame cache |
+| `/c2/overhead/compressed` | CompressedImage | `_on_video(…,"overhead")` | OpenCV decode + frame cache |
+| `/patrol_state` | String JSON | `_on_patrol_state` | mode/waypoint/route/pose latest 갱신 — PAUSED 가드 트리거 |
+| `/scene/landmarks` | String JSON | `_on_landmarks` | home/goal/fence latched 수신 |
+| `/intruder_states` | String JSON | `_on_intruders` | NPC 좌표 |
+| `/alerts`, `/animal_alerts` | String JSON | `_on_alert`/`_on_animal_alert` | WS emit + DB |
 | `/rosout` | Log | `_on_rosout` | level>=30만 → DB + emit |
 
 ### 발행 (uplink)
-| 메서드 | 토픽 | 타입 |
-|--------|------|------|
-| `pub_cmd_vel(lin, ang)` | `/robot/cmd_vel` | Twist |
-| `publish_goal(x, y)` | `/robot/nav/goal` | PoseStamped |
-| `send_speaker(payload)` | `/robot/speaker/audio` | String (JSON) |
-| `fire()` | `/robot/weapon/fire` | Trigger (service) |
+| 메서드 | 토픽 | 타입 | 비고 |
+|--------|------|------|------|
+| `pub_cmd_vel(lin, ang, vy=0.0)` | `/robot/cmd_vel` | Twist | **PAUSED 가드** — patrol_state mode==PAUSED 시 무발행 |
+| `publish_goal(x, y)` | `/robot/nav/goal` | PoseStamped | (Nav2 stack 단독 시 미사용) |
+| `pub_inspect_cmd(payload)` | `/robot/inspect/command` | String JSON | pan/tilt/zoom/look_at |
+| `pub_mission(cmd)` | `/mission_command` | String | sortie/home/stop/resume/idle |
+| `send_speaker(payload)` | `/robot/speaker/audio` | String (JSON) | (미구현 소비자) |
+| `fire()` | `/robot/weapon/fire` | Trigger (service) | (미구현 서버) |
+
+**PAUSED race fix (2026-05-21):** `pub_cmd_vel` 진입 시 `latest["patrol_state"]
+.mode == "PAUSED"` 확인 → 즉시 return. velocity_smoother·dualsense·web teleop
+잔여 발행을 모두 ros_bridge 출구에서 차단.
 
 **헬스 타이머:** 5초마다 rx 카운터 + publisher 수 확인 → `diag` 이벤트 emit.
 
@@ -171,30 +192,63 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 
 **제거된 컴포넌트 (2026-05-20):** `VideoWall`(↔DualCameraView 중복), `ThreatBar`/`EngagementConsole`(사격 위협 — 실 데이터 무관), `ContactsPanel`(↔AlertsLog 중복), `ReadinessStrip`(↔TelemetryStrip 대체), `OpsLedger`(↔EventLog 중복).
 
-### 디버그 페이지 (`/debug`)
-`app/debug/page.tsx` — Lichtblick iframe 풀스크린 (Three.js SpotSurroundView 제거 — Lichtblick 만 사용)
+### 디버그 페이지 (`/debug`, 2026-05-21 12-col grid)
 
-`sub1_side/lichtblick/layout.json` 기본 layout (2026-05-20 강화, 이미지 #5 퀄리티):
+`app/debug/page.tsx` — 12-column grid, 12-panel:
 
-| 패널 | 위치 | 토픽/구성 |
+| 그리드 | 컴포넌트 | 토픽/구성 |
 |---|---|---|
-| `3D!go2` | 좌 50% | URDF Go2 + `/tf` + `/robot/odom` follow + `/cam/front/points` Z-turbo PointCloud |
-| `Plot!joint_position` | 우상 33% | `/robot/leg_joint_states.position[0..11]` 12 라인 (FL/FR/RL/RR × hip/thigh/calf) |
-| `Plot!foot_position` | 우중 33% | `/robot/leg_joint_states.effort[2,5,8,11]` 4 foot z 추정 |
-| `Plot!cmd_vel` | 우하 상반 | `/robot/cmd_vel.linear.x` (red) + `.angular.z` (blue) |
-| `Image!cam_front` | 우하 하반 | `/c2/front/compressed` |
+| row1 좌 (8col) | Lichtblick iframe | `http://host:8080/?ds=foxglove-websocket&ds.url=ws://host:8765` |
+| row1 우 (4col) | `ImmersiveCameraView` | Three.js SphereGeometry inside-out 에 rear/inspect/overhead VideoTexture 섹터 매핑 + Go2 silhouette |
+| row2 좌 (5col) | `TopicHealthMonitor` | `/c2/sample` 1Hz 폴링 — rx 카운터·publishers·env·hint |
+| row2 중 (4col) | `RawJsonInspector` | latest 토픽 JSON 원문 |
+| row2 우 (3col) | `DualSenseStatus` | 게임패드 연결·키맵 |
+| row3 (12col) | `DiagnosticsStrip` | 12-DOF leg joint 스파크차트 |
+| row4 (12col) | `EventLog` | 모든 C2Event 14줄 스크롤 |
 
-**SpotSurroundView 구현 세부:**
-- `import type * as THREE from "three"` (타입 전용, SSR safe)
-- `await import("three")` in useEffect (동적 로드, 번들 분리)
-- 마우스 드래그 궤도 회전 (spherical coords), 스크롤 줌
-- `yawRef.current` — 200ms 폴링으로 `/robots/gp0/state` odom.yaw 반영
-- `robotGroup.rotation.y = yawRef.current` — 매 프레임 적용
+> Lichtblick 은 두 데이터 소스 동시 연결 가능 (`ws://host:8765` foxglove_bridge,
+> `ws://host:8767` foxglove SDK native). 표준 단일 소스 미지원 시 별도 탭/창.
 
-### API 클라이언트 (`lib/api.ts`)
+### Lichtblick `layout.json` 기본 layout (2026-05-21)
+
+12 패널 + 4 userNodes — String JSON → SceneUpdate 변환:
+
+| 패널 | 토픽 / userNode | 설명 |
+|---|---|---|
+| `3D!go2` | go2-urdf(http://192.168.10.94:8766/go2_description/urdf/go2.urdf), `/tf`, `/robot/odom`, `/cam/rear/points`, `/sdk/intruder_markers`, `/sdk/landmark_markers`, `/sdk/patrol_goal_pose` | follow `base` link |
+| `Image!inspect` + camera_info frustum | `/c2/inspect/compressed` + `/cam/inspect/camera_info` | YOLO 입력 카메라 |
+| `Image!rear`  + camera_info frustum | `/c2/rear/compressed` + `/cam/rear/camera_info` | |
+| `Image!overhead` | `/c2/overhead/compressed` + `/cam/overhead/camera_info` | |
+| `Plot!leg_position` | `/robot/leg_joint_states.position[0..11]` | 12 라인 |
+| `Plot!leg_velocity` | `.velocity[0..11]` | 12 라인 |
+| `Plot!cmd_vel` | `/robot/cmd_vel.linear.{x,y}` + `.angular.z` | 3 라인 |
+| `Plot!patrol_mode` | userNode `patrol_mode_extractor` → mode enum 시계열 | |
+| `Plot!battery` | userNode `battery_extractor` → /robot/state battery | |
+| `Log!alerts` | `/sdk/alert_log` (foxglove SDK Log) | |
+| `RawMessages!patrol` | `/patrol_state` | mode/waypoint/route JSON 원문 |
+| `RawMessages!landmarks` | `/scene/landmarks` | home/goal/fence |
+
+**userNodes (4개)**:
+- `patrol_mode_extractor` — `/patrol_state.mode` → numeric enum
+- `battery_extractor` — `/robot/state` JSON 파싱 → battery float
+- `intruders_to_scene` — `/intruder_states` JSON → SceneUpdate (fallback;
+  SDK 미가동 시)
+- `landmarks_to_scene` — `/scene/landmarks` JSON → SceneUpdate (fallback)
+
+> SDK 사이드카(8767)가 가동되어 있으면 `/sdk/*` native 채널이 우선 노출 —
+> userNodes 는 SDK 미설치 fallback 으로 유지.
+
+### API 클라이언트 (`lib/api.ts`, 2026-05-19 SSR fix)
 ```typescript
-API_BASE = process.env.NEXT_PUBLIC_C2_API  // default: http://localhost:8000
-ROBOT_ID = process.env.NEXT_PUBLIC_GP_ROBOT // default: gp0
+// 모듈 레벨 상수로 두면 Next.js SSR 시점에 "localhost" 로 굳어버림 → 런타임 함수.
+export function getApiBase(): string {
+  if (process.env.NEXT_PUBLIC_C2_API) return process.env.NEXT_PUBLIC_C2_API;
+  if (typeof window === "undefined") return "";   // SSR guard
+  return `http://${window.location.hostname}:8000`;
+}
+export const LICHTBLICK_URL = process.env.NEXT_PUBLIC_LICHTBLICK_URL
+  || "http://localhost:8080";
+export const ROBOT_ID = process.env.NEXT_PUBLIC_GP_ROBOT || "gp0";
 
 getJSON<T>(path)         // GET with no-store cache
 postJSON<T>(path, body)  // POST with X-API-Key header
@@ -203,32 +257,35 @@ useEvents(handlers)      // WS /events 자동 재연결 + ping keepalive
 
 ---
 
-## Lichtblick 레이아웃 (`lichtblick/layout.json`)
+## Foxglove SDK Python 사이드카 (`server/foxglove_sdk_publisher.py`, 2026-05-21 신규)
 
-| 패널 | 토픽 | 설정 |
-|------|------|------|
-| 3D!go2 | /tf, /robot/odom, **/cam/front/points** | go2.urdf(http://192.168.10.94:8766/go2_description/urdf/go2.urdf), follow base, 3m distance, PointCloud Z-turbo 컬러맵 "볼록렌즈/보울" |
-| RawMessages!state | /robot/state | JSON 원문 표시 |
-| Plot!leg | /robot/leg_joint_states.position[:] | Go2 12관절 시계열 |
-| Image!cam_front | /c2/front/compressed | 전방 카메라 |
-| Image!cam_rear | /c2/rear/compressed | 후방 카메라 |
-| Image!depth | /cam/front/depth | 전방 깊이(32FC1 컬러맵) |
+rclpy 노드와 foxglove SDK 가 같은 프로세스에서 동거. `foxglove.start_server
+(host="0.0.0.0", port=8767)` 자체 WS 서버 가동. ROS String JSON 토픽 5종을
+native schema 채널로 변환 발행 → Lichtblick 가 ws://host:8767 별도 source
+로 추가 연결.
 
-**레이아웃 트리:**
-```
-Row (55% / 45%)
-├─ 3D!go2  (PointCloud 보울 + go2.urdf)
-└─ Column
-   ├─ RawMessages!state (25%)
-   └─ Column
-      ├─ Plot!leg (35%)
-      └─ Column
-         ├─ Image!cam_front (50%)
-         └─ Column
-            ├─ Image!cam_rear (50%)
-            └─ Image!depth
-```
-> 보울 시각화: Isaac OG `CamPCL`(type=depth_pcl)가 `/cam/front/points`
-> (PointCloud2) 발행 → foxglove_bridge → 3D!go2 패널이 Z 컬러맵 보울 렌더.
-> depth_pcl 미지원 빌드 시 `/cam/front/depth`+`/cam/front/camera_info`
-> 기반 Lichtblick 투영 fallback.
+| SDK 채널 | well-known schema | 입력 ROS 토픽 |
+|---|---|---|
+| `/sdk/intruder_markers` | `foxglove.SceneUpdate` (SpherePrimitive × intruder, level=ALERT 빨강) | `/intruder_states` |
+| `/sdk/landmark_markers` | `foxglove.SceneUpdate` (home/goal CubePrimitive + arrive_box CylinderPrimitive + TextPrimitive) | `/scene/landmarks` |
+| `/sdk/patrol_goal_pose` | `foxglove.PoseInFrame` | `/patrol_state.waypoint` |
+| `/sdk/inspect_annotations` | `foxglove.ImageAnnotations` (LINE_STRIP × bbox) | `/detections_text` |
+| `/sdk/alert_log` | `foxglove.Log` (level=WARNING) | `/alerts` |
+
+이전 in-app userNodes 변환 방식은 fallback 으로 layout.json 안에 보존.
+
+## DualSense worker (`server/dualsense_worker.py`, 2026-05-21 신규)
+
+PS5 컨트롤러 폴링(pygame.joystick, 50Hz). 매핑:
+
+| 입력 | 기능 |
+|---|---|
+| L-stick X/Y | inspect 카메라 pan/tilt (±70° clamp) |
+| L2 / R2 | inspect 카메라 zoom in / out |
+| D-pad ↑/↓/←/→ | base movement 전/후/좌/우 strafe |
+| R-stick X | yaw (좌우 회전) |
+| × (cross) | stop_toggle (정지/재개) |
+| △ (triangle) | sortie (PATROL 시작) |
+| ○ (circle) | home (HOME 복귀) |
+
+내부적으로 ros_bridge.pub_cmd_vel / pub_inspect_cmd / pub_mission 호출.
