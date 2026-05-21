@@ -44,6 +44,22 @@ main_side/scene/assets/barbed_wire_fence.usdz
 main_side/scene/assets/materials/
 main_side/scene/assets/props/
 main_side/scene/assets/dmz/**/*.usdz
+# Sketchfab 외부 다운로드 에셋 (대용량 바이너리 — 재다운로드 필요)
+main_side/scene/assets/27132.jpg
+main_side/scene/assets/Aerial_Scan_Radar_Station_Camp_Hero_Montauk_NY.usdz
+main_side/scene/assets/Aerial_Scan_Radar_Station_Camp_Hero_Montauk_NY/
+main_side/scene/assets/Banana_Peel_Mario_Kart.usdz
+main_side/scene/assets/Banana_Peel_Mario_Kart/
+main_side/scene/assets/Doro.usdz
+main_side/scene/assets/Doro/
+main_side/scene/assets/Landmine.usdz
+main_side/scene/assets/Landmine/
+main_side/scene/assets/Military_Base_2_-_Truck_Masters_India_Simulator.usdz
+main_side/scene/assets/Military_Base_2_-_Truck_Masters_India_Simulator/
+main_side/scene/assets/Spikeball_Obstacles.usdz
+main_side/scene/assets/Spikeball_Obstacles/
+main_side/scene/assets/Watchtower.usdz
+main_side/scene/assets/Watchtower/
 
 # Nav2 베이크 산출물 (bake_gp_static_map.py 로 재생성)
 main_side/scene/maps/*.pgm
