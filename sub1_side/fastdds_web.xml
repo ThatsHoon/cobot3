@@ -43,7 +43,13 @@
         <userTransports>
           <transport_id>udp_only_transport</transport_id>
         </userTransports>
-        <useBuiltinTransports>false</useBuiltinTransports>
+        <!-- 2026-05-21: false → true. false 시 udp_only_transport 만 사용
+             → service discovery (lifecycle 등) 가 같은 PC 안에서도 실패
+             (map_server/get_state 영구 대기, nav_ready=False). true 면
+             builtin UDP+SHM 가 service 발견 담당, custom udp_only 는 큰
+             메시지 버퍼 보강용으로 함께 사용. SHM 차단은 별 env
+             FASTDDS_BUILTIN_TRANSPORTS=UDPv4 로 main 측 호환성 유지. -->
+        <useBuiltinTransports>true</useBuiltinTransports>
         <builtin>
           <!-- 멀티캐스트 비의존: 시뮬 PC + C2 자기 자신을 유니캐스트 피어로 명시.
                2026-05-21: __C2_LAN_IP__ 추가 — self-loopback discovery 가 안되어
