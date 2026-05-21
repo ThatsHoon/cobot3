@@ -7,6 +7,97 @@
 
 ## 2026-05-21
 
+### 무기 사격 (HITL) + 날씨/바람 시뮬레이션 통합
+
+**Feature 1: 총기 부착 + HITL 사격 시퀀스**
+
+- `main_side/camera_publisher.py` — `inspect_gimbal` 구조 안 weapon_mount 신규
+  procedural prim (barrel cylinder + receiver/stock cube), muzzle Xform.
+  `_update_weapon_xform` 가 inspect pan/tilt 와 동기 회전 (HITL: 운용자가
+  inspect 영상 보고 조준 → weapon 자동 정렬).
+- `main_side/camera_publisher.py` — `_fire` state machine 신규:
+  IDLE → RAMP_DOWN(0.2s body_height -0.08, stance_w +0.05) → FIRE(1-step
+  2500N impulse along inspect dir) → HOLD(0.5s) → RAMP_UP(0.2s) →
+  COOLDOWN(2s). Margolis WTW 2022 stance widening 학습 근거 활용.
+- `main_side/go2_controller.py` — `set_stance_override(body_height, stance_w,
+  stance_l)` 외부 ramp hook, `_command()` 에 _CMD_BASE 가산. 또한
+  `apply_external_impulse(force, position, torque)` dynamic_control 기반.
+- `main_side/weapon_relay.py` (신규) — `/robot/weapon/fire` Trigger server,
+  fire_id UUID 발급, `/tmp/cobot3_fire_cmd.json` IPC + result polling,
+  `/robot/weapon/state` (String JSON 1Hz latched) 발행.
+- `main_side/camera_publisher.py` `_apply_inspect_cmd` — `look_at_pixel`
+  키 신규: bbox 중심 픽셀 → inspect intrinsics 로 pan/tilt delta 계산
+  (HITL [TRACK] 버튼이 사용).
+- `sub1_side/db/schema.sql` — fire_events 4 컬럼 추가 (fire_id UUID,
+  target_alert_id, miss_reason, result_set_at) + 멱등 ALTER.
+- `sub1_side/server/db_writer.py` — COLUMNS 갱신 + `update_fire_result()`
+  async UPDATE 메서드 신규.
+- `sub1_side/server/ros_bridge.py` — `call_fire()` 새 규약 (fire_id|state)
+  반환, `record_fire_result()` 메서드, `/robot/weapon/state` subscribe +
+  WS `weapon_state` emit.
+- `sub1_side/server/app.py` — `POST /robots/{rid}/fire/result` 신규
+  (운용자 hit/miss 입력), `POST /robots/{rid}/inspect` 에 look_at_pixel
+  body 키 확장, `POST /weather` 신규.
+- `sub1_side/web/components/WeaponFireControl.tsx` (신규) — inspect MJPEG +
+  crosshair overlay + FIRE 버튼 + cooldown 표시 + 결과 모달 (Hit/Miss/Cancel).
+- `sub1_side/web/components/AlertsLog.tsx` — 각 alert 행에 [TRACK] 버튼
+  신규: bbox 중심 픽셀로 inspect 카메라 회전.
+
+**Feature 2: 날씨 + 랜덤 바람 + 시각효과 (hi 브랜치 포팅)**
+
+- `main_side/weather_visuals.py` (신규) — ThatsHoon/cobot3 'hi' 브랜치
+  `isaacsim/anymal_gp_terrain.py` 의 TIME_OF_DAY_PRESETS (morning/noon/
+  evening/night) + WEATHER_PRESETS (clear/cloudy/fog/rain/snow) +
+  `_add_weather_effects` / `_apply_environment_visuals` /
+  `_update_weather_effects` 발췌·재구성. RainStreaks 220 BasisCurves,
+  FogBands 54 BasisCurves, SnowFlakes 260 Points procedural geometry.
+  DomeLight `/World/DomeLight_01` 재사용 + 신규 DistantLight `/World/Sun`.
+- `main_side/wind_publisher.py` (신규) — von Mises (κ=4) 방위각 + Weibull
+  (k=2) 풍속 + AR(1) α=0.85 smoothing, 5 mode preset (calm~storm), gust
+  Bernoulli(p_dt) 1.5× 1초 spike. 풍속 상한 18 m/s (WTW max_push_vel_xy
+  =1.0 학습 분포 등가). `/wind/state` Vector3Stamped 20Hz + IPC dump.
+- `main_side/camera_publisher.py` — `WeatherVisuals` init + 메인 루프 안
+  `_apply_weather_cmd()` (IPC poll), `vis.update(dt)`, `_apply_wind_force()`
+  (dc.apply_body_force 매 step Go2 base 에 `F = ½ρCdA|v_rel|·v_rel`).
+  PhysxForceFieldWindAPI 회피 (articulation 적용 시 PxArticulationLink
+  경고 보고 다수 — NVIDIA 포럼 확인).
+- `sub1_side/server/config.py` — TOPICS: weather_cmd, wind_state,
+  weapon_state, weapon_fire 추가.
+- `sub1_side/server/ros_bridge.py` — `/wind/state` Vector3Stamped subscribe
+  (5Hz throttled WS emit, dir_deg/speed derivation), `pub_weather_cmd()`
+  메서드 + publisher.
+- `sub1_side/web/components/WeatherControl.tsx` (신규) — 4×5 time/weather
+  버튼 + wind mode dropdown + RND DIR/SPD OVR 토글 + 슬라이더.
+- `sub1_side/web/components/WindGauge.tsx` (신규) — StatusHeader 옆 SVG
+  화살표 + 보퍼트 라벨 + 풍속 m/s + 풍향°.
+
+**ROS2 신규 토픽 (5개):**
+| 토픽 | 타입 | QoS | 방향 |
+|---|---|---|---|
+| `/robot/weapon/fire` | std_srvs/Trigger | RELIABLE | C2→Main (service) |
+| `/robot/weapon/state` | std_msgs/String | RELIABLE+TRANSIENT_LOCAL 1Hz | Main→C2 |
+| `/weather/command` | std_msgs/String | RELIABLE | C2→Main |
+| `/wind/state` | geometry_msgs/Vector3Stamped | RELIABLE 20Hz | Main→C2 |
+
+**환경변수 신규:**
+- `GP_GO2_MASS` — Go2 base mass 보정 (기본 12.0 kg, Unitree 실측)
+
+**핵심 설계 결정:**
+- 명중 판정 = HITL (인간이 inspect 영상 보고 결정) — raycast 자동 판정 제거
+- weapon = inspect 카메라와 동일 회전 (별도 gimbal 없음 — 부착 위치 동일)
+- 풍속 상한 18 m/s = WTW `max_push_vel_xy=1.0` 등가 임펄스 한계
+- 시각효과 ↔ 물리바람 분리 — 시각효과는 hi 그대로, 물리는 신규
+- PhysxForceFieldWindAPI 회피 — dc.apply_body_force 명령형
+
+**핵심 리서치 근거:**
+- Margolis et al. "Walk These Ways" CoRL 2022 (arXiv:2212.03238) — stance
+  widening + body drop 이 leg shove 강건성 증가
+- Ghost Robotics Vision-60 + SPUR — 등판 마운트, 4발 정역학 흡수 (별도
+  자세 변경 안 함, 우리는 데모 가시성 위해 WTW 안전 stance 채택)
+- ETH `rotors_simulator/gazebo_wind_plugin` — wind force apply 패턴
+
+---
+
 ### Go2 zero-cmd drift 근본 원인 수정 — walk-these-ways standstill clamp
 
 **변경 파일:** `main_side/go2_controller.py` (수정)

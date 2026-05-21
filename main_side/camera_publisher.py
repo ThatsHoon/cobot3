@@ -883,6 +883,31 @@ def _apply_inspect_cmd():
                     _inspect_state["tilt"] = 0.0
             except Exception:
                 pass
+        # look_at_pixel: bbox 중심 이미지 픽셀 → inspect intrinsics 로
+        # pan/tilt delta 계산 (HITL 사격 보조, 2026-05-21).
+        # camera_info: fx = (W/aperture_mm) * focal_mm, cx = W/2, cy = H/2
+        # 픽셀 (px, py) → 각도: dx = (px-cx)/fx, dy = (py-cy)/fy (radian 근사)
+        if ("look_at_pixel" in cmd
+                and isinstance(cmd["look_at_pixel"], (list, tuple))
+                and len(cmd["look_at_pixel"]) >= 2):
+            try:
+                import math as _math
+                px, py = float(cmd["look_at_pixel"][0]), \
+                         float(cmd["look_at_pixel"][1])
+                # 카메라 intrinsics — camera_info_publisher 와 동일 공식
+                _W, _H = 1280, 720    # CamInspect 해상도 (기본값 가정)
+                _focal = _inspect_state.get("focal", 18.0)
+                _aperture = 20.955    # _HAP
+                _fx = (_W / _aperture) * _focal
+                _fy = (_H / (_aperture * _H / _W)) * _focal
+                _cx, _cy = _W / 2.0, _H / 2.0
+                _dx = (px - _cx) / _fx     # yaw delta (right=+)
+                _dy = (py - _cy) / _fy     # pitch delta (down=+)
+                # 현재 pan/tilt 에 누적 (-tilt 부호 변환: pixel y down=pitch down)
+                _inspect_state["pan"] += _dx
+                _inspect_state["tilt"] -= _dy
+            except Exception:
+                pass
 
     _update_inspect_xform()
 
@@ -1009,6 +1034,322 @@ def _apply_npc_cmd():
             log(f"[npc] 소환 실패: {_e!r}")
 
 
+# ── Weather visuals + Wind force + Weapon (2026-05-21) ─────────────────
+# WeatherVisuals: hi 브랜치 포팅 모듈. /World/Sun + DomeLight 갱신 + 비/눈/안개
+# procedural geometry visibility 토글 + 매 step update.
+# Wind: /tmp/cobot3_wind_state.json (wind_publisher 사이드카가 발행) 폴 →
+# dc.apply_body_force 로 매 step Go2 base 에 풍력 인가. F = ½ρCdA|v_rel|·v_rel.
+# Weapon: /tmp/cobot3_fire_cmd.json (weapon_relay) 폴 → _fire_sequence_step
+# state machine 진행 (ramp_down → fire → ramp_up).
+try:
+    from weather_visuals import WeatherVisuals
+    def _go2_xy():
+        try:
+            _bp = stage.GetPrimAtPath(BASE_PRIM)
+            if _bp and _bp.IsValid():
+                _bt = UsdGeom.Xformable(_bp).ComputeLocalToWorldTransform(
+                    Usd.TimeCode.Default()).ExtractTranslation()
+                return float(_bt[0]), float(_bt[1])
+        except Exception:
+            pass
+        return 0.0, 0.0
+    _weather = WeatherVisuals(stage, robot_xy_provider=_go2_xy, area=80.0)
+    log(f"WeatherVisuals 등록 (time={_weather.time_of_day} "
+        f"weather={_weather.weather})")
+except Exception as _e:
+    _weather = None
+    log(f"⚠ WeatherVisuals 초기화 실패: {_e!r}")
+
+# Weather command IPC poll (inspect_relay 패턴 — sub1 ros_bridge 가 /weather/
+# command 받고 IPC 파일로 forward, 이쪽은 in-process subscribe 회피)
+_WEATHER_CMD_FILE = "/tmp/cobot3_weather_cmd.json"
+_weather_state = {"last_mtime": 0.0, "wind_mode": "calm",
+                  "wind_random_dir": True, "wind_dir_deg": None,
+                  "wind_speed": None}
+
+def _apply_weather_cmd():
+    """/tmp/cobot3_weather_cmd.json mtime 변화 시 WeatherVisuals.set_mode +
+    wind 설정 echo. wind_mode 등은 별도 wind_publisher 가 직접 subscribe."""
+    if _weather is None:
+        return
+    try:
+        m = os.path.getmtime(_WEATHER_CMD_FILE)
+    except OSError:
+        return
+    if m <= _weather_state["last_mtime"]:
+        return
+    _weather_state["last_mtime"] = m
+    import json as _json
+    try:
+        with open(_WEATHER_CMD_FILE) as _f:
+            d = _json.load(_f)
+    except Exception as _e:
+        log(f"[weather] JSON 파싱 실패: {_e!r}")
+        return
+    _weather.set_mode(time_of_day=d.get("time_of_day"),
+                      weather=d.get("weather"))
+    _weather_state["wind_mode"] = d.get("wind_mode", _weather_state["wind_mode"])
+    log(f"[weather] mode → time={_weather.time_of_day} "
+        f"weather={_weather.weather} wind={_weather_state['wind_mode']}")
+
+# Wind force callback (매 step Go2 base 에 force 인가)
+_WIND_STATE_FILE = "/tmp/cobot3_wind_state.json"
+_wind_state = {"vx": 0.0, "vy": 0.0, "vz": 0.0, "last_mtime": 0.0}
+# 공력 계수: Go2 측면 ½ρCdA = 0.5 * 1.225 * 1.0 * 0.15 ≈ 0.092
+_WIND_K = 0.5 * 1.225 * 1.0 * 0.15
+
+def _apply_wind_force():
+    """매 step — /tmp/cobot3_wind_state.json 읽고 dc.apply_body_force 로
+    Go2 base 에 wind force 인가. F = ½ρCdA|v_rel|·v_rel."""
+    try:
+        m = os.path.getmtime(_WIND_STATE_FILE)
+        if m > _wind_state["last_mtime"]:
+            import json as _json
+            with open(_WIND_STATE_FILE) as _f:
+                d = _json.load(_f)
+            _wind_state["vx"] = float(d.get("vx", 0))
+            _wind_state["vy"] = float(d.get("vy", 0))
+            _wind_state["vz"] = float(d.get("vz", 0))
+            _wind_state["last_mtime"] = m
+    except (OSError, ValueError):
+        pass
+    if abs(_wind_state["vx"]) + abs(_wind_state["vy"]) < 0.05:
+        return
+    try:
+        from omni.isaac.dynamic_control import _dynamic_control
+        _dc = _dynamic_control.acquire_dynamic_control_interface()
+        _base = _dc.get_rigid_body(BASE_PRIM)
+        if not _base:
+            return
+        _bv = _dc.get_rigid_body_linear_velocity(_base)
+        _vrx = _wind_state["vx"] - float(_bv.x)
+        _vry = _wind_state["vy"] - float(_bv.y)
+        _vrz = _wind_state["vz"] - float(_bv.z)
+        _s = (_vrx * _vrx + _vry * _vry + _vrz * _vrz) ** 0.5
+        _F = (_WIND_K * _s * _vrx, _WIND_K * _s * _vry, _WIND_K * _s * _vrz)
+        _dc.apply_body_force(_base, (0.0, 0.0, 0.05), _F, False)
+    except Exception:
+        pass
+
+# ── Weapon 부착 (실 라이플 모형 — procedural, 사용자가 추후 USD ref 교체 가능)
+# Mount 위치: /World/Go2/base/weapon_mount (등판 위), muzzle 자식 prim.
+# 시각: cylinder 4종 (barrel/receiver/stock/grip) — 절차적 placeholder.
+WEAPON_MOUNT_PATH = "/World/Go2/base/weapon_mount"
+MUZZLE_PATH = f"{WEAPON_MOUNT_PATH}/muzzle"
+
+def _build_weapon_visual():
+    """procedural rifle: barrel(cylinder) + receiver(cube) + stock(cube)."""
+    if stage.GetPrimAtPath(WEAPON_MOUNT_PATH).IsValid():
+        stage.RemovePrim(WEAPON_MOUNT_PATH)
+    _root = UsdGeom.Xform.Define(stage, Sdf.Path(WEAPON_MOUNT_PATH))
+    # mount 위치 (등판 위)
+    _xfr = UsdGeom.Xformable(_root)
+    _xfr.AddTranslateOp().Set(Gf.Vec3f(0.05, 0.0, 0.10))
+    # barrel — cylinder along +X (forward)
+    _bar = UsdGeom.Cylinder.Define(stage, Sdf.Path(f"{WEAPON_MOUNT_PATH}/barrel"))
+    _bar.GetRadiusAttr().Set(0.012)
+    _bar.GetHeightAttr().Set(0.55)
+    _bar.GetAxisAttr().Set("X")
+    _bxf = UsdGeom.Xformable(_bar.GetPrim())
+    _bxf.AddTranslateOp().Set(Gf.Vec3f(0.20, 0.0, 0.0))
+    _bar.GetDisplayColorAttr().Set([Gf.Vec3f(0.12, 0.12, 0.13)])
+    # receiver — short cube
+    _rec = UsdGeom.Cube.Define(stage, Sdf.Path(f"{WEAPON_MOUNT_PATH}/receiver"))
+    _rec.GetSizeAttr().Set(1.0)
+    _rxf = UsdGeom.Xformable(_rec.GetPrim())
+    _rxf.AddTranslateOp().Set(Gf.Vec3f(-0.05, 0.0, 0.0))
+    _rxf.AddScaleOp().Set(Gf.Vec3f(0.12, 0.05, 0.06))
+    _rec.GetDisplayColorAttr().Set([Gf.Vec3f(0.18, 0.16, 0.14)])
+    # stock
+    _stk = UsdGeom.Cube.Define(stage, Sdf.Path(f"{WEAPON_MOUNT_PATH}/stock"))
+    _stk.GetSizeAttr().Set(1.0)
+    _sxf = UsdGeom.Xformable(_stk.GetPrim())
+    _sxf.AddTranslateOp().Set(Gf.Vec3f(-0.22, 0.0, -0.005))
+    _sxf.AddScaleOp().Set(Gf.Vec3f(0.20, 0.045, 0.05))
+    _stk.GetDisplayColorAttr().Set([Gf.Vec3f(0.22, 0.18, 0.13)])
+    # muzzle prim (raycast/임펄스 origin)
+    _muz = UsdGeom.Xform.Define(stage, Sdf.Path(MUZZLE_PATH))
+    UsdGeom.Xformable(_muz).AddTranslateOp().Set(Gf.Vec3f(0.475, 0.0, 0.0))
+    log(f"weapon 시각 prim 생성: {WEAPON_MOUNT_PATH} (procedural rifle)")
+
+try:
+    _build_weapon_visual()
+except Exception as _e:
+    log(f"⚠ weapon prim 생성 실패: {_e!r}")
+
+def _update_weapon_xform():
+    """weapon_mount 를 inspect 카메라 pan/tilt 와 동기 — inspect 가 보는
+    방향 = weapon 이 가리키는 방향 (HITL 운용자가 YOLO bbox 따라 회전)."""
+    try:
+        _w = stage.GetPrimAtPath(WEAPON_MOUNT_PATH)
+        if not (_w and _w.IsValid()):
+            return
+        import math as _math
+        _LIM = _math.radians(_INSPECT_LIM)
+        _pan = max(-_LIM, min(_LIM, _inspect_state["pan"]))
+        _tilt = max(-_LIM, min(_LIM, _inspect_state["tilt"]))
+        # base frame 의 yaw(pan) → +Z 축 회전, pitch(tilt) → +Y 축 회전
+        _hp, _ht = _pan * 0.5, _tilt * 0.5
+        _qz = Gf.Quatf(_math.cos(_hp), Gf.Vec3f(0.0, 0.0, _math.sin(_hp)))
+        _qy = Gf.Quatf(_math.cos(_ht), Gf.Vec3f(0.0, _math.sin(_ht), 0.0))
+        _q = _qz * _qy
+        _xf = UsdGeom.Xformable(_w)
+        _orient_op = None
+        for _op in _xf.GetOrderedXformOps():
+            if _op.GetOpType() == UsdGeom.XformOp.TypeOrient:
+                _orient_op = _op; break
+        if _orient_op is None:
+            _orient_op = _xf.AddOrientOp()
+        _orient_op.Set(_q)
+    except Exception:
+        pass
+
+# ── 사격 시퀀스 상태머신 ────────────────────────────────────────────────
+# states: IDLE → RAMP_DOWN(0.2s) → FIRE(1step impulse) → HOLD(0.5s) →
+#         RAMP_UP(0.2s) → COOLDOWN(2s) → IDLE
+_FIRE_CMD_FILE = "/tmp/cobot3_fire_cmd.json"
+_FIRE_RESULT_FILE = "/tmp/cobot3_fire_result.json"
+_WEAPON_STATE_FILE = "/tmp/cobot3_weapon_state.json"
+_fire = {"state": "IDLE", "t_state": 0.0, "fire_id": None,
+         "last_cmd_mtime": 0.0, "cooldown_until": 0.0}
+# stance ramp 목표 (Margolis WTW: body_height -0.08, stance_w +0.05)
+_FIRE_BH = -0.08
+_FIRE_SW = +0.05
+_FIRE_IMPULSE_N = 2500.0   # 1-step force, 7.62 NATO 등가 임펄스 추정
+
+def _write_weapon_state():
+    import json as _json
+    try:
+        cd = max(0.0, _fire["cooldown_until"] - time.time())
+        payload = {"state": _fire["state"], "fire_id": _fire["fire_id"],
+                   "cooldown_remaining_s": cd, "ts": time.time()}
+        with open(_WEAPON_STATE_FILE + ".tmp", "w") as _f:
+            _json.dump(payload, _f)
+        os.replace(_WEAPON_STATE_FILE + ".tmp", _WEAPON_STATE_FILE)
+    except Exception:
+        pass
+
+def _write_fire_result(ok: bool, state: str):
+    import json as _json
+    try:
+        payload = {"fire_id": _fire["fire_id"], "ok": ok, "state": state,
+                   "ts": time.time()}
+        with open(_FIRE_RESULT_FILE + ".tmp", "w") as _f:
+            _json.dump(payload, _f)
+        os.replace(_FIRE_RESULT_FILE + ".tmp", _FIRE_RESULT_FILE)
+    except Exception:
+        pass
+
+def _poll_fire_cmd():
+    try:
+        m = os.path.getmtime(_FIRE_CMD_FILE)
+    except OSError:
+        return
+    if m <= _fire["last_cmd_mtime"]:
+        return
+    _fire["last_cmd_mtime"] = m
+    if _fire["state"] != "IDLE" or time.time() < _fire["cooldown_until"]:
+        log(f"[weapon] busy ({_fire['state']}) — 명령 무시")
+        return
+    import json as _json
+    try:
+        with open(_FIRE_CMD_FILE) as _f:
+            d = _json.load(_f)
+        _fire["fire_id"] = d.get("fire_id")
+    except Exception:
+        return
+    _fire["state"] = "RAMP_DOWN"
+    _fire["t_state"] = time.time()
+    log(f"[weapon] FIRE 시작 id={_fire['fire_id']}")
+    _write_weapon_state()
+
+def _step_fire(dt: float):
+    """매 step 호출 — 상태머신 진행."""
+    if _ctrl is None:
+        return
+    if _fire["state"] == "IDLE":
+        return
+    elapsed = time.time() - _fire["t_state"]
+    st = _fire["state"]
+    if st == "RAMP_DOWN":
+        # 0~0.2s 동안 stance 목표로 ramp
+        a = min(1.0, elapsed / 0.2)
+        _ctrl.set_stance_override(_FIRE_BH * a, _FIRE_SW * a, 0.0)
+        if elapsed >= 0.2:
+            _fire["state"] = "FIRE"
+            _fire["t_state"] = time.time()
+            log(f"[weapon] stance 완료 → impulse 인가")
+    elif st == "FIRE":
+        # 1 step 임펄스 — muzzle 방향(inspect pan/tilt 적용된 weapon forward)
+        try:
+            import math as _math
+            _pan = _inspect_state["pan"]
+            _tilt = _inspect_state["tilt"]
+            # muzzle world pose
+            _muz_prim = stage.GetPrimAtPath(MUZZLE_PATH)
+            if _muz_prim and _muz_prim.IsValid():
+                _muz_world = UsdGeom.Xformable(_muz_prim) \
+                    .ComputeLocalToWorldTransform(Usd.TimeCode.Default()) \
+                    .ExtractTranslation()
+                _muz_pos = (float(_muz_world[0]), float(_muz_world[1]),
+                            float(_muz_world[2]))
+            else:
+                _muz_pos = (0.0, 0.0, 0.0)
+            # force 방향: inspect 가 가리키는 방향의 역방향 (반동)
+            # base yaw 까지 합성 필요 — Go2 base orientation 가져와서 world 좌표
+            _bp = stage.GetPrimAtPath(BASE_PRIM)
+            _base_yaw = 0.0
+            if _bp and _bp.IsValid():
+                from pxr import Gf as _GF
+                _w2l = UsdGeom.Xformable(_bp).ComputeLocalToWorldTransform(
+                    Usd.TimeCode.Default())
+                # 회전 quat → yaw 추출
+                _q = _w2l.ExtractRotation().GetQuat()
+                _qw, _qi = _q.GetReal(), _q.GetImaginary()
+                _qx, _qy, _qz = float(_qi[0]), float(_qi[1]), float(_qi[2])
+                _base_yaw = _math.atan2(2 * (_qw * _qz + _qx * _qy),
+                                        1 - 2 * (_qy * _qy + _qz * _qz))
+            # weapon world yaw = base_yaw + pan
+            _fyaw = _base_yaw + _pan
+            _fpitch = _tilt
+            _Fx_world = -_FIRE_IMPULSE_N * _math.cos(_fpitch) * _math.cos(_fyaw)
+            _Fy_world = -_FIRE_IMPULSE_N * _math.cos(_fpitch) * _math.sin(_fyaw)
+            _Fz_world = +_FIRE_IMPULSE_N * 0.10
+            _ctrl.apply_external_impulse(
+                (_Fx_world, _Fy_world, _Fz_world),
+                _muz_pos)
+            log(f"[weapon] impulse F=({_Fx_world:.0f},{_Fy_world:.0f},"
+                f"{_Fz_world:.0f}) @ muzzle yaw={_math.degrees(_fyaw):.1f}°")
+        except Exception as _e:
+            log(f"[weapon] impulse 실패: {_e!r}")
+        _fire["state"] = "HOLD"
+        _fire["t_state"] = time.time()
+    elif st == "HOLD":
+        # stance 유지 0.5s — 반동 시각효과 + 안정화
+        if elapsed >= 0.5:
+            _fire["state"] = "RAMP_UP"
+            _fire["t_state"] = time.time()
+    elif st == "RAMP_UP":
+        a = max(0.0, 1.0 - elapsed / 0.2)
+        _ctrl.set_stance_override(_FIRE_BH * a, _FIRE_SW * a, 0.0)
+        if elapsed >= 0.2:
+            _ctrl.set_stance_override(0, 0, 0)
+            _fire["state"] = "COOLDOWN"
+            _fire["t_state"] = time.time()
+            _fire["cooldown_until"] = time.time() + 2.0
+            log(f"[weapon] 사격 완료 id={_fire['fire_id']} → cooldown 2s")
+            _write_fire_result(True, "completed")
+            _write_weapon_state()
+    elif st == "COOLDOWN":
+        if elapsed >= 2.0:
+            _fire["state"] = "IDLE"
+            _fire["fire_id"] = None
+            _write_weapon_state()
+    # state file 1Hz 업데이트
+    if int(elapsed * 4) != int((elapsed - dt) * 4):
+        _write_weapon_state()
+
+
 n = 0
 _TL = omni.timeline.get_timeline_interface()
 _tl_replays = 0
@@ -1020,6 +1361,13 @@ try:
         _apply_inspect_cmd()
         _apply_npc_cmd()
         _update_overhead_xform()
+        _update_weapon_xform()
+        _apply_weather_cmd()
+        if _weather is not None:
+            _weather.update(world.get_physics_dt())
+        _apply_wind_force()
+        _poll_fire_cmd()
+        _step_fire(world.get_physics_dt())
         if n in (60, 150):
             _diag()
         # timeline play 자가 복원 — GUI 일시정지나 외부 stop() 으로 멈춰

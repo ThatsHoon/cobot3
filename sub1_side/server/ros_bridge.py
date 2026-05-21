@@ -5,6 +5,7 @@ rclpy 노드를 별도 스레드(MultiThreadedExecutor)에서 spin 하고,
 - 업링크: nav_goal 발행, speaker 발행, weapon/fire 서비스 호출
 asyncio 와는 loop.call_soon_threadsafe 로 안전 연결 (server-bridge.md 패턴).
 """
+import asyncio
 import json
 import logging
 import math
@@ -25,7 +26,9 @@ try:
     from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
     from sensor_msgs.msg import NavSatFix, JointState, CompressedImage
     from nav_msgs.msg import Odometry
-    from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
+    from geometry_msgs.msg import (
+        PoseStamped, TransformStamped, Twist, Vector3Stamped)
+    from std_srvs.srv import Trigger
     from tf2_msgs.msg import TFMessage
     from std_msgs.msg import String
     from rcl_interfaces.msg import Log
@@ -172,18 +175,41 @@ class RosBridge:
         if self._node:
             self._node.pub_npc_spawn(json.dumps(payload))
 
-    def fire(self, target_ref: str, operator: str):
-        """weapon/fire 서비스 호출 → 결과를 fire_events 기록 + 이벤트 emit."""
-        hit, dist = (False, None)
+    def fire(self, target_ref: str, operator: str,
+             target_alert_id: int | None = None):
+        """weapon/fire 서비스 호출 (HITL 흐름, 2026-05-21):
+        - 사격 시퀀스 트리거 → fire_id 받음
+        - hit/miss 는 인간이 별도 record_fire_result() 로 입력 (이때 DB)
+        - 임시 row 는 hit=None 으로 즉시 적재 (UI 가 추적용)."""
+        success, fire_id, state = (False, None, "no_service")
         if self._node:
-            hit, dist = self._node.call_fire()
+            success, fire_id, state = self._node.call_fire()
         ts = _now_iso()
-        if self._db:
+        if self._db and fire_id:
+            # 사격 시점 row — hit/distance 는 NULL (인간 판정 대기)
             self._db.put("fire_events",
-                         (config.ROBOT_ID, ts, target_ref, hit, dist, operator))
+                         (config.ROBOT_ID, ts, target_ref, None, None,
+                          operator, fire_id, target_alert_id))
         self._emit({"type": "fire", "ts": ts, "target": target_ref,
-                    "hit": hit, "distance_m": dist, "operator": operator})
-        return {"hit": hit, "distance_m": dist}
+                    "hit": None, "distance_m": None, "operator": operator,
+                    "fire_id": fire_id, "state": state, "success": success})
+        return {"success": success, "fire_id": fire_id, "state": state}
+
+    def record_fire_result(self, fire_id: str, hit: bool,
+                           miss_reason: str | None = None):
+        """운용자가 inspect 영상 보고 판정 결과 입력. DB UPDATE + WS emit."""
+        ts = _now_iso()
+        if self._db and self._loop:
+            asyncio.run_coroutine_threadsafe(
+                self._db.update_fire_result(fire_id, hit, miss_reason),
+                self._loop)
+        self._emit({"type": "fire_result", "ts": ts, "fire_id": fire_id,
+                    "hit": bool(hit), "miss_reason": miss_reason})
+        return {"ok": True, "fire_id": fire_id, "hit": hit}
+
+    def pub_weather_cmd(self, payload: dict):
+        if self._node:
+            self._node.pub_weather_cmd(json.dumps(payload))
 
 
 if RCLPY_OK:
@@ -227,6 +253,13 @@ if RCLPY_OK:
                                      self._on_fall_alert, rel_qos)
             self.create_subscription(String, T["fall_state"],
                                      self._on_fall_state, rel_qos)
+            # ---- Wind / Weapon (2026-05-21) ----
+            self.create_subscription(Vector3Stamped, T["wind_state"],
+                                     self._on_wind_state, rel_qos)
+            self.create_subscription(String, T["weapon_state"],
+                                     self._on_weapon_state, latched_qos)
+            self._weather_pub = self.create_publisher(
+                String, T["weather_cmd"], rel_qos)
             # ---- 업링크 발행/클라이언트 ----
             self._cmd_pub  = self.create_publisher(Twist, T["cmd_vel"], rel_qos)
             self._goal_pub = self.create_publisher(PoseStamped, T["nav_goal"], rel_qos)
@@ -244,7 +277,8 @@ if RCLPY_OK:
                         "video_rear": 0, "video_inspect": 0, "video_overhead": 0,
                         "leg": 0, "rosout": 0,
                         "intruders": 0, "patrol_state": 0, "landmarks": 0,
-                        "fall_alert": 0, "fall_state": 0}
+                        "fall_alert": 0, "fall_state": 0,
+                        "wind_state": 0, "weapon_state": 0}
             self.create_timer(5.0, self._health)
             self.get_logger().info(
                 "구독: state/gps/odom/leg/rosout/video_rear/video_inspect/"
@@ -471,6 +505,36 @@ if RCLPY_OK:
                 return
             self.br.latest["fall_state"] = d
 
+        def _on_wind_state(self, msg):
+            self._rx["wind_state"] += 1
+            d = {"vx": msg.vector.x, "vy": msg.vector.y, "vz": msg.vector.z}
+            # 풍속·풍향 derivation
+            import math as _math
+            spd = (d["vx"] ** 2 + d["vy"] ** 2) ** 0.5
+            dir_deg = _math.degrees(_math.atan2(d["vy"], d["vx"]))
+            d["speed"] = spd
+            d["dir_deg"] = (dir_deg + 360.0) % 360.0
+            self.br.latest["wind_state"] = d
+            # 5Hz throttle for WS (20Hz raw → 4 중 1만 emit)
+            n = getattr(self, "_wind_throttle", 0) + 1
+            self._wind_throttle = n
+            if n % 4 == 0:
+                self.br._emit({"type": "wind_state", "ts": _now_iso(),
+                               "data": d})
+
+        def _on_weapon_state(self, msg):
+            self._rx["weapon_state"] += 1
+            try:
+                d = json.loads(msg.data)
+            except Exception:
+                return
+            prev = self.br.latest.get("weapon_state") or {}
+            self.br.latest["weapon_state"] = d
+            # 상태 전이만 WS emit
+            if prev.get("state") != d.get("state"):
+                self.br._emit({"type": "weapon_state", "ts": _now_iso(),
+                               "data": d})
+
         # ---- 업링크 ----
         def pub_cmd_vel(self, lin: float, ang: float, vy: float = 0.0):
             m = Twist()
@@ -509,21 +573,30 @@ if RCLPY_OK:
             self._npc_pub.publish(m)
 
         def call_fire(self):
+            """weapon_relay Trigger 호출. 새 규약 (2026-05-21):
+            success = 사격 시퀀스 완료 여부 (hit/miss 는 인간 판정)
+            message = '{fire_id}|{state}' — completed|timeout|...
+            반환: (success: bool, fire_id: str|None, state: str)"""
             if not self._fire_cli.wait_for_service(timeout_sec=1.0):
                 self.get_logger().warning("weapon/fire 서비스 없음")
-                return False, None
+                return False, None, "no_service"
             fut = self._fire_cli.call_async(Trigger.Request())
             t0 = time.monotonic()
-            while not fut.done() and time.monotonic() - t0 < 2.0:
+            while not fut.done() and time.monotonic() - t0 < 4.0:
                 time.sleep(0.02)
             if fut.done() and fut.result() is not None:
                 res = fut.result()
-                # message 에 "hit;distance" 규약 (Main PC c2_command_node 와 합의)
-                hit = res.success
-                dist = None
+                fire_id, state = None, "unknown"
                 try:
-                    dist = float(res.message.split(";")[1])
+                    parts = res.message.split("|", 1)
+                    fire_id = parts[0] or None
+                    state = parts[1] if len(parts) > 1 else "unknown"
                 except Exception:
                     pass
-                return hit, dist
-            return False, None
+                return bool(res.success), fire_id, state
+            return False, None, "timeout"
+
+        def pub_weather_cmd(self, payload_json: str):
+            m = String()
+            m.data = payload_json
+            self._weather_pub.publish(m)

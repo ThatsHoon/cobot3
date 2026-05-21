@@ -13,6 +13,19 @@ type AlertRow = {
   ack?: boolean;
 };
 
+// bbox_xyxy 중심 픽셀 추출 — string 또는 [x1,y1,x2,y2]
+function bboxCenter(bbox: number[] | string | undefined): [number, number] | null {
+  if (!bbox) return null;
+  let arr: number[] | null = null;
+  if (typeof bbox === "string") {
+    try { arr = JSON.parse(bbox); } catch { return null; }
+  } else if (Array.isArray(bbox)) {
+    arr = bbox;
+  }
+  if (!arr || arr.length < 4) return null;
+  return [(arr[0] + arr[2]) / 2, (arr[1] + arr[3]) / 2];
+}
+
 const MAX_ROWS = 20;
 
 export default function AlertsLog({
@@ -69,6 +82,18 @@ export default function AlertsLog({
     }
   };
 
+  // [TRACK] — alert bbox 중심 픽셀로 inspect 카메라 회전 (HITL 사격 보조)
+  const track = async (r: AlertRow) => {
+    const c = bboxCenter(r.bbox_xyxy);
+    if (!c) return;
+    try {
+      await postJSON(`/robots/${ROBOT_ID}/inspect`,
+        { look_at_pixel: c, absolute: false });
+    } catch (e) {
+      console.error("inspect look_at_pixel", e);
+    }
+  };
+
   return (
     <div className="panel">
       <div className="panel-hd">
@@ -91,12 +116,22 @@ export default function AlertsLog({
               </div>
               <div className="text-dim truncate">{new Date(r.ts).toLocaleTimeString()}</div>
             </div>
-            {!r.ack && (
-              <button onClick={() => ack(r.id, i)}
-                      className="text-[10px] px-2 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600">
-                ACK
-              </button>
-            )}
+            <div className="flex gap-1">
+              {bboxCenter(r.bbox_xyxy) && (
+                <button onClick={() => track(r)}
+                        className="text-[10px] px-2 py-0.5 rounded
+                                   bg-rose-700 hover:bg-rose-600 text-white"
+                        title="inspect 카메라를 bbox 중심으로 회전 (사격 보조)">
+                  TRACK
+                </button>
+              )}
+              {!r.ack && (
+                <button onClick={() => ack(r.id, i)}
+                        className="text-[10px] px-2 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600">
+                  ACK
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

@@ -207,6 +207,11 @@ class Go2WtwController:
         ]
         self._RECOVER_TIMEOUT = 5.0       # 시퀀스 후에도 미직립 → teleport fallback
 
+        # 외부 stance/height 오버라이드 (사격 시 ramp 용, 2026-05-21).
+        # _CMD_BASE 의 idx 3=body_height, 12=stance_w, 13=stance_l 에 가산.
+        self._stance_override = {"body_height": 0.0, "stance_w": 0.0,
+                                 "stance_l": 0.0}
+
         _log(f"init: walk-these-ways-go2 -> {prim_path}")
         self._adapt = torch.jit.load(_CKPT + "/adaptation_module_latest.jit")
         self._body = torch.jit.load(_CKPT + "/body_latest.jit")
@@ -230,6 +235,41 @@ class Go2WtwController:
             float(np.clip(wz, *_WZ_LIM)),
         ])
         self._vel_ts = time.time()
+
+    def set_stance_override(self, body_height: float = 0.0,
+                            stance_w: float = 0.0,
+                            stance_l: float = 0.0) -> None:
+        """사격·정밀작업 등 외부 자세 ramp 명령. _command() 가 _CMD_BASE 의
+        idx 3/12/13 에 가산. 0,0,0 호출로 해제."""
+        self._stance_override["body_height"] = float(body_height)
+        self._stance_override["stance_w"] = float(stance_w)
+        self._stance_override["stance_l"] = float(stance_l)
+
+    def apply_external_impulse(self, force_world: tuple,
+                               position_world: tuple,
+                               torque_world: tuple = (0.0, 0.0, 0.0)) -> bool:
+        """사격 반동 등 1-step 외부 힘. articulation.apply_action 이 정책
+        토크와 함께 적용되므로 매우 짧은 펄스만 가능. 호출 직후 1 step 만
+        인가됨. 반환 True=성공."""
+        try:
+            from isaacsim.core.utils.types import ArticulationAction
+            # _apply_actuator 의 torque 와 합산해서 인가 (사격 임펄스를
+            # 정책 토크에 더하는 방식). joint_efforts 가 아닌 별도 외부 force
+            # API: dynamic_control 이 더 명확.
+            from omni.isaac.dynamic_control import _dynamic_control
+            dc = _dynamic_control.acquire_dynamic_control_interface()
+            base = dc.get_rigid_body(self._art_root if hasattr(self, '_art_root')
+                                     else self._prim)
+            if not base:
+                return False
+            # 월드 좌표 기준 force + position 적용
+            dc.apply_body_force(base, position_world, force_world, True)
+            if any(abs(t) > 1e-6 for t in torque_world):
+                dc.apply_body_torque(base, torque_world, True)
+            return True
+        except Exception as exc:
+            _log(f"impulse 인가 실패: {exc!r}")
+            return False
 
     def set_nav_goal(self, x: float, y: float) -> None:
         if not _NAV_ENABLED:
@@ -417,6 +457,12 @@ class Go2WtwController:
         if not active_teleop:
             cmd[4] = 0.0    # step frequency = 0 → 다리 stepping 없음
             cmd[9] = 0.0    # footswing height = 0 → 발 안 들음
+        # 외부 stance override (사격 ramp 등, 2026-05-21).
+        # idx 3=body_height, 12=stance_w, 13=stance_l
+        so = self._stance_override
+        cmd[3] += so["body_height"]
+        cmd[12] += so["stance_w"]
+        cmd[13] += so["stance_l"]
         return cmd
 
     def _nav_p_ctrl(self):

@@ -56,6 +56,12 @@ TOPICS = {
     # FALL 감지 (2026-05-21) — go2_controller IPC → fall_relay 사이드카가 발행
     "fall_alert":   "/robot/fall_alert",    # std_msgs/String (JSON edge, FALLEN/RECOVERING/RECOVERED/UPRIGHT)
     "fall_state":   "/robot/fall_state",    # std_msgs/String (JSON 2Hz 스냅샷)
+    # Weather + Wind (2026-05-21)
+    "weather_cmd":  "/weather/command",     # std_msgs/String (JSON) — C2→Main
+    "wind_state":   "/wind/state",          # geometry_msgs/Vector3Stamped (20Hz, world)
+    # Weapon (2026-05-21, HITL)
+    "weapon_state": "/robot/weapon/state",  # std_msgs/String (JSON 1Hz latched)
+    "weapon_fire":  "/robot/weapon/fire",   # std_srvs/Trigger
 }
 
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)

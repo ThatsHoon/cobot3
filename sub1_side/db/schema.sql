@@ -77,15 +77,28 @@ CREATE INDEX IF NOT EXISTS idx_gps_robot_ts_brin
 
 -- fire_events  (신규) : 시뮬 사격 이벤트 ------------------------------
 CREATE TABLE IF NOT EXISTS fire_events (
-    id          BIGSERIAL PRIMARY KEY,
-    robot_id    TEXT NOT NULL REFERENCES robots(robot_id),
-    ts          TIMESTAMPTZ NOT NULL,
-    target_ref  TEXT,                     -- detection id 또는 pose 문자열
-    hit         BOOLEAN,
-    distance_m  REAL,
-    operator    TEXT                      -- 발사 운용자(C2 세션)
+    id              BIGSERIAL PRIMARY KEY,
+    robot_id        TEXT NOT NULL REFERENCES robots(robot_id),
+    ts              TIMESTAMPTZ NOT NULL,
+    target_ref      TEXT,
+    hit             BOOLEAN,              -- NULL=인간 판정 대기 (HITL)
+    distance_m      REAL,                 -- NULL=raycast 없음 (HITL 흐름)
+    operator        TEXT,
+    fire_id         UUID,                 -- 2026-05-21: weapon_relay 가 발급
+    target_alert_id BIGINT,               -- 관련 YOLO alert (없으면 NULL)
+    miss_reason     TEXT,
+    result_set_at   TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_fire_robot_ts ON fire_events (robot_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_fire_fire_id  ON fire_events (fire_id);
+
+-- 기존 배포 호환 (멱등 ALTER) — 2026-05-21
+DO $$ BEGIN
+    ALTER TABLE fire_events ADD COLUMN IF NOT EXISTS fire_id UUID;
+    ALTER TABLE fire_events ADD COLUMN IF NOT EXISTS target_alert_id BIGINT;
+    ALTER TABLE fire_events ADD COLUMN IF NOT EXISTS miss_reason TEXT;
+    ALTER TABLE fire_events ADD COLUMN IF NOT EXISTS result_set_at TIMESTAMPTZ;
+END $$;
 
 -- rosout_warn  (신규) : rosout level>=30(WARN) 중계 로그 --------------
 CREATE TABLE IF NOT EXISTS rosout_warn (

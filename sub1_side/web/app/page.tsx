@@ -12,10 +12,13 @@ import TeleopPad from "@/components/TeleopPad";
 import BaseMovementPanel from "@/components/BaseMovementPanel";
 import NpcSpawnButton from "@/components/NpcSpawnButton";
 import FallStatusBadge from "@/components/FallStatusBadge";
+import WeatherControl from "@/components/WeatherControl";
+import WindGauge from "@/components/WindGauge";
+import WeaponFireControl from "@/components/WeaponFireControl";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
   LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
-  FallPayload,
+  FallPayload, WindState, WeaponState,
 } from "@/lib/api";
 
 type Snap = {
@@ -38,6 +41,10 @@ export default function Page() {
     useState<{ ts: string; data: AlertPayload & { label: string } }[]>([]);
   const [fallEvents, setFallEvents] =
     useState<{ ts: string; data: FallPayload }[]>([]);
+  const [wind, setWind] = useState<WindState | null>(null);
+  const [weapon, setWeapon] = useState<WeaponState | null>(null);
+  const [fireEvents, setFireEvents] =
+    useState<{ fire_id: string | null; target: string }[]>([]);
   const [eventStream, setEventStream] = useState<C2Event[]>([]);
   const [lastAlertTs, setLastAlertTs] = useState<number | null>(null);
   const [showTeleop, setShowTeleop] = useState(false);
@@ -82,6 +89,15 @@ export default function Page() {
       setFallEvents((p) => [...p.slice(-29), { ts: e.ts, data: e.data }]);
       // FALLEN edge → 화면 빨강 깜빡 트리거(기존 alertActive 재사용)
       if (e.data.state === "FALLEN") setLastAlertTs(Date.now());
+    } else if (e.type === "wind_state") {
+      setWind(e.data);
+    } else if (e.type === "weapon_state") {
+      setWeapon(e.data);
+    } else if (e.type === "fire") {
+      if (e.fire_id) {
+        setFireEvents((p) => [...p.slice(-19),
+                              { fire_id: e.fire_id, target: e.target }]);
+      }
     }
     setEventStream((p) => [...p.slice(-99), e]);
   }, []);
@@ -105,7 +121,8 @@ export default function Page() {
       <main className="relative z-10 min-h-screen flex flex-col">
         <div className="flex items-stretch">
           <div className="flex-1"><StatusHeader wsOk={wsOk} landmarks={landmarks} /></div>
-          <div className="flex items-center pr-3 border-b border-line bg-black/40">
+          <div className="flex items-center gap-2 pr-3 border-b border-line bg-black/40">
+            <WindGauge wind={wind} />
             <FallStatusBadge liveFallEvents={fallEvents} />
           </div>
         </div>
@@ -171,6 +188,14 @@ export default function Page() {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* WEAPON HITL + ENV row (2026-05-21) */}
+        <section
+          className="grid grid-cols-1 lg:grid-cols-2 gap-3 px-3 pb-3"
+          aria-label="weapon-env">
+          <WeaponFireControl weapon={weapon} liveFireEvents={fireEvents} />
+          <WeatherControl />
         </section>
 
         {/* ALERTS + NPC row */}

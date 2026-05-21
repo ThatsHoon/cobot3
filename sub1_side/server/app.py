@@ -238,9 +238,61 @@ async def goto(rid: str, body: dict):
 
 @app.post("/robots/{rid}/fire", dependencies=[Depends(require_key)])
 async def fire(rid: str, body: dict):
+    """body: {"target": str, "operator": str, "target_alert_id"?: int}.
+    HITL (2026-05-21): 사격 시퀀스 트리거만 — hit/miss 는 후속
+    /robots/{rid}/fire/result 로 운용자가 입력."""
     res = ros.fire(target_ref=str(body.get("target", "manual")),
-                   operator=str(body.get("operator", "c2")))
+                   operator=str(body.get("operator", "c2")),
+                   target_alert_id=body.get("target_alert_id"))
     return {"ok": True, **res}
+
+
+@app.post("/robots/{rid}/fire/result", dependencies=[Depends(require_key)])
+async def fire_result(rid: str, body: dict):
+    """body: {"fire_id": str, "hit": bool, "miss_reason"?: str}.
+    HITL — 운용자가 inspect 영상 보고 명중 판정 입력."""
+    fid = body.get("fire_id")
+    if not fid:
+        raise HTTPException(400, "fire_id required")
+    return ros.record_fire_result(
+        str(fid), bool(body.get("hit", False)),
+        body.get("miss_reason"))
+
+
+# ---- Weather + Wind (2026-05-21) ---------------------------------------
+_WEATHER_TOD = {"morning", "noon", "evening", "night"}
+_WEATHER_MODE = {"clear", "cloudy", "fog", "rain", "snow"}
+_WIND_MODE = {"calm", "breeze", "windy", "gale", "storm"}
+
+
+@app.post("/weather", dependencies=[Depends(require_key)])
+async def weather_command(body: dict):
+    """날씨·바람 명령 → /weather/command (Main camera_publisher + wind_publisher
+    모두 구독). body 키 (모두 선택):
+      time_of_day: morning|noon|evening|night
+      weather:     clear|cloudy|fog|rain|snow
+      wind_mode:   calm|breeze|windy|gale|storm
+      wind_random_dir: bool
+      wind_dir_deg: 0~360 (null=random)
+      wind_speed_m_s: 0~18 (null=mode range)
+    """
+    payload = {}
+    if "time_of_day" in body and body["time_of_day"] in _WEATHER_TOD:
+        payload["time_of_day"] = body["time_of_day"]
+    if "weather" in body and body["weather"] in _WEATHER_MODE:
+        payload["weather"] = body["weather"]
+    if "wind_mode" in body and body["wind_mode"] in _WIND_MODE:
+        payload["wind_mode"] = body["wind_mode"]
+    if "wind_random_dir" in body:
+        payload["wind_random_dir"] = bool(body["wind_random_dir"])
+    if "wind_dir_deg" in body:
+        payload["wind_dir_deg"] = body["wind_dir_deg"]
+    if "wind_speed_m_s" in body:
+        payload["wind_speed_m_s"] = body["wind_speed_m_s"]
+    if not payload:
+        raise HTTPException(400, "empty weather payload")
+    ros.pub_weather_cmd(payload)
+    return {"ok": True, "payload": payload}
 
 
 @app.post("/robots/{rid}/cmd_vel", dependencies=[Depends(require_key)])
@@ -294,6 +346,11 @@ async def inspect_command(rid: str, body: dict):
                ("pan", "tilt", "zoom", "focal_length", "look_at",
                 "absolute", "reset", "target_id")
                if k in body}
+    # look_at_pixel: [cx, cy] inspect 카메라 이미지 픽셀 → bbox 추적 명령.
+    # camera_publisher 의 _apply_inspect_cmd 가 처리 (camera_info intrinsics
+    # 으로 pan/tilt 계산). HITL 흐름의 [TRACK] 버튼이 사용.
+    if "look_at_pixel" in body:
+        payload["look_at_pixel"] = body["look_at_pixel"]
     if not payload:
         raise HTTPException(400, "empty inspect command")
     ros.pub_inspect_cmd(payload)

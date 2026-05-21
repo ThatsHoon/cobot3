@@ -81,12 +81,45 @@ export type FallPayload = {
   ts: number;
 };
 
+// Weather + Wind (2026-05-21)
+export type WeatherCommand = {
+  time_of_day?: "morning" | "noon" | "evening" | "night";
+  weather?: "clear" | "cloudy" | "fog" | "rain" | "snow";
+  wind_mode?: "calm" | "breeze" | "windy" | "gale" | "storm";
+  wind_random_dir?: boolean;
+  wind_dir_deg?: number | null;
+  wind_speed_m_s?: number | null;
+};
+export type WindState = {
+  vx: number; vy: number; vz: number;
+  speed: number; dir_deg: number;     // derived in ros_bridge
+};
+// Weapon (HITL 2026-05-21)
+export type WeaponState = {
+  state: "IDLE" | "RAMP_DOWN" | "FIRE" | "HOLD" | "RAMP_UP" | "COOLDOWN";
+  fire_id: string | null;
+  cooldown_remaining_s: number;
+  ts: number;
+};
+export type FireEvent = {
+  ts: string; target: string;
+  hit: boolean | null;          // null=인간 판정 대기
+  distance_m: number | null;
+  operator: string;
+  fire_id: string | null;
+  state: string;
+  success: boolean;
+};
+
 export type C2Event =
   | { type: "state"; ts: string; data: any }
   | { type: "gps"; ts: string; data: { lat: number; lon: number; alt: number } }
   | { type: "log"; ts: string; level: number; name: string; msg: string }
   | { type: "detection"; ts: string; items: any[] }
-  | { type: "fire"; ts: string; target: string; hit: boolean; distance_m: number | null; operator: string }
+  | { type: "fire"; ts: string; target: string; hit: boolean | null; distance_m: number | null; operator: string; fire_id: string | null; state: string; success: boolean }
+  | { type: "fire_result"; ts: string; fire_id: string; hit: boolean; miss_reason: string | null }
+  | { type: "weapon_state"; ts: string; data: WeaponState }
+  | { type: "wind_state"; ts: string; data: WindState }
   | { type: "alert"; ts: string; data: AlertPayload }
   | { type: "animal_alert"; ts: string; data: AlertPayload & { label: string } }
   | { type: "fall_alert"; ts: string; data: FallPayload }

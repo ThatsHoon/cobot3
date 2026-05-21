@@ -22,7 +22,8 @@ COLUMNS = {
                             "beyond_fence", "camera_frame"],
     "gps_track":        ["robot_id", "ts", "lat", "lon", "alt", "x", "y"],
     "fire_events":      ["robot_id", "ts", "target_ref", "hit",
-                         "distance_m", "operator"],
+                         "distance_m", "operator", "fire_id",
+                         "target_alert_id"],
     "rosout_warn":      ["ts", "level", "node_name", "msg"],
     "joint_snapshots":  ["robot_id", "ts", "arm_q", "leg_q"],
     "robot_state_log":  ["robot_id", "ts", "mode", "gait",
@@ -88,6 +89,23 @@ class DBWriter:
                 self._q.put_nowait((table, record))
             except Exception:
                 pass
+
+    async def update_fire_result(self, fire_id: str, hit: bool,
+                                  miss_reason: str | None = None) -> bool:
+        """fire_events 의 hit/miss_reason/result_set_at 컬럼을 갱신.
+        HITL 흐름 — 인간이 inspect 영상 보고 판정 결과 입력 시 호출."""
+        if self._pool is None:
+            return False
+        try:
+            async with self._pool.acquire() as conn:
+                r = await conn.execute(
+                    "UPDATE fire_events SET hit=$1, miss_reason=$2, "
+                    "result_set_at=NOW() WHERE fire_id=$3",
+                    bool(hit), miss_reason, fire_id)
+            return "UPDATE 1" in str(r)
+        except Exception as e:
+            log.warning("fire result UPDATE failed: %s", e)
+            return False
 
     async def _flush_loop(self):
         while True:
