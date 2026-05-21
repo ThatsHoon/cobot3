@@ -60,6 +60,7 @@ main_side/scene/assets/Spikeball_Obstacles.usdz
 main_side/scene/assets/Spikeball_Obstacles/
 main_side/scene/assets/Watchtower.usdz
 main_side/scene/assets/Watchtower/
+main_side/scene/assets/Army_Base/
 
 # Nav2 베이크 산출물 (bake_gp_static_map.py 로 재생성)
 main_side/scene/maps/*.pgm
