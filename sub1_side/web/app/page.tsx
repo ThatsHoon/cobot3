@@ -15,6 +15,7 @@ import FallStatusBadge from "@/components/FallStatusBadge";
 import WeatherControl from "@/components/WeatherControl";
 import WindGauge from "@/components/WindGauge";
 import WeaponFireControl from "@/components/WeaponFireControl";
+import { WeaponSafetyProvider } from "@/components/WeaponSafetyContext";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
   LandmarksPayload, PatrolStatePayload, IntruderState, AlertPayload,
@@ -117,6 +118,7 @@ export default function Page() {
     && Date.now() - lastAlertTs < 8000;
 
   return (
+    <WeaponSafetyProvider>
     <div className={alertActive ? "alert-active" : ""}>
       <main className="relative z-10 min-h-screen flex flex-col">
         <div className="flex items-stretch">
@@ -139,7 +141,7 @@ export default function Page() {
           aria-label="hero">
           {/* 좌측 5col — DualCameraView (기존 INSPECT + REAR) */}
           <div className="xl:col-span-5 min-w-0 min-h-[420px]">
-            <DualCameraView />
+            <DualCameraView liveAlerts={alertEvents} />
           </div>
           {/* 중앙 4col — MapTrack (정사각형) */}
           <div className="xl:col-span-4 min-w-0">
@@ -208,5 +210,6 @@ export default function Page() {
         </section>
       </main>
     </div>
+    </WeaponSafetyProvider>
   );
 }
