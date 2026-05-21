@@ -109,10 +109,14 @@ CMD_SCALE = np.array(
 # foot_indices=[g+ph+of+bd, g+of, g+bd, g+ph]; ph=0.5 → {0,3}↔{1,2} 교대.
 _CMD_BASE = np.array(
     [0.0, 0.0, 0.0, 0.0, 3.6, 0.5, 0.0, 0.0, 0.45,
-     0.15, 0.0, 0.0, 0.33, 0.40, 0.0], dtype=np.float32)
+     0.15, 0.0, 0.0, 0.33, 0.45, 0.0], dtype=np.float32)
 # (idx4 step_freq 3.2→3.6: 빠른 속도 지원 위해 다리 주기 상향)
 # 역동 튜닝(학습 분포 내): freq 3.0→3.2(빠른 스텝), duration 0.5→0.45
 # (체공↑ 역동), footswing 0.12→0.15(발 높이↑ 과감). phase 0.5=trot 유지.
+# stance_l (idx13): 0.40 → 0.45 (Margolis WTW default 복원). 0.40 은
+# 앞뒤 다리 너비가 좁아 yaw 회전 시 회전 중심이 base 중심에서 앞쪽으로
+# 이동 → "머리 기준 회전" 시각 (2026-05-21 사용자 보고). 0.45 는 base
+# 중심 회전 + 학습 분포 안.
 
 _CMD_TIMEOUT = 0.5     # s - teleop stale -> nav/idle
 # ready 후 nav 개입 전 제자리 안정화 정책틱 수 (zero-history 트랜지언트
