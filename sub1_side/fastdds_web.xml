@@ -42,11 +42,19 @@
         </userTransports>
         <useBuiltinTransports>false</useBuiltinTransports>
         <builtin>
-          <!-- 멀티캐스트 비의존: 시뮬 PC 를 유니캐스트 디스커버리 피어로 명시 -->
+          <!-- 멀티캐스트 비의존: 시뮬 PC + C2 자기 자신을 유니캐스트 피어로 명시.
+               2026-05-21: __C2_LAN_IP__ 추가 — self-loopback discovery 가 안되어
+               같은 C2 PC 안의 ros_bridge publisher 를 nav2_patrol/cmd_vel_safety
+               등 사이드카가 못 봄 (mission_command 미수신, sortie 무효 원인). -->
           <initialPeersList>
             <locator>
               <udpv4>
                 <address>__MAIN_PC_IP__</address>
+              </udpv4>
+            </locator>
+            <locator>
+              <udpv4>
+                <address>__C2_LAN_IP__</address>
               </udpv4>
             </locator>
           </initialPeersList>
