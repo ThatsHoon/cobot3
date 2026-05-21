@@ -1132,7 +1132,10 @@ def _apply_wind_force():
         _vrz = _wind_state["vz"] - float(_bv.z)
         _s = (_vrx * _vrx + _vry * _vry + _vrz * _vrz) ** 0.5
         _F = (_WIND_K * _s * _vrx, _WIND_K * _s * _vry, _WIND_K * _s * _vrz)
-        _dc.apply_body_force(_base, (0.0, 0.0, 0.05), _F, False)
+        # Isaac 5.1 시그니처: (body, force, position, isGlobal)
+        # 2026-05-21 fix: 이전엔 position(0,0,0.05) 을 force 자리에 넣어
+        # 0.05N 의 거의 0 force 만 인가됨 → wind 효과 안 보이던 진짜 원인.
+        _dc.apply_body_force(_base, _F, (0.0, 0.0, 0.05), False)
         _wind_diag["applied"] += 1
         # 2초마다 진단 출력 (force 인가 실증)
         _now = time.time()
@@ -1234,7 +1237,11 @@ _fire = {"state": "IDLE", "t_state": 0.0, "fire_id": None,
 # stance ramp 목표 (Margolis WTW: body_height -0.08, stance_w +0.05)
 _FIRE_BH = -0.08
 _FIRE_SW = +0.05
-_FIRE_IMPULSE_N = 2500.0   # 1-step force, 7.62 NATO 등가 임펄스 추정
+# 7.62 NATO 실측 임펄스 ≈ 10 N·s. 1 physics step (5ms @ 200Hz) → 2000 N.
+# 12kg base → Δv=0.83 m/s 후방 점프 (WTW 보행 정책이 흡수). 2026-05-21:
+# 이전 2500N + apply_body_force 인자 swap 버그 → Go2 가 발사되는 증상 →
+# 인자 순서 fix + 임펄스 적정값. 시각적 반동도 자연스러움.
+_FIRE_IMPULSE_N = 2000.0
 
 def _write_weapon_state():
     import json as _json
@@ -1304,14 +1311,15 @@ def _step_fire(dt: float):
             import math as _math
             _pan = _inspect_state["pan"]
             _tilt = _inspect_state["tilt"]
-            # muzzle world pose
-            _muz_prim = stage.GetPrimAtPath(MUZZLE_PATH)
-            if _muz_prim and _muz_prim.IsValid():
-                _muz_world = UsdGeom.Xformable(_muz_prim) \
+            # base 중심 world pose (force 적용 위치 — muzzle 사용 시 회전
+            # 모멘트로 Go2 가 휘청거림. base 중심 직접 인가가 더 안정.
+            _base_prim = stage.GetPrimAtPath(BASE_PRIM)
+            if _base_prim and _base_prim.IsValid():
+                _base_world = UsdGeom.Xformable(_base_prim) \
                     .ComputeLocalToWorldTransform(Usd.TimeCode.Default()) \
                     .ExtractTranslation()
-                _muz_pos = (float(_muz_world[0]), float(_muz_world[1]),
-                            float(_muz_world[2]))
+                _muz_pos = (float(_base_world[0]), float(_base_world[1]),
+                            float(_base_world[2]))
             else:
                 _muz_pos = (0.0, 0.0, 0.0)
             # force 방향: inspect 가 가리키는 방향의 역방향 (반동)

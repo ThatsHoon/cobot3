@@ -262,8 +262,10 @@ class Go2WtwController:
                                      else self._prim)
             if not base:
                 return False
-            # 월드 좌표 기준 force + position 적용
-            dc.apply_body_force(base, position_world, force_world, True)
+            # Isaac 5.1 dc.apply_body_force 시그니처: (body, force, position, isGlobal)
+            # 2026-05-21 fix: 이전 호출은 position/force 순서 swap 으로 position
+            # 좌표(≈수백 m)를 force(N) 로 잘못 해석 → Go2 가 발사되는 버그.
+            dc.apply_body_force(base, force_world, position_world, True)
             if any(abs(t) > 1e-6 for t in torque_world):
                 dc.apply_body_torque(base, torque_world, True)
             return True
