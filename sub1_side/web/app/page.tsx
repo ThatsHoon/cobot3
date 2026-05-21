@@ -112,7 +112,7 @@ export default function Page() {
   }, [snap.odom]);
 
   const cur = snap.odom?.x != null
-    ? { x: snap.odom.x, y: snap.odom.y! }
+    ? { x: snap.odom.x, y: snap.odom.y!, yaw: snap.odom.yaw }
     : null;
   const alertActive = lastAlertTs != null
     && Date.now() - lastAlertTs < 8000;

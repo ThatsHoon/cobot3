@@ -64,7 +64,7 @@ export default function WeaponFireControl({
                       disabled={state !== "IDLE"} />
         <div className="text-[10px] text-dim leading-relaxed">
           {safetyOff
-            ? "✅ SAFETY OFF — DUAL CAMERA 에서 표적 클릭으로 격발 (격발 후 자동 잠김)"
+            ? "✅ SAFETY OFF — DUAL CAMERA 에서 표적 클릭으로 격발 (연속 사격 가능, 슬라이더 좌측 드래그로 잠금)"
             : "🔒 SAFETY ON — 우측 끝까지 드래그하여 해제"}
         </div>
       </div>

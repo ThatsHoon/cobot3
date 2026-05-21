@@ -64,8 +64,8 @@ export function WeaponSafetyProvider({ children }: { children: ReactNode }) {
         operator: "c2",
         target_alert_id: pending.target_alert_id,
       });
-      // 안전장치 자동 ON (다음 격발은 다시 해제 필요)
-      setSafetyOff(false);
+      // 2026-05-21: 자동 재잠금 제거 — 운용자가 슬라이더 좌측 드래그로
+      // 직접 잠가야 함. 연속 사격 가능성·운용자 의도 우선.
     } catch (e: any) {
       setToastMsg(`발사 실패: ${e?.message || e}`);
       setTimeout(() => setToastMsg(null), 3000);

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getApiBase, postJSON, ROBOT_ID, LandmarksPayload, IntruderState,
          PatrolStatePayload } from "@/lib/api";
 
-type Pt = { x: number; y: number };
+type Pt = { x: number; y: number; yaw?: number };
 
 /**
  * GPS/ODOM 궤적 + 경로 표시, 클릭 → goto 명령 (설계 §10.3).
@@ -189,7 +189,10 @@ export default function MapTrack({
     // 현재 위치 + 시야각 (inspect 전방 + rear 후방)
     if (cur) {
       const { px, py } = toPx(cur);
-      const yaw = patrolState?.pose?.yaw ?? 0;
+      // yaw 우선순위: odom (5+Hz, 가장 fresh) > patrolState.pose (mode 따라
+      // 안 갱신 가능) > 0. 이전에는 patrolState 만 의존해 IDLE 모드에서
+      // cone 이 stale (2026-05-21 fix).
+      const yaw = cur.yaw ?? patrolState?.pose?.yaw ?? 0;
 
       // FOV cone — Isaac 카메라 spec: W=1280, aperture=20.955, focal=18mm
       //   hFOV = 2 * atan(W/2 / fx) = 2 * atan(0.5 / (18/20.955)) ≈ 60°
