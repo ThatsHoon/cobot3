@@ -25,7 +25,11 @@ sub1_side/server/*.pt
 # 씬 에셋 백업/패치 (대용량 바이너리)
 *.usdz.bak
 *.usd.bak
+*.usd.bak.*
 *_patch.usdz
+
+# 임시 작업 폴더 (계획/메모 — 커밋 대상 아님)
+TEMP/
 
 # 대형 USD/USDZ/PBR 자산 (Isaac S3 또는 별도 자산 보관소에서 다운로드)
 # go2_unitree.usd 18MB, gp_scene.usd 27MB, USDZ 텍스처 13~30MB
@@ -60,6 +64,11 @@ main_side/scene/assets/Spikeball_Obstacles.usdz
 main_side/scene/assets/Spikeball_Obstacles/
 main_side/scene/assets/Watchtower.usdz
 main_side/scene/assets/Watchtower/
+# 2026-05-21 추가 Sketchfab 에셋
+main_side/scene/assets/Army_Base/
+main_side/scene/assets/Army_Base.usdz
+main_side/scene/assets/Turret/
+main_side/scene/assets/Turret.usdz
 
 # Nav2 베이크 산출물 (bake_gp_static_map.py 로 재생성)
 main_side/scene/maps/*.pgm

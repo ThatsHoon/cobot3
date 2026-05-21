@@ -44,6 +44,7 @@
 |------|----|---------|------|
 | `_HEADLESS` | bool | `GP_HEADLESS` (0=GUI, 1=headless) | Isaac 창 표시 여부 |
 | `SCENE` | `scene/gp_scene.usd` | `GP_SCENE` | 로드할 USD 씬 경로 |
+| `_OVERRIDES_USD` | `scene/overrides/gp_scene_overrides.usda` | `GP_USE_OVERRIDES` (1=on, 0=off) | 물리 보강 sublayer (2026-05-21). 자세한 항목은 [scene-overrides.md](scene-overrides.md). |
 | `GO2_PRIM` | `/World/Go2` | — | Go2 루트 prim |
 | `BASE_PRIM` | `/World/Go2/base` | — | Go2 기체 링크 |
 | `CAM_REAR_PATH` | `/World/Go2/base/camera_rear` | — | 후방 카메라 prim |
@@ -56,7 +57,8 @@
 | `GP_GO2_NAV` | 0 | env | 1=set_nav_goal 활성, 0=Nav2 외부 단독 사용 |
 | `GP_GO2_SETTLE` | 500 | env | spawn 후 NAV P-ctrl 진입 settle step 수 |
 | `GP_GO2_CMD_MODE` | (없음) | env | "cal"=캘리브레이션 (vx=0.5 고정 + nav P) |
-| `DEFAULT_SPAWN` | (212.8, 890.53, 5.0) | — | Go2 spawn/home (world 좌표) |
+| `_GO2_HOME_XYZ` | (212.8, 890.53, 5.0) | `GP_GO2_SPAWN_X/Y/Z` (2026-05-21) | Go2 spawn/home (world 좌표). `world_odom_tf_pub.py` 와 동일 env — SSOT. |
+| `Clock` 발행 주기 | 50 Hz (OnPlaybackTick 의 render_dt=1/50 기반) | — | `ROS2PublishClock` 은 자체 publishRate input 없음 — tick 펄스로 구동. Nav2 controller 10Hz 의 5× 마진. |
 
 ### OmniGraph 구조 (`/World/Graphs/sensor_bridge`)
 
@@ -232,19 +234,44 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 
 ```
 /World
-├── Terrain         ← terrain.usdz (산악, PBR 텍스처)
-├── Fence           ← barbed_wire_fence.usdz × 복수 세그먼트
-├── Go2             ← go2.usd (로컬 main_side/go2_unitree/go2.usd ref)
+├── Terrain         ← terrain.usdz (산악, PBR 텍스처) — physics_material dynFric=0.8
+├── DomeLight_01    ← HDRI 환경광
+├── Looks / Physics_Materials  (material 컨테이너)
+├── Cube            ← (비활성, 디버그 잔재)
+├── Watchtowers     ← 정적 props (6 mesh)
+├── Fence           ← 정적 props (1650 mesh — instancing 후보)
+├── Doro            ← 정적 props (12 mesh)
+├── spike_ball / banana_obstacle / Landmine  ← 동적 장애물 (rigidBody, mass 2.0/0.3/1.0)
+├── Go2_starting_point / militarybase / radar_tower  ← 시각화 마커 (collisionEnabled=false)
+├── Go2             ← go2.usd (로컬 main_side/go2_unitree/go2.usd ref) @ spawn (212.8, 890.53, 5.0)
 │   └── base
-│       ├── camera_rear      (UsdGeom.Camera, 후방 — real)
+│       ├── camera_rear      (UsdGeom.Camera, 후방)
 │       └── camera_inspect   (UsdGeom.Camera, 짐벌 stabilization)
-├── Overhead_Camera  (UsdGeom.Camera, world 직속 — Go2 child 아님)
+├── Overhead_Camera (UsdGeom.Camera, world 직속 — Go2 child 아님)
 └── Graphs
-    └── sensor_bridge  (OmniGraph)
+    └── sensor_bridge  (OmniGraph — Clock 60Hz, OdoPub, LegJS, TF [BASE_PRIM])
 ```
 
 **에셋 경로 규칙:** 모두 `scene/` 상대 경로. `/home/...` 절대경로 금지.
 Go2 USD = 로컬 ref (`main_side/go2_unitree/go2.usd`).
+
+### 9개 신규 prim 의 collider/material binding 정책 (2026-05-21)
+
+`scene/overrides/gp_scene_overrides.usda` sublayer + `camera_publisher.py` safety-net 가 분담. 상세는 [scene-overrides.md](scene-overrides.md) / [physics-scene-audit.md](physics-scene-audit.md).
+
+| Prim | 분류 | root 속성 (sublayer) | leaf Mesh (safety-net) | mass |
+|---|---|---|---|---|
+| spike_ball | 동적 | `collisionEnabled=true` | `MeshCollisionAPI(convexHull)` + Terrain material binding | 2.0 kg |
+| banana_obstacle | 동적 | `collisionEnabled=true` | `convexHull` + binding | 0.3 kg |
+| Landmine | 동적 | `collisionEnabled=true` | `convexHull` + binding | 1.0 kg |
+| Watchtowers | 정적 | `MaterialBindingAPI` schema | `MeshCollisionAPI(none)` + binding | — |
+| Fence | 정적 | 동일 | `none` + binding | — |
+| Doro | 정적 | 동일 | `none` + binding | — |
+| Go2_starting_point | 시각 마커 | `collisionEnabled=false` | (collider 생성 안 함) | — |
+| militarybase | 시각 마커 | 동일 | (skip) | — |
+| radar_tower | 시각 마커 | 동일 | (skip) | — |
+
+> Cube 는 정찰선 밖 디버그 잔재 — sublayer + gp_scene.usd 양쪽에 `active=false` 적용 (2026-05-21).
 
 ## camera_info_publisher.py (2026-05-21 신규)
 

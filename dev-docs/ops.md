@@ -45,6 +45,37 @@ urdf_server,inspect_relay}.log`
 
 > `sb` 별칭 — `source ~/.bashrc` (rokey1234 sudo 없이 환경 변수만 재로드).
 
+### 빠른 재기동 (2026-05-21)
+
+코드/씬 변경 후 시연 중 빠르게 재시작이 필요할 때:
+
+```bash
+cobot3-restart_all          # = cobot3-clear → cobot3-start_all (gui)
+cobot3-restart_all mcp      # = cobot3-clear → cobot3-start_all-with_mcp (Isaac MCP 확장 :8766)
+```
+
+내부 동작: 잔존 정리 PAT 가동 → 2초 SIGTERM → SIGKILL → 포트 점유 강제 해제 → Lichtblick 컨테이너 정리 → 그 후 `start_all` (자체 cleanup 이 이중 보호).
+
+### Nav2 lifecycle race 해결 — Isaac 안정화 대기 (2026-05-21)
+
+`cobot3-start_all` 의 MAIN 분기는 nav2 기동 전에 **`ros2 topic echo /clock --once`** 로 첫 클럭 메시지 도착까지 (최대 90초) 대기한다.
+
+**문제**: Isaac 가 씬/OG 로드 중 (스폰 후 약 60–90초) CPU 점유율 매우 높음 → nav2 가 그 시점에 같이 뜨면 lifecycle service RMW response 가 손실 (planner_server `change_state` timeout 로그) → lifecycle_manager autostart 중단 → bt_navigator/behavior_server 등 `unconfigured` → `navigate_to_pose` action 부재 → patrol `WAITING_FOR_NAV2` 무한 대기. teleop 은 nav2 우회라 정상 동작 (직접 /robot/cmd_vel).
+
+**해결**: /clock 첫 메시지 = camera_publisher 의 OG ROS2PublishClock 가 발행 시작한 시점 = OG 빌드 + 씬 로드 완료. 그 후 추가 5초 + nav2 기동 → activation 안정. nav2_patrol 은 lifecycle activation 의 8초 마진 후 기동.
+
+복구 방법 (한 번이라도 race 발생한 경우):
+```bash
+pkill -9 -f "nav2_|lifecycle_manager_cobot3|nav2_patrol\.py"
+cd ~/dev_ws/isaac_sim/cobot3/main_side
+setsid bash run_nav2.sh </dev/null >/tmp/cobot3_nav2.log 2>&1 &
+sleep 8
+setsid bash -c "source /opt/ros/humble/setup.bash && export ROS_DOMAIN_ID=130 \
+  RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+  FASTRTPS_DEFAULT_PROFILES_FILE=$PWD/fastdds_no_shm.xml && \
+  python3 nav2_patrol.py" </dev/null >/tmp/cobot3_nav2_patrol.log 2>&1 &
+```
+
 ### 단계별 기동 (디버그)
 
 **Main PC:**

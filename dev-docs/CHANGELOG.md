@@ -7,6 +7,51 @@
 
 ## 2026-05-21
 
+### Nav2 lifecycle race 해결 — Isaac /clock 대기 후 nav2 기동
+
+**변경 파일:** `~/.bashrc` (수정), `dev-docs/ops.md` (수정).
+
+**증상**: `cobot3-start_all` 후 teleop 은 정상이나 sortie/Nav2 자동 주행 안 됨. nav2_patrol 이 `WAITING_FOR_NAV2` 무한 대기. lifecycle 상태 점검 시 map_server/planner_server/controller_server/smoother_server 는 `inactive` (configured 만), bt_navigator/behavior_server/velocity_smoother/waypoint_follower 는 `unconfigured`.
+
+**근본 원인**: Isaac 가 씬/OG 로드 중 (60–90초) CPU 점유율이 매우 높을 때, 같은 시점에 nav2 가 시작되면 lifecycle service RMW response (`/planner_server/change_state` 등) 가 손실 → lifecycle_manager autostart sequence 가 planner_server 단계에서 정지 → 후속 노드들 활성화 안 됨 → `navigate_to_pose` action server 미존재.
+
+**해결**: `cobot3-start_all` MAIN 분기에서 nav2 기동 전 `ros2 topic echo /clock --once` (90초 timeout) 로 Isaac OG 빌드 완료 대기 후, +5초 마진 → nav2 → +8초 → nav2_patrol. /clock 첫 메시지 = camera_publisher.py 의 ROS2PublishClock 이 OG 빌드 완료 후 발행 시작한 시점.
+
+복구 절차는 [ops.md § Nav2 lifecycle race 해결](ops.md) 참고.
+
+### `cobot3-restart_all` 별칭 추가
+
+**변경 파일:** `~/.bashrc` (수정), `dev-docs/ops.md` (수정).
+
+- `cobot3-restart_all [mcp]` 함수 추가 — `cobot3-clear` → `cobot3-start_all` (또는 `-with_mcp`) 순차. 시연 중 코드/씬 변경 후 빠른 재기동 용.
+- `ops.md` § 빠른 재기동 절 신설.
+
+### 씬 4축 고도화 — USD 효율 직접 수정 + 물리 sublayer 분리
+
+`gp_scene.usd` 4축 감사 (구조/효율/물리/통합) 결과 발견된 P0 결함 일괄 처리.
+상세 보고서: [physics-scene-audit.md](physics-scene-audit.md).
+
+**변경 파일:** `main_side/scene/gp_scene.usd` (수정 + .bak.20260521_173334),
+`main_side/scene/overrides/gp_scene_overrides.usda` (신규),
+`main_side/camera_publisher.py` (수정 — sublayer load + spawn env + Clock rate + safety-net 분기),
+`dev-docs/physics-scene-audit.md` (신규), `dev-docs/scene-overrides.md` (신규),
+`dev-docs/main-side.md` (씬 구조 / camera_publisher 상수 표 갱신).
+
+- **USD 직접 수정 (효율성)**: `/World/Cube` (정찰선 밖 디버그 잔재) `active=false` 적용 후 `save_stage()`.
+- **신규 sublayer** `gp_scene_overrides.usda` — 9개 신규 prim 의 root 속성 보강:
+  - 동적 (spike_ball / banana_obstacle / Landmine): `collisionEnabled=true` + `mass=2.0/0.3/1.0` + Collision/Mass/MaterialBindingAPI schema
+  - 시각 마커 (Go2_starting_point / militarybase / radar_tower): `collisionEnabled=false`
+  - 정적 props (Watchtowers / Fence / Doro): `MaterialBindingAPI` schema 사전 적용
+  - 로드 메커니즘: stage open 직후 `subLayerPaths.insert(0, …)` (강한 opinion).
+- **camera_publisher.py 4건 수정**:
+  - sublayer prepend 코드 (`GP_USE_OVERRIDES=0` 으로 끄기 가능)
+  - `_GO2_HOME_XYZ` 에 `GP_GO2_SPAWN_X/Y/Z` env 추가 (world_odom_tf_pub.py 와 SSOT)
+  - Clock 노드 — 별도 `publishRate` input 없음 (라이브 검증 후 정정: ROS2PublishClock 에 해당 속성 부재 → OmniGraphError). OnPlaybackTick render_dt=1/50 → 50Hz 발행
+  - 9-prim safety-net 의 leaf Mesh approximation 을 dynamic(`convexHull`) / 정적(`none`) 분기 — PhysX 가 dynamic rigidBody 에 trimesh-none 금지 위반 해소
+- **검증 (offline pxr composition)**: spike_ball `rb=True ce=True mass=2.0`, Cube `active=False`, PrimStack 최상단 = overrides 레이어 — 모두 통과.
+- **롤백**: `GP_USE_OVERRIDES=0` env 또는 sublayer 파일 삭제. USD 변경 자체는 `gp_scene.usd.bak.20260521_173334` 복원으로 원복.
+- **알려진 제약**: 라이브 stage 에 `subLayerPaths.insert()` 호출 시 full recomposition 으로 kit thread 행 위험 — 항상 stage open 시점에만 prepend.
+
 ### 무기 사격 (HITL) + 날씨/바람 시뮬레이션 통합
 
 **Feature 1: 총기 부착 + HITL 사격 시퀀스**

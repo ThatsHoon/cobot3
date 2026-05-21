@@ -41,6 +41,15 @@ SCENE = os.environ.get(
     # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결.
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "gp_scene.usd"),
 )
+# 2026-05-21: 9개 신규 prim (Watchtowers/Fence/Doro/spike_ball/banana_obstacle/
+# Landmine/Go2_starting_point/militarybase/radar_tower) 의 collider/material
+# binding/dynamic 설정을 별도 USDA sublayer 로 분리. gp_scene.usd 무수정 원칙
+# 유지. 자세한 항목은 dev-docs/scene-overrides.md 참고. GP_USE_OVERRIDES=0
+# 으로 끄면 sublayer 미로드, 기존 safety-net 만 동작 (fallback).
+_OVERRIDES_USD = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "scene", "overrides", "gp_scene_overrides.usda")
+_USE_OVERRIDES = os.environ.get("GP_USE_OVERRIDES", "1") == "1"
 # Go2: gp_scene.usd 의 /World/Robot 에는 spot_with_arm 구조가 베이크되어
 # 있어 go2.usd 를 그 위에 ref 하면 ArticulationRoot 컴포지션이 깨진다.
 # → 깨끗한 /World/Go2 프림을 따로 만들고 /World/Robot 은 비활성화한다.
@@ -85,6 +94,24 @@ else:
     ctx.new_stage()
     log(f"scene not found, empty stage: {SCENE}")
 stage = ctx.get_stage()
+
+# 1b) sublayer 보강 — gp_scene.usd 무수정 원칙 유지 (단일 소스).
+# WHY: collider/material binding/mass 등 보강만 별도 USDA 에 모음. 강한 opinion
+# 으로 prepend → 기존 gp_scene.usd 의 누락된 attribute 가 sublayer 값으로 채워짐.
+# 미존재 시 fallback safety-net 이 같은 일을 runtime 에 수행 (단, silent fail
+# 위험이 있어 sublayer 권장).
+if _USE_OVERRIDES and os.path.isfile(_OVERRIDES_USD):
+    _rl = stage.GetRootLayer()
+    _rl_dir = os.path.dirname(_rl.realPath) if _rl.realPath else os.path.dirname(SCENE)
+    _rel = os.path.relpath(_OVERRIDES_USD, _rl_dir)
+    if _rel not in list(_rl.subLayerPaths):
+        _rl.subLayerPaths.insert(0, _rel)
+        log(f"sublayer prepended: {_rel}")
+    else:
+        log(f"sublayer already present: {_rel}")
+else:
+    log(f"sublayer skipped (USE={_USE_OVERRIDES}, "
+        f"exists={os.path.isfile(_OVERRIDES_USD)}) — fallback safety-net 동작")
 
 # 2) 로봇 참조 교체(spot_with_arm → go2) + 앞뒤 카메라 생성 -------------------
 # NVIDIA go2.usd 는 walk-these-ways 학습 컨벤션과 달라 보행 전이 실패(검증):
@@ -198,7 +225,13 @@ _build_dmz_zone(stage)
 # 499.72, 52.138). 환경변수 GP_GO2_SPAWN_USE_TERRAIN=1 면 terrain nearest
 # vertex 보정(낙하 방지), 기본 0=명시 좌표 그대로 (씬 terrain 없거나 명시
 # z 가 신뢰 가능할 때).
-_GO2_HOME_XYZ = (212.8, 890.53, 5.0)
+# 2026-05-21: GP_GO2_SPAWN_X/Y/Z env 추가 — world_odom_tf_pub.py 의 동일
+# env 와 일치시켜 spawn 좌표 단일 진실의 원천 (SSOT) 보장.
+_GO2_HOME_XYZ = (
+    float(os.environ.get("GP_GO2_SPAWN_X", "212.8")),
+    float(os.environ.get("GP_GO2_SPAWN_Y", "890.53")),
+    float(os.environ.get("GP_GO2_SPAWN_Z", "5.0")),
+)
 _GO2_GOAL_XYZ = (287.59, 1129.728, 29.53)
 _USE_TERRAIN = os.environ.get("GP_GO2_SPAWN_USE_TERRAIN", "0") == "1"
 
@@ -344,17 +377,21 @@ try:
         log(f"접지 마찰 안전망 적용 — collider {_nb}개 0.8 바인딩 "
             f"(터레인 신규 collider={_added_col})")
 
-    # 2026-05-21: 사용자 수동 추가 prim 들 (Go2_starting_point/militarybase/
-    # radar_tower/Watchtowers/spike_ball/banana_obstacle/Landmine/Doro/Fence)
-    # 의 Mesh 들도 Terrain 과 동일 physics_material 로 binding 보강. 사용자
-    # 요청: USD 파일은 미수정 → runtime 만 적용.
-    _EXTRA_PRIMS = [
-        "/World/Go2_starting_point", "/World/militarybase",
-        "/World/radar_tower",       "/World/Watchtowers",
-        "/World/spike_ball",        "/World/banana_obstacle",
-        "/World/Landmine",          "/World/Doro",
-        "/World/Fence",
-    ]
+    # 2026-05-21: 사용자 수동 추가 prim 들의 leaf Mesh CollisionAPI + Terrain
+    # material binding 보강. 정적/동적 분기 — 동적 rigidBody (spike_ball/banana/
+    # Landmine) 는 PhysX 요구사항으로 approximation='convexHull' (trimesh-none
+    # 은 dynamic 비허용). 정적 props (Watchtowers/Fence/Doro) 는 'none' (trimesh).
+    # 시각 마커 (Go2_starting_point/militarybase/radar_tower) 는 sublayer 에서
+    # collisionEnabled=false → safety-net 도 collider 생성 안 함.
+    #
+    # sublayer (gp_scene_overrides.usda) 가 있으면 root 레벨 rigidBody/mass/
+    # collisionEnabled 는 그쪽이 처리. 여기서는 leaf Mesh CollisionAPI 와
+    # binding 만 담당 (sublayer 는 leaf 경로 미리 열거 불가).
+    _DYN_PRIMS = ["/World/spike_ball", "/World/banana_obstacle", "/World/Landmine"]
+    _STATIC_PRIMS = ["/World/Watchtowers", "/World/Doro", "/World/Fence"]
+    _MARKER_PRIMS = ["/World/Go2_starting_point", "/World/militarybase",
+                     "/World/radar_tower"]  # collider 생성 안 함
+    _EXTRA_PRIMS = _DYN_PRIMS + _STATIC_PRIMS  # marker 제외
     # Terrain 의 physics_material path 자동 발견 (저장된 단일 소스)
     _TERR_PM = None
     for _t in stage.Traverse():
@@ -371,14 +408,16 @@ try:
             _root = stage.GetPrimAtPath(_root_path)
             if not (_root and _root.IsValid()):
                 continue
+            _is_dyn = _root_path in _DYN_PRIMS
+            _approx = "convexHull" if _is_dyn else "none"
             for _p in _Us2.PrimRange(_root):
                 if _p.GetTypeName() != "Mesh":
                     continue
-                # CollisionAPI 없으면 추가 (정적 props 라 trimesh 'none' 안전)
+                # CollisionAPI 없으면 추가 (동적=convexHull, 정적=trimesh-none)
                 if not _p.HasAPI(_UP.CollisionAPI):
                     _UP.CollisionAPI.Apply(_p)
                     _UP.MeshCollisionAPI.Apply(_p)
-                    _UP.MeshCollisionAPI(_p).CreateApproximationAttr("none")
+                    _UP.MeshCollisionAPI(_p).CreateApproximationAttr(_approx)
                     _ex_col += 1
                 # binding 비어있으면 Terrain material 로
                 _br = _p.GetRelationship("material:binding:physics")
@@ -644,6 +683,10 @@ if _TELEM:
         ("OdoPub.inputs:odomFrameId",      "odom"),
         ("Clock.inputs:topicName",         "/clock"),
         ("Clock.inputs:qosProfile",        _REL_QOS),
+        # 발행 주기는 OnPlaybackTick 펄스 = render_dt 1/50 → 50Hz. ROS2PublishClock
+        # 은 자체 publishRate input 미보유 (2026-05-21 라이브 검증: 추가 시
+        # "Attribute named 'inputs:publishRate' does not refer to a legal og.Attribute"
+        # OmniGraphError → kit 종료). Nav2 controller_frequency 10Hz 의 5×.
         # OG ROS2PublishTransformTree 가 발행하는 base link frame_id 는 USD
         # prim 이름인 "Go2" — OdoPub 도 동일 이름 써야 TF tree 가 끊기지 않음.
         # (이전 "base_link" 는 OG TF 와 다른 frame 으로 분리되어 Nav2 가
