@@ -82,7 +82,7 @@ local_costmap:
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: world
-      robot_base_frame: Go2
+      robot_base_frame: base
       rolling_window: true
       width: 12
       height: 12
@@ -105,7 +105,7 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: world
-      robot_base_frame: Go2
+      robot_base_frame: base
       robot_radius: 0.35
       resolution: 0.5
       track_unknown_space: false
@@ -147,7 +147,7 @@ behavior_server:
     footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
     global_frame: world
-    robot_base_frame: Go2
+    robot_base_frame: base
     transform_tolerance: 0.3
     simulate_ahead_time: 1.0
     max_rotational_vel: 1.0
@@ -167,7 +167,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: true
     global_frame: world
-    robot_base_frame: Go2
+    robot_base_frame: base
     odom_topic: /robot/odom
     bt_loop_duration: 10
     default_server_timeout: 20
