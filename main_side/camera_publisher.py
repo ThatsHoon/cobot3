@@ -343,6 +343,56 @@ try:
                 _bind_phys(_p); _nb += 1
         log(f"접지 마찰 안전망 적용 — collider {_nb}개 0.8 바인딩 "
             f"(터레인 신규 collider={_added_col})")
+
+    # 2026-05-21: 사용자 수동 추가 prim 들 (Go2_starting_point/militarybase/
+    # radar_tower/Watchtowers/spike_ball/banana_obstacle/Landmine/Doro/Fence)
+    # 의 Mesh 들도 Terrain 과 동일 physics_material 로 binding 보강. 사용자
+    # 요청: USD 파일은 미수정 → runtime 만 적용.
+    _EXTRA_PRIMS = [
+        "/World/Go2_starting_point", "/World/militarybase",
+        "/World/radar_tower",       "/World/Watchtowers",
+        "/World/spike_ball",        "/World/banana_obstacle",
+        "/World/Landmine",          "/World/Doro",
+        "/World/Fence",
+    ]
+    # Terrain 의 physics_material path 자동 발견 (저장된 단일 소스)
+    _TERR_PM = None
+    for _t in stage.Traverse():
+        if _t.HasAPI(_UP.MaterialAPI) and "/World/Terrain" in str(_t.GetPath()):
+            _TERR_PM = _t
+            break
+    if _TERR_PM is None:
+        log("⚠ 추가 prim 마찰: Terrain physics_material 미발견 → 스킵")
+    else:
+        from pxr import Usd as _Us2
+        _pm_mat_ext = _UsdShade.Material(_TERR_PM)
+        _ex_col = _ex_bind = 0
+        for _root_path in _EXTRA_PRIMS:
+            _root = stage.GetPrimAtPath(_root_path)
+            if not (_root and _root.IsValid()):
+                continue
+            for _p in _Us2.PrimRange(_root):
+                if _p.GetTypeName() != "Mesh":
+                    continue
+                # CollisionAPI 없으면 추가 (정적 props 라 trimesh 'none' 안전)
+                if not _p.HasAPI(_UP.CollisionAPI):
+                    _UP.CollisionAPI.Apply(_p)
+                    _UP.MeshCollisionAPI.Apply(_p)
+                    _UP.MeshCollisionAPI(_p).CreateApproximationAttr("none")
+                    _ex_col += 1
+                # binding 비어있으면 Terrain material 로
+                _br = _p.GetRelationship("material:binding:physics")
+                if _br and _br.GetTargets():
+                    continue
+                _UsdShade.MaterialBindingAPI.Apply(_p)
+                _UsdShade.MaterialBindingAPI(_p).Bind(
+                    _pm_mat_ext,
+                    bindingStrength=_UsdShade.Tokens.weakerThanDescendants,
+                    materialPurpose="physics")
+                _ex_bind += 1
+        log(f"추가 prim {len(_EXTRA_PRIMS)}개 마찰 적용 — "
+            f"신규 collider={_ex_col}, 신규 binding={_ex_bind} "
+            f"(target material={_TERR_PM.GetPath()})")
 except Exception as _e:
     log(f"⚠ 마찰 안전망 처리 실패: {_e!r}")
 
