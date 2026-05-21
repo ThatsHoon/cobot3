@@ -579,6 +579,11 @@ if _TELEM:
         ("Odo",     "isaacsim.core.nodes.IsaacComputeOdometry"),
         ("OdoPub",  "isaacsim.ros2.bridge.ROS2PublishOdometry"),
         ("TF",      "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
+        # 2026-05-21: /clock publisher 추가 — Nav2 의 use_sim_time=true 가
+        # 정상 동작하려면 Isaac sim time 이 ROS clock 으로 발행돼야 함.
+        # 미발행 시 nav2 TF buffer 가 stamp 매칭 실패 → "Could not find a
+        # connection between world and Go2" 무한 에러 + sortie 무동작.
+        ("Clock",   "isaacsim.ros2.bridge.ROS2PublishClock"),
     ]
     _SV += [
         ("LegJS.inputs:targetPrim",        LEG_PRIM),
@@ -587,6 +592,8 @@ if _TELEM:
         ("Odo.inputs:chassisPrim",         BASE_PRIM),
         ("OdoPub.inputs:topicName",        ODOM_TOPIC),
         ("OdoPub.inputs:odomFrameId",      "odom"),
+        ("Clock.inputs:topicName",         "/clock"),
+        ("Clock.inputs:qosProfile",        _REL_QOS),
         # OG ROS2PublishTransformTree 가 발행하는 base link frame_id 는 USD
         # prim 이름인 "Go2" — OdoPub 도 동일 이름 써야 TF tree 가 끊기지 않음.
         # (이전 "base_link" 는 OG TF 와 다른 frame 으로 분리되어 Nav2 가
@@ -613,6 +620,10 @@ if _TELEM:
         ("OnTick.outputs:tick",                "TF.inputs:execIn"),
         ("Ctx.outputs:context",                "TF.inputs:context"),
         ("SimTime.outputs:simulationTime",     "TF.inputs:timeStamp"),
+        # /clock publisher 연결 (2026-05-21)
+        ("OnTick.outputs:tick",                "Clock.inputs:execIn"),
+        ("Ctx.outputs:context",                "Clock.inputs:context"),
+        ("SimTime.outputs:simulationTime",     "Clock.inputs:timeStamp"),
     ]
 if _CMD:
     # SubCmd 는 메인 OG 단일 빌드에 통합(증분 edit = OmniGraphError)
