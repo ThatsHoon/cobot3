@@ -1098,6 +1098,9 @@ _wind_state = {"vx": 0.0, "vy": 0.0, "vz": 0.0, "last_mtime": 0.0}
 # 공력 계수: Go2 측면 ½ρCdA = 0.5 * 1.225 * 1.0 * 0.15 ≈ 0.092
 _WIND_K = 0.5 * 1.225 * 1.0 * 0.15
 
+_wind_diag = {"last_log": 0.0, "applied": 0, "skipped_dc": 0,
+              "skipped_zero": 0}
+
 def _apply_wind_force():
     """매 step — /tmp/cobot3_wind_state.json 읽고 dc.apply_body_force 로
     Go2 base 에 wind force 인가. F = ½ρCdA|v_rel|·v_rel."""
@@ -1114,12 +1117,14 @@ def _apply_wind_force():
     except (OSError, ValueError):
         pass
     if abs(_wind_state["vx"]) + abs(_wind_state["vy"]) < 0.05:
+        _wind_diag["skipped_zero"] += 1
         return
     try:
         from omni.isaac.dynamic_control import _dynamic_control
         _dc = _dynamic_control.acquire_dynamic_control_interface()
         _base = _dc.get_rigid_body(BASE_PRIM)
         if not _base:
+            _wind_diag["skipped_dc"] += 1
             return
         _bv = _dc.get_rigid_body_linear_velocity(_base)
         _vrx = _wind_state["vx"] - float(_bv.x)
@@ -1128,8 +1133,22 @@ def _apply_wind_force():
         _s = (_vrx * _vrx + _vry * _vry + _vrz * _vrz) ** 0.5
         _F = (_WIND_K * _s * _vrx, _WIND_K * _s * _vry, _WIND_K * _s * _vrz)
         _dc.apply_body_force(_base, (0.0, 0.0, 0.05), _F, False)
-    except Exception:
-        pass
+        _wind_diag["applied"] += 1
+        # 2초마다 진단 출력 (force 인가 실증)
+        _now = time.time()
+        if _now - _wind_diag["last_log"] > 2.0:
+            _wind_diag["last_log"] = _now
+            log(f"[wind] applied={_wind_diag['applied']} "
+                f"skipped(dc={_wind_diag['skipped_dc']},"
+                f"zero={_wind_diag['skipped_zero']}) "
+                f"v_w=({_wind_state['vx']:.2f},{_wind_state['vy']:.2f}) "
+                f"|v_rel|={_s:.2f} F=({_F[0]:.2f},{_F[1]:.2f}) N")
+    except Exception as _e:
+        _wind_diag["skipped_dc"] += 1
+        _now = time.time()
+        if _now - _wind_diag["last_log"] > 5.0:
+            _wind_diag["last_log"] = _now
+            log(f"[wind] apply 실패: {_e!r}")
 
 # ── Weapon 부착 (실 라이플 모형 — procedural, 사용자가 추후 USD ref 교체 가능)
 # Mount 위치: /World/Go2/base/weapon_mount (등판 위), muzzle 자식 prim.
