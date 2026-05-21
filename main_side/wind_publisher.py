@@ -89,6 +89,18 @@ class WindPublisher(Node):
                 min(WIND_SPEED_MAX, float(d["wind_speed_m_s"])))
         else:
             self._fixed_speed = None
+        # weather/time_of_day 도 camera_publisher 가 폴할 수 있도록 IPC dump.
+        # WHY: camera_publisher 는 in-process rclpy 충돌 회피로 ROS subscribe
+        # 안 함. 우리가 동일 토픽을 이미 받으니 동시에 IPC 파일로 forward 하면
+        # 별도 weather_relay 사이드카 불필요.
+        try:
+            import os
+            with open("/tmp/cobot3_weather_cmd.json.tmp", "w") as f:
+                json.dump(d, f)
+            os.replace("/tmp/cobot3_weather_cmd.json.tmp",
+                       "/tmp/cobot3_weather_cmd.json")
+        except Exception:
+            pass
 
     # ---- 매 tick ----
     def _tick(self) -> None:
