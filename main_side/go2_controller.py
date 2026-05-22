@@ -211,6 +211,10 @@ class Go2WtwController:
         ]
         self._RECOVER_TIMEOUT = 5.0       # 시퀀스 후에도 미직립 → teleport fallback
 
+        # 맵 탈출·물리폭발 감지 + StartingPoint 자동 복귀 (2026-05-22)
+        self._home_xyz: Optional[Tuple[float, float, float]] = None
+        self._oob_cooldown: float = 0.0   # 연속 teleport 방지 (최소 10s 간격)
+
         # 외부 stance/height 오버라이드 (사격 시 ramp 용, 2026-05-21).
         # _CMD_BASE 의 idx 3=body_height, 12=stance_w, 13=stance_l 에 가산.
         self._stance_override = {"body_height": 0.0, "stance_w": 0.0,
@@ -537,6 +541,11 @@ class Go2WtwController:
                 float(quat[0]), float(quat[1]),
                 float(quat[2]), float(quat[3])).astype(np.float32)
 
+            # 물리폭발·맵 탈출 감지 → StartingPoint teleport (fall 체크보다 우선)
+            if self._tick_oob_check():
+                self._step_n += 1
+                return
+
             # FALL 감지·복구 (정책 obs 계산 전에 분기 — 복구 중이면 PD 시퀀스 실행).
             if self._tick_fall_recover(grav):
                 self._step_n += 1
@@ -617,6 +626,89 @@ class Go2WtwController:
             if self._step_n % 500 == 0:
                 _log(f"policy_tick err: {exc!r}")
             self._step_n += 1
+
+    # -- 맵 탈출·물리폭발 감지 + StartingPoint 복귀 --------------------------
+
+    def set_home_xyz(self, x: float, y: float, z: float) -> None:
+        self._home_xyz = (x, y, z)
+
+    def _tick_oob_check(self) -> bool:
+        """매 정책 tick 호출. 물리폭발 또는 맵 탈출 감지 시 home teleport 실행.
+        True 반환 = teleport 발생 → 호출자가 일반 정책 로직 스킵."""
+        if self._home_xyz is None or self._art is None:
+            return False
+        now = time.time()
+        if now < self._oob_cooldown:
+            return False
+        try:
+            pos, _ = self._art.get_world_pose()
+            lin_v = self._art.get_linear_velocity()
+            ang_v = self._art.get_angular_velocity()
+        except Exception:
+            return False
+
+        px, py, pz = float(pos[0]), float(pos[1]), float(pos[2])
+
+        # 물리폭발: 각속도 크기 > 50 rad/s 또는 선속도 크기 > 30 m/s
+        ang_mag = float(np.linalg.norm(ang_v))
+        lin_mag = float(np.linalg.norm(lin_v))
+        explosion = ang_mag > 50.0 or lin_mag > 30.0
+
+        # 수직 탈출: Z < -5m (맵 아래 추락) 또는 Z > 100m (허공으로 날아감)
+        vertical_oob = pz < -5.0 or pz > 100.0
+
+        if not (explosion or vertical_oob):
+            return False
+
+        reason = (f"ang={ang_mag:.0f}rad/s lin={lin_mag:.0f}m/s"
+                  if explosion else f"z={pz:.1f}m")
+        _log(f"OOB 감지 ({reason}) → StartingPoint teleport")
+        self._teleport_home()
+        self._oob_cooldown = now + 10.0   # 10s 간격 제한
+        return True
+
+    def _teleport_home(self) -> None:
+        """물리폭발·맵탈출 후 StartingPoint 로 비물리 teleport + 상태 초기화."""
+        if self._home_xyz is None:
+            return
+        hx, hy, hz = self._home_xyz
+        try:
+            self._art.set_world_pose(
+                position=np.array([hx, hy, hz], dtype=float),
+                orientation=np.array([1.0, 0.0, 0.0, 0.0]))  # identity quat (w,x,y,z)
+            self._art.set_linear_velocity(np.zeros(3))
+            self._art.set_angular_velocity(np.zeros(3))
+            self._art.set_joint_positions(self._default_sim.copy())
+            self._art.set_joint_velocities(np.zeros(self._n_dofs))
+        except Exception as exc:
+            _log(f"teleport_home err: {exc!r}")
+        # 정책 히스토리 초기화 (폭발 직전 obs 가 이후 보행 교란 방지)
+        try:
+            torch = self._torch
+            self._obs_hist = torch.zeros(1, OBS_HIST, dtype=torch.float32)
+            self._actions = torch.zeros(1, 12, dtype=torch.float32)
+            self._last_actions = torch.zeros(1, 12, dtype=torch.float32)
+            self._pe_l[:] = 0; self._pe_ll[:] = 0
+            self._v_l[:] = 0; self._v_ll[:] = 0
+            self._jpt = None
+        except Exception:
+            pass
+        # fall 상태머신 초기화
+        self._fallen = False
+        self._fall_since = None
+        self._recovering = False
+        self._recover_t0 = None
+        if self._recover_kps_active:
+            try:
+                ctrl = self._art.get_articulation_controller()
+                ctrl.set_gains(
+                    kps=np.zeros(self._n_dofs, dtype=np.float32),
+                    kds=np.zeros(self._n_dofs, dtype=np.float32))
+                self._recover_kps_active = False
+            except Exception:
+                pass
+        self._write_fall_ipc("RECOVERED", 1.0)
+        _log(f"teleport_home 완료: ({hx:.1f},{hy:.1f},{hz:.1f})")
 
     # -- fall 감지 + 자동 기립 ------------------------------------------------
 

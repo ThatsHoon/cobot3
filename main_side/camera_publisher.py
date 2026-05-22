@@ -770,8 +770,10 @@ if _SPOT_CTRL:
         else:
             log(f"SingleArticulation 사전 초기화 dof={len(_pre_dof)} (<12) "
                 f"— 콜백 폴백 (GPU physics 지연 시 경고 가능)")
+        _ctrl.set_home_xyz(*_GO2_HOME_XYZ)
         world.add_physics_callback("go2_ctrl", _ctrl.on_physics_step)
-        log("Go2WtwController 등록 — physics_callback 활성")
+        log("Go2WtwController 등록 — physics_callback 활성 "
+            f"home=({_GO2_HOME_XYZ[0]:.1f},{_GO2_HOME_XYZ[1]:.1f},{_GO2_HOME_XYZ[2]:.1f})")
         # 외부 Nav2 사용 시 내부 P-제어 비활성 (GP_GO2_NAV=0). 충돌 방지
         # — 외부 Nav2 가 mode 변경마다 새 goal 전송, 내부 P-제어가 고정 goal
         # 추적하면 명령 무시 증상 (2026-05-20 fix).

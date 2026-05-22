@@ -173,6 +173,9 @@ if len(list(_pre_art.dof_names)) >= 12:
 | `_arbitrate()` | **active_teleop(±1e-6, TTL 0.5s) > nav P 제어(settle 후) > standstill** |
 | `_nav_p_ctrl()` | 단순 P 제어 (vx_max, wz_sat, 도착 임계) |
 | `_forward(dt, cmd)` | 42-dim obs × 15-step history → JIT 정책 → torque (PD kp=25/kd=0.6) |
+| `set_home_xyz(x, y, z)` | StartingPoint 좌표 등록 (camera_publisher 가 부트 시 호출) |
+| `_tick_oob_check()` | 매 정책 tick — 물리폭발(angular>50rad/s, linear>30m/s) 또는 수직탈출(Z<-5 또는 Z>100) 감지 시 `_teleport_home()` |
+| `_teleport_home()` | StartingPoint 로 비물리 teleport + 전체 정책/fall 상태 초기화 (10s cooldown) |
 
 **DOF / 정책 사양:**
 - 12-DOF (Go2: FL/FR/RL/RR × hip/thigh/calf)

@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-05-22 (E)
+
+### Go2 물리폭발·맵탈출 시 StartingPoint 자동 복귀
+
+**변경 파일:** `main_side/go2_controller.py` (수정), `main_side/camera_publisher.py` (수정),
+`dev-docs/main-side.md` (수정)
+
+**go2_controller.py:**
+- `Go2WtwController.__init__` 에 `_home_xyz` / `_oob_cooldown` 상태 추가.
+- `set_home_xyz(x, y, z)` — StartingPoint 좌표 등록 public API.
+- `_tick_oob_check()` — 매 정책 tick(50Hz) 에서 fall 체크 **이전**에 호출:
+  - 각속도 크기 > 50 rad/s 또는 선속도 크기 > 30 m/s → 물리폭발 판정.
+  - Z < -5m 또는 Z > 100m → 수직 탈출 판정.
+  - 감지 시 `_teleport_home()` 호출 + 10s cooldown 적용.
+- `_teleport_home()` — StartingPoint 비물리 teleport, 속도·관절·obs히스토리·
+  fall상태머신 전체 초기화.
+
+**camera_publisher.py:**
+- `_ctrl = Go2WtwController(...)` 직후 `_ctrl.set_home_xyz(*_GO2_HOME_XYZ)` 호출.
+
+**목적:** 앞 세션에서 관찰된 Angular Velocity X=-6284 rad/s 수준의 물리폭발 시
+맵 탈출 → Nav2 "out of bounds" 무한 루프 방지. 폭발 감지 즉시 StartingPoint 복귀.
+
+---
+
 ## 2026-05-22 (D)
 
 ### auto-nav 지연 근본 해결 — DRIVE/TURN 이진 분리 제거 + 속도 상향
