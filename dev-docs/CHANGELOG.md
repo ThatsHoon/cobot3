@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-05-22 (D)
+
+### auto-nav 지연 근본 해결 — DRIVE/TURN 이진 분리 제거 + 속도 상향
+
+**변경 파일:** `main_side/cmd_vel_safety_filter.py` (수정),
+`main_side/nav2_params.yaml` (수정),
+`tests/test_unit_safety_filter.py` (수정),
+`tests/test_ros_safety_filter.py` (수정)
+
+**cmd_vel_safety_filter.py:**
+- DRIVE/TURN 이진 모드 분리 완전 제거. Go2 는 곡선 주행 가능하므로
+  `linear.x` + `angular.z` 를 동시에 통과시킨다.
+- 제거된 파라미터: `turn_enter_angular`, `turn_exit_angular`, `MODE_DRIVE/MODE_TURN`.
+- 유지: `max_linear_x` / `max_angular_z` 클램프, `min_drive_linear` 노이즈 데드존,
+  `MUTE_MODES={"PAUSED"}` mute 로직, NaN/Inf 가드.
+
+**nav2_params.yaml:**
+- `max_vel_x: 0.6 → 1.0` (WTW 학습 분포 경계, teleop 수준 근접)
+- `max_speed_xy: 0.6 → 1.0`
+- `max_vel_theta: 0.8 → 1.0`
+- `acc_lim_x: 0.5 → 1.5`, `decel_lim_x: -0.5 → -1.5` (가속 응답성 향상)
+- `acc_lim_theta: 1.0 → 1.5`, `decel_lim_theta: -1.0 → -1.5`
+- `velocity_smoother.max_accel: [1.0,0,1.6] → [2.5,0,2.0]`, `max_decel` 대칭 상향
+
+**테스트 갱신:**
+- `test_simultaneous_linear_and_angular` 신규 (DRIVE/TURN 분리 제거 검증)
+- 구 `test_turn_enter/exit_threshold`, `test_turn_mode_zeros_linear` 제거
+
+---
+
 ## 2026-05-22 (C)
 
 ### 운용 문서 갱신 + auto-nav 지연 원인 분석

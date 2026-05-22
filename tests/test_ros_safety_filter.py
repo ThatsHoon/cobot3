@@ -1,4 +1,4 @@
-"""T4 ROS round-trip: cmd_vel_safety_filter 노드와 통신해 drive/turn 모드 검증."""
+"""T4 ROS round-trip: cmd_vel_safety_filter 노드와 통신해 동시 통과 검증."""
 import pytest
 import rclpy
 from geometry_msgs.msg import Twist
@@ -39,12 +39,11 @@ def _wait_pub_match(node, topic, count=1, timeout=8.0):
         predicate=lambda: node.count_publishers(topic) >= count)
 
 
-def test_drive_mode_forwards_linear():
-    with spawn_node("sub1_side/server/cmd_vel_safety_filter.py"):
+def test_linear_forwards():
+    with spawn_node("main_side/cmd_vel_safety_filter.py"):
         client = FilterClient()
-        # discovery 대기 — /robot/cmd_vel publisher 등장까지
         assert _wait_pub_match(client, "/robot/cmd_vel", 1, 10.0), "discovery 실패"
-        for _ in range(5):                # publish/sub 안정화
+        for _ in range(5):
             client.send(0.5, 0.0)
             spin_for(client, 0.1)
         assert client.received, "/robot/cmd_vel 미수신"
@@ -54,27 +53,28 @@ def test_drive_mode_forwards_linear():
         client.destroy_node()
 
 
-def test_turn_mode_zeros_linear():
-    with spawn_node("sub1_side/server/cmd_vel_safety_filter.py"):
+def test_simultaneous_linear_and_angular_over_wire():
+    """linear + angular 동시 발행 시 둘 다 통과해야 한다 (곡선 주행 지원)."""
+    with spawn_node("main_side/cmd_vel_safety_filter.py"):
         client = FilterClient()
         assert _wait_pub_match(client, "/robot/cmd_vel", 1, 10.0)
         for _ in range(5):
-            client.send(0.5, 0.5)         # angular ≥ 0.32 → TURN
+            client.send(0.5, 0.5)
             spin_for(client, 0.1)
         assert client.received
         out = client.received[-1]
-        assert out.linear.x == 0.0
+        assert abs(out.linear.x - 0.5) < 1e-3
         assert abs(out.angular.z - 0.5) < 1e-3
         client.destroy_node()
 
 
 def test_max_linear_clamped_over_wire():
-    with spawn_node("sub1_side/server/cmd_vel_safety_filter.py"):
+    with spawn_node("main_side/cmd_vel_safety_filter.py"):
         client = FilterClient()
         assert _wait_pub_match(client, "/robot/cmd_vel", 1, 10.0)
         for _ in range(5):
             client.send(10.0, 0.0)
             spin_for(client, 0.1)
         out = client.received[-1]
-        assert abs(out.linear.x - 0.8) < 1e-3
+        assert abs(out.linear.x - 1.2) < 1e-3   # default max_linear_x=1.2
         client.destroy_node()

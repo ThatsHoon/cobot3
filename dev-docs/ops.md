@@ -23,7 +23,7 @@ cobot3-start_all   # 역할=MAIN 자동판별 (MAIN_SIDE_IP 일치 확인)
 - `run_urdf_server.sh` (:8766 Go2 URDF + DAE 서빙)
 - `fall_relay.py` / `weapon_relay.py` / `wind_publisher.py` (전투 이벤트 릴레이)
 - `run_nav2.sh` (Nav2 stack: map_server/planner/controller/BT/velocity_smoother)
-- `cmd_vel_safety_filter.py` (/cmd_vel_nav2_raw → /robot/cmd_vel, MUTE_MODES={"PAUSED"})
+- `cmd_vel_safety_filter.py` (/cmd_vel_nav2_raw → /robot/cmd_vel, linear+angular 동시 통과, MUTE_MODES={"PAUSED"})
 - `nav2_patrol.py` (FSM IDLE/PATROL/HOME/PAUSED, HOME=(212.8,890.53),
   GOAL=(287.59,1129.728), /clock 안정화 90s 대기 후 기동)
 
@@ -40,7 +40,7 @@ cobot3-start_all   # 역할=C2 자동판별
 - **`foxglove_sdk_publisher.py` :8767** (foxglove SDK native 채널)
 - `dualsense_worker.py` (PS5 게임패드 폴링 50Hz)
 - `run_nav2.sh` (Nav2 stack 사본 — MAIN 측과 동일)
-- `cmd_vel_safety_filter.py` (C2 측 사본)
+- `cmd_vel_safety_filter.py` (C2 측 사본, linear+angular 동시 통과)
 - `nav2_patrol.py` (FSM IDLE/PATROL/HOME/PAUSED, HOME=(212.8,890.53),
   GOAL=(287.59,1129.728), ±10m 사각 도착)
 

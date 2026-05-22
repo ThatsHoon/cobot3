@@ -37,21 +37,20 @@ controller_server:
       min_vel_x: 0.0
       min_vel_y: 0.0
       # WTW 학습 분포: vx ∈ [-1.0, 1.0] m/s, wz ∈ [-1.0, 1.0] rad/s.
-      # 1.2 m/s 는 분포 밖 → 산악 지형 + 거친 cmd 변화에서 정책 OOD
-      # → 부자연스러운 자동 보행 (2026-05-21 사용자 보고). 0.6 으로 보수적
-      # 운영 (학습 분포 안전 구간), acc_lim 도 1.0→0.5 로 ramp 부드럽게.
-      max_vel_x: 0.6
+      # cmd_vel_safety_filter 의 DRIVE/TURN 이진 분리 제거(2026-05-22)로
+      # linear+angular 동시 통과 가능 → max_vel_x 1.0 으로 상향(분포 경계).
+      max_vel_x: 1.0
       max_vel_y: 0.0
-      max_vel_theta: 0.8
+      max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 0.6
+      max_speed_xy: 1.0
       min_speed_theta: 0.0
-      acc_lim_x: 0.5
+      acc_lim_x: 1.5
       acc_lim_y: 0.0
-      acc_lim_theta: 1.0
-      decel_lim_x: -0.5
+      acc_lim_theta: 1.5
+      decel_lim_x: -1.5
       decel_lim_y: 0.0
-      decel_lim_theta: -1.0
+      decel_lim_theta: -1.5
       vx_samples: 12
       vy_samples: 1
       vtheta_samples: 16
@@ -248,8 +247,8 @@ velocity_smoother:
     feedback: "OPEN_LOOP"
     max_velocity: [1.2, 0.0, 1.0]
     min_velocity: [-0.30, 0.0, -1.0]
-    max_accel: [1.0, 0.0, 1.6]
-    max_decel: [-1.0, 0.0, -1.6]
+    max_accel: [2.5, 0.0, 2.0]
+    max_decel: [-2.5, 0.0, -2.0]
     odom_topic: /robot/odom
     odom_duration: 0.2
     deadband_velocity: [0.0, 0.0, 0.0]
