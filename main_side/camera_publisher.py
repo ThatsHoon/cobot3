@@ -41,11 +41,10 @@ SCENE = os.environ.get(
     # 이식성: 스크립트 상대(하드코딩 제거). main_side/scene/ 는 자체완결.
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene", "gp_scene.usd"),
 )
-# 2026-05-21: 9개 신규 prim (Watchtowers/Fence/Doro/spike_ball/banana_obstacle/
-# Landmine/Go2_starting_point/militarybase/radar_tower) 의 collider/material
-# binding/dynamic 설정을 별도 USDA sublayer 로 분리. gp_scene.usd 무수정 원칙
-# 유지. 자세한 항목은 dev-docs/scene-overrides.md 참고. GP_USE_OVERRIDES=0
-# 으로 끄면 sublayer 미로드, 기존 safety-net 만 동작 (fallback).
+# 2026-05-21: 신규 prim (Doro/spike_ball/banana_obstacle/Landmine/
+# Go2_starting_point/militarybase) 의 collider/material binding/dynamic 설정을
+# 별도 USDA sublayer 로 분리. GP_USE_OVERRIDES=0 으로 끄면 sublayer 미로드,
+# 기존 safety-net 만 동작 (fallback). 상세: dev-docs/scene-overrides.md.
 _OVERRIDES_USD = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "scene", "overrides", "gp_scene_overrides.usda")
@@ -147,79 +146,14 @@ if stage.GetPrimAtPath(ROBOT_PRIM).IsValid():
 _go2 = stage.DefinePrim(ROBOT_PRIM, "Xform")
 _go2.GetReferences().ClearReferences()
 _go2.GetReferences().AddReference(_GO2_USD)
-# 시나리오: /World/Cube 의 XY '근처' 실제 터레인 표면에서 출발 →
-# /World/Cone 까지 자율 주행. Cube 는 터레인보다 ~7m 떠 있는 박스라
-# Cube z 무의미 → 터레인 collider 메시에서 Cube XY 최근접 정점을 찾아
-# 그 위(+_CLEAR)에 스폰(고체 지면 보장; 정확 Cube XY 는 메시 빈틈/경사로
-# −5042m 추락 검증됨). nav_goal = Cone 중심 XY.
 from pxr import Usd as _U
 import numpy as _np
 _bc = UsdGeom.BBoxCache(_U.TimeCode.Default(), ["default", "render"])
-CUBE_PRIM = "/World/Cube"
 CONE_PRIM = "/World/Cone"
 TERR_PRIM = ("/World/Terrain/Meshes/Sketchfab_model/root/"
              "GLTF_SceneRootNode/TerrainNode_0/Object_4/Object_0")
 _CLEAR = float(os.environ.get("GP_GO2_SPAWN_CLEAR", "0.45"))
 
-# DMZ_Zone 런타임 빌드 — gp_scene.usd 가 binary 라 직접 편집 불가. world (0,0)
-# 부근에 80m×80m 평지 + guard_tower/chainlink_fence USDZ instance + patrol
-# marker Xform 을 매번 fresh 생성(idempotent). OG sensor_bridge 와 prim 경로
-# 분리 — 단일 OG edit 원칙 무영향.
-_DMZ_ZONE_PRIM = "/World/DMZ_Zone"
-_DMZ_HOME      = (0.0, 0.0)
-_DMZ_PATROL_W  = (-24.0, -12.0)
-_DMZ_PATROL_E  = (24.0, -12.0)
-_DMZ_FENCE_N_Y = 16.0
-# _HERE: camera_publisher.py 가 위치한 main_side 디렉토리 절대경로
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_DMZ_GTOWER    = os.path.join(
-    _HERE, "scene", "assets", "props", "guard_tower",
-    "Guard_Tower_Free_Asset.usdz")
-_DMZ_FENCE_USD = os.path.join(
-    _HERE, "scene", "assets", "props", "chainlink_fence",
-    "chainlink_fence_tileable.usdz")
-
-
-def _build_dmz_zone(_stage):
-    """world (0,0) 부근에 DMZ patrol zone 빌드 (Cube/Cone 영역과 분리).
-    USDZ 자산 없으면 placeholder Cube 로 fallback."""
-    if _stage.GetPrimAtPath(_DMZ_ZONE_PRIM).IsValid():
-        _stage.RemovePrim(_DMZ_ZONE_PRIM)
-    _root = _stage.DefinePrim(_DMZ_ZONE_PRIM, "Xform")
-    _ground = _stage.DefinePrim(f"{_DMZ_ZONE_PRIM}/Ground", "Cube")
-    _gxf = UsdGeom.Xformable(_ground)
-    _gxf.AddScaleOp().Set(Gf.Vec3f(40.0, 40.0, 0.05))
-    _gxf.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, -0.05))
-    if os.path.exists(_DMZ_GTOWER):
-        for _i, (_x, _y) in enumerate(
-                [(-24, 10), (24, 10), (-24, 14), (24, 14)]):
-            _t = _stage.DefinePrim(f"{_DMZ_ZONE_PRIM}/GTower_{_i}", "Xform")
-            _t.GetReferences().AddReference(_DMZ_GTOWER)
-            UsdGeom.Xformable(_t).AddTranslateOp().Set(
-                Gf.Vec3f(float(_x), float(_y), 0.0))
-    if os.path.exists(_DMZ_FENCE_USD):
-        for _i, (_x, _y, _yaw) in enumerate(
-                [(0.0, _DMZ_FENCE_N_Y, 0.0), (0.0, -12.0, 0.0),
-                 (-24.0, 2.0, 90.0), (24.0, 2.0, 90.0)]):
-            _f = _stage.DefinePrim(f"{_DMZ_ZONE_PRIM}/Fence_{_i}", "Xform")
-            _f.GetReferences().AddReference(_DMZ_FENCE_USD)
-            _fxf = UsdGeom.Xformable(_f)
-            _fxf.AddTranslateOp().Set(Gf.Vec3f(float(_x), float(_y), 0.0))
-            _fxf.AddRotateZOp().Set(float(_yaw))
-    # patrol markers (시각자산 없는 순수 Xform)
-    for _name, (_x, _y) in (("Home_Marker", _DMZ_HOME),
-                            ("Patrol_W_Marker", _DMZ_PATROL_W),
-                            ("Patrol_E_Marker", _DMZ_PATROL_E),
-                            ("Fence_N_Marker", (0.0, _DMZ_FENCE_N_Y))):
-        _m = _stage.DefinePrim(f"{_DMZ_ZONE_PRIM}/{_name}", "Xform")
-        UsdGeom.Xformable(_m).AddTranslateOp().Set(
-            Gf.Vec3f(float(_x), float(_y), 0.0))
-    log(f"DMZ_Zone 빌드 — home(0,0), patrol(-24~24,-12), fence_n(y=16) "
-        f"@ {_DMZ_ZONE_PRIM} (gtower={os.path.exists(_DMZ_GTOWER)} "
-        f"fence={os.path.exists(_DMZ_FENCE_USD)})")
-
-
-_build_dmz_zone(stage)
 
 # Go2 정찰 사양 (2026-05-20): 명시 spawn (212.8, 890.53, 5.0), 수색지(620.36,
 # 499.72, 52.138). 환경변수 GP_GO2_SPAWN_USE_TERRAIN=1 면 terrain nearest
@@ -377,21 +311,13 @@ try:
         log(f"접지 마찰 안전망 적용 — collider {_nb}개 0.8 바인딩 "
             f"(터레인 신규 collider={_added_col})")
 
-    # 2026-05-21: 사용자 수동 추가 prim 들의 leaf Mesh CollisionAPI + Terrain
-    # material binding 보강. 정적/동적 분기 — 동적 rigidBody (spike_ball/banana/
-    # Landmine) 는 PhysX 요구사항으로 approximation='convexHull' (trimesh-none
-    # 은 dynamic 비허용). 정적 props (Watchtowers/Fence/Doro) 는 'none' (trimesh).
-    # 시각 마커 (Go2_starting_point/militarybase/radar_tower) 는 sublayer 에서
-    # collisionEnabled=false → safety-net 도 collider 생성 안 함.
-    #
-    # sublayer (gp_scene_overrides.usda) 가 있으면 root 레벨 rigidBody/mass/
-    # collisionEnabled 는 그쪽이 처리. 여기서는 leaf Mesh CollisionAPI 와
-    # binding 만 담당 (sublayer 는 leaf 경로 미리 열거 불가).
+    # 추가 prim 들의 leaf Mesh CollisionAPI + Terrain material binding 보강.
+    # 동적 rigidBody (spike_ball/banana/Landmine) 는 convexHull, 정적 (Doro) 은
+    # trimesh-none. sublayer 가 root 레벨 rigidBody/mass/collisionEnabled 처리,
+    # 여기서는 leaf Mesh CollisionAPI 와 binding 만 담당.
     _DYN_PRIMS = ["/World/spike_ball", "/World/banana_obstacle", "/World/Landmine"]
-    _STATIC_PRIMS = ["/World/Watchtowers", "/World/Doro", "/World/Fence"]
-    _MARKER_PRIMS = ["/World/Go2_starting_point", "/World/militarybase",
-                     "/World/radar_tower"]  # collider 생성 안 함
-    _EXTRA_PRIMS = _DYN_PRIMS + _STATIC_PRIMS  # marker 제외
+    _STATIC_PRIMS = ["/World/Doro"]
+    _EXTRA_PRIMS = _DYN_PRIMS + _STATIC_PRIMS
     # Terrain 의 physics_material path 자동 발견 (저장된 단일 소스)
     _TERR_PM = None
     for _t in stage.Traverse():

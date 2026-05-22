@@ -1,9 +1,9 @@
 #usda 1.0
 (
     # gp_scene.usd 보강용 sublayer (2026-05-21).
-    # WHY: 9개 신규 prim (Watchtowers/Fence/Doro/spike_ball/banana_obstacle/
-    # Landmine/Go2_starting_point/militarybase/radar_tower) 의 collider/material
-    # binding/dynamic 설정이 USD 에 누락. gp_scene.usd 는 단일 소스로 보존하고
+    # WHY: 신규 prim (Doro/spike_ball/banana_obstacle/Landmine/
+    # Go2_starting_point/militarybase) 의 collider/material binding/dynamic
+    # 설정이 USD 에 누락. gp_scene.usd 는 단일 소스로 보존하고
     # 보강 사항만 이 sublayer 에 모음. 로드는 camera_publisher.py 가 런타임에
     # subLayerPaths.insert(0, ...) 로 prepend (가장 강한 opinion).
     #
@@ -12,9 +12,6 @@
     #   /World/Terrain/Meshes/Sketchfab_model/root/GLTF_SceneRootNode/
     #     TerrainNode_0/Object_4/Object_0/physics_material
     #   (dynFric=0.8, statFric=0.8, restit=0.0 이미 적용됨 — 검증완료)
-    # - Watchtowers/Fence/Doro/spike_ball/... 의 root translate=(0,0,0) 이나
-    #   자식 mesh 가 절대 world 좌표를 가져 이미 올바른 위치 → translate
-    #   보정 불필요 (bbox 검증 완료).
     # - spike_ball/banana_obstacle/Landmine 는 root 에 rigidBody=True 인데
     #   collisionEnabled 미설정 → collider 비활성 → 동적 충돌 안 일어남.
     #   이 sublayer 가 collisionEnabled=True + mass 명시.
@@ -29,14 +26,7 @@
 
 over "World"
 {
-    # ── A. 디버그 마커 비활성화 ──
-    # Cube @ (-718, 955, 37) — 정찰선 멀리 밖, 시연 영역과 무관.
-    over "Cube"
-    {
-        bool active = false
-    }
-
-    # ── B. 시각화 마커 (물리 비활성) ──
+    # ── A. 시각화 마커 (물리 비활성) ──
     # scale 0.01~0.1 의 작은 마커. 충돌 불필요.
     over "Go2_starting_point" ( apiSchemas = ["PhysicsCollisionAPI"] )
     {
@@ -46,27 +36,15 @@ over "World"
     {
         bool physics:collisionEnabled = false
     }
-    over "radar_tower" ( apiSchemas = ["PhysicsCollisionAPI"] )
-    {
-        bool physics:collisionEnabled = false
-    }
 
-    # ── C. 정적 props (Watchtowers / Fence / Doro) ──
+    # ── B. 정적 props (Doro) ──
     # 자식 mesh 의 MeshCollisionAPI(none) + Terrain 마찰 binding 은
     # camera_publisher.py 의 safety-net 이 leaf Mesh 마다 적용.
-    # 여기서는 root 에 MaterialBindingAPI 만 미리 선언 (binding 자체는
-    # leaf 에 들어가야 PhysX 가 인식 — schema 만 root 에 추가).
-    over "Watchtowers" ( apiSchemas = ["MaterialBindingAPI"] )
-    {
-    }
-    over "Fence" ( apiSchemas = ["MaterialBindingAPI"] )
-    {
-    }
     over "Doro" ( apiSchemas = ["MaterialBindingAPI"] )
     {
     }
 
-    # ── D. 동적 장애물 — collisionEnabled + mass 명시 ──
+    # ── C. 동적 장애물 — collisionEnabled + mass 명시 ──
     # mass 는 현실 추정치: spike_ball 2 kg, banana 0.3 kg, Landmine 1 kg.
     # rigidBody=True 는 USD 에 이미 있으므로 collision + mass 만 보강.
     over "spike_ball" ( apiSchemas = ["PhysicsCollisionAPI",
