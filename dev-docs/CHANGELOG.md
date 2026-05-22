@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-05-22 (C)
+
+### 운용 문서 갱신 + auto-nav 지연 원인 분석
+
+**변경 파일:** `dev-docs/ops.md` (갱신), `.gitignore` (수정)
+
+- `ops.md` Main PC 기동 목록: `fall_relay.py` / `weapon_relay.py` / `wind_publisher.py` / `run_nav2.sh` / `cmd_vel_safety_filter.py` / `nav2_patrol.py` 누락 항목 추가 (2026-05-21 Main 측으로 이동 후 미반영).
+- `ops.md` 로그 테이블: Nav2/cmd_vel_safety/nav2_patrol 가 C2 전용 → Main + C2 각각 실행으로 수정.
+- `ops.md` 트러블슈팅: auto-nav 지연 원인 분석 추가 — DRIVE/TURN 이진 분리 + `max_vel_x=0.6` + `acc_lim_x=0.5` 가 복합 원인, 해결 방향 2가지 명시.
+- `.gitignore`: `main_side/scene/gp_scene2.usd` 추가.
+
+---
+
 ## 2026-05-22 (B)
 
 ### 씬 감사 + 지형 CollisionAPI 수정 + 철조망 재설치 + Go2 spawn/nav 경로점 연동

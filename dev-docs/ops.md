@@ -8,7 +8,7 @@
 ```bash
 cobot3-start_all   # 역할=MAIN 자동판별 (MAIN_SIDE_IP 일치 확인)
 ```
-실행 내용 (2026-05-21):
+실행 내용 (2026-05-22):
 - 강력 좀비 정리 (SIGTERM → 2s → SIGKILL 2-pass, PAT 기반)
 - `_cobot3_isaac_gui_up` → `run_camera_pub_gui.sh` (GP_HEADLESS=0,
   GP_GO2_NAV=0, GP_GO2_SETTLE=500)
@@ -21,12 +21,17 @@ cobot3-start_all   # 역할=MAIN 자동판별 (MAIN_SIDE_IP 일치 확인)
 - `npc_relay.py` (/npc/* 명령 릴레이)
 - `camera_info_publisher.py` (3-카메라 CameraInfo 1Hz latched)
 - `run_urdf_server.sh` (:8766 Go2 URDF + DAE 서빙)
+- `fall_relay.py` / `weapon_relay.py` / `wind_publisher.py` (전투 이벤트 릴레이)
+- `run_nav2.sh` (Nav2 stack: map_server/planner/controller/BT/velocity_smoother)
+- `cmd_vel_safety_filter.py` (/cmd_vel_nav2_raw → /robot/cmd_vel, MUTE_MODES={"PAUSED"})
+- `nav2_patrol.py` (FSM IDLE/PATROL/HOME/PAUSED, HOME=(212.8,890.53),
+  GOAL=(287.59,1129.728), /clock 안정화 90s 대기 후 기동)
 
 **C2 PC:**
 ```bash
 cobot3-start_all   # 역할=C2 자동판별
 ```
-실행 내용 (2026-05-21):
+실행 내용 (2026-05-22):
 - 강력 좀비 정리 (SIGTERM → 2s → SIGKILL 2-pass)
 - `_cobot3_pg_up` → PostgreSQL 시작 + 스키마 확인
   (alerts/patrol_state_log/intruder_states_log 포함)
@@ -34,8 +39,8 @@ cobot3-start_all   # 역할=C2 자동판별
 - `_cobot3_foxglove_up` → foxglove_bridge :8765 + Lichtblick Docker :8080
 - **`foxglove_sdk_publisher.py` :8767** (foxglove SDK native 채널)
 - `dualsense_worker.py` (PS5 게임패드 폴링 50Hz)
-- `run_nav2.sh` (Nav2 stack: map_server/planner/controller/BT/velocity_smoother)
-- `cmd_vel_safety_filter.py` (Nav2 → /robot/cmd_vel, MUTE_MODES={"PAUSED"})
+- `run_nav2.sh` (Nav2 stack 사본 — MAIN 측과 동일)
+- `cmd_vel_safety_filter.py` (C2 측 사본)
 - `nav2_patrol.py` (FSM IDLE/PATROL/HOME/PAUSED, HOME=(212.8,890.53),
   GOAL=(287.59,1129.728), ±10m 사각 도착)
 
@@ -293,6 +298,7 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | inspect 카메라 walking 중 흔들림 / pan 이 roll 처럼 보임 | 카메라 local axes 에 q_user 적용 + base body roll/pitch 미보정 | `_update_inspect_xform()` 에서 `q_stab=qy(-pitch)*qx(-roll)` × `q_user_base` × `_Q_FRONT` (base frame, 2026-05-21) |
 | Stop 버튼 눌러도 보행 지속 | velocity_smoother/dualsense/web teleop 의 multi-publisher 잔여 발행이 ros_bridge.pub_cmd_vel 을 통과 | `ros_bridge.pub_cmd_vel` 진입 시 `patrol_state.mode==PAUSED` 면 즉시 return (2026-05-21) |
 | FastDDS cross-PC discovery 실패 | `fastdds_web.xml` `__MAIN_PC_IP__` 미치환 + interfaceWhiteList 에 127.0.0.1 누락 | `~/.config/cobot3/fastdds_web.xml` 로 복사 후 sed 치환 + 127.0.0.1 추가 (2026-05-21) |
+| **자동 주행(Nav2) 이 teleop 대비 느리고 멈췄다 가는 현상** | ① `cmd_vel_safety_filter.py` 의 DRIVE/TURN 이진 분리: `|angular| ≥ 0.32 rad/s` 이면 TURN 모드 진입 → `linear.x = 0` 강제 → 로봇이 정지 후 제자리 회전 → 전진 반복. teleop 은 `/robot/cmd_vel` 직접 발행으로 필터 우회. ② DWB `max_vel_x = 0.6 m/s` (teleop 은 무제한). ③ `acc_lim_x = 0.5 m/s²` — 최고속 도달 1.2s. | (A) 빠른 완화: `nav2_params.yaml` `max_vel_x` 를 1.0으로 올리고 `acc_lim_x = 1.5`로 상향. (B) 근본 해결: `cmd_vel_safety_filter.py` DRIVE/TURN 분기 제거 — linear+angular 동시 통과 허용(사족 로봇은 실제로 곡선 주행 가능). (2026-05-22 분석) |
 
 ---
 
@@ -315,8 +321,8 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | `/tmp/cobot3_world_odom_tf.log` | world→odom + Go2→base static TF (Main) |
 | `/tmp/cobot3_landmarks_pub.log` | /scene/landmarks latched 발행 (Main) |
 | `/tmp/cobot3_inspect_relay.log` | /robot/inspect/command 사이드카 (Main) |
-| `/tmp/cobot3_nav2.log` | Nav2 stack launch (C2) |
-| `/tmp/cobot3_cmd_vel_safety.log` | cmd_vel_safety_filter (C2) |
-| `/tmp/cobot3_nav2_patrol.log` | nav2_patrol 상태머신 (C2) |
+| `/tmp/cobot3_nav2.log` | Nav2 stack launch (Main + C2 각각) |
+| `/tmp/cobot3_cmd_vel_safety.log` | cmd_vel_safety_filter (Main + C2 각각) |
+| `/tmp/cobot3_nav2_patrol.log` | nav2_patrol 상태머신 (Main + C2 각각) |
 | `/tmp/cobot3_landmarks.json` | camera_publisher dump (IPC, 비-로그) |
 | `/tmp/cobot3_inspect_cmd.json` | inspect_relay dump (IPC, 비-로그) |
