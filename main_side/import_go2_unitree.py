@@ -5,7 +5,7 @@ Isaac USD 로 임포트해 NVIDIA go2.usd 를 대체한다. NVIDIA go2.usd 는 �
 되나 학습 컨벤션과 달라 보행 전이가 안 됨(검증). 학습 자산 일치가 목적.
 
 실행: python.sh import_go2_unitree.py
-출력: main_side/go2_unitree/go2_unitree.usd
+출력: main_side/scene/go2_unitree/go2_unitree.usd
 """
 import os
 
@@ -22,8 +22,8 @@ for _ in range(30):
     simulation_app.update()
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-URDF = os.path.join(_HERE, "go2_unitree", "urdf", "go2.urdf")
-OUT = os.path.join(_HERE, "go2_unitree", "go2_unitree.usd")
+URDF = os.path.join(_HERE, "scene", "go2_unitree", "urdf", "go2.urdf")
+OUT = os.path.join(_HERE, "scene", "go2_unitree", "go2_unitree.usd")
 
 print(f"[import] urdf={URDF}")
 print(f"[import] out ={OUT}")

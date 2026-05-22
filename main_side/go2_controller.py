@@ -36,7 +36,7 @@ def _log(msg: str) -> None:
 
 _CKPT = os.environ.get(
     "GP_GO2_CKPT",
-    "/home/rokey/dev_ws/isaac_sim/cobot3/main_side/go2_policy"
+    "/home/rokey/dev_ws/isaac_sim/cobot3/main_side/scene/go2_policy"
     "/gait-conditioned-agility/pretrain-go2/train/142238.667503/checkpoints",
 )
 
@@ -88,7 +88,7 @@ DOF_VEL_SCALE = 0.05
 # pos_err = dof_pos - joint_pos_target. 매 physics substep 평가 + 히스토리 갱신.
 _ACTUATOR_NET = os.environ.get(
     "GP_GO2_ACTNET",
-    "/home/rokey/dev_ws/isaac_sim/cobot3/main_side/go2_policy"
+    "/home/rokey/dev_ws/isaac_sim/cobot3/main_side/scene/go2_policy"
     "/unitree_go1_actuator.pt")
 # go2.urdf effort limit: hip/thigh 23.7, calf 35.55 (POLICY per-leg 순서
 # [hip,thigh,calf]x4 → idx%3: 0=hip 1=thigh 2=calf)

@@ -33,11 +33,11 @@ TEMP/
 
 # 대형 USD/USDZ/PBR 자산 (Isaac S3 또는 별도 자산 보관소에서 다운로드)
 # go2_unitree.usd 18MB, gp_scene.usd 27MB, USDZ 텍스처 13~30MB
-main_side/go2_unitree/*.usd
-main_side/go2_unitree/*.usdz
-main_side/go2_unitree/dae/
-main_side/go2_unitree/urdf/
-main_side/go2_description/dae/
+main_side/scene/go2_unitree/*.usd
+main_side/scene/go2_unitree/*.usdz
+main_side/scene/go2_unitree/dae/
+main_side/scene/go2_unitree/urdf/
+main_side/scene/go2_description/dae/
 main_side/scene/gp_scene.usd
 main_side/scene/assets/Stylized_Deer.usdz
 main_side/scene/assets/Cirrus.usd
@@ -77,4 +77,4 @@ main_side/scene/maps/*.pgm
 *.tsbuildinfo
 
 # RL 정책 체크포인트 (대용량 — Git LFS 없이는 추적 불가)
-main_side/go2_policy/
+main_side/scene/go2_policy/

@@ -5,7 +5,7 @@ Isaac OG TF helper 는 world→Go2 만 발행하고 12 leg joint TF 미발행 �
 mesh 가 transform lookup 실패. robot_state_publisher 가 URDF FK 로 모든
 link transform 발행.
 
-URDF path: /tmp/go2.urdf (main_side/go2_description/urdf/go2.urdf 복사본).
+URDF path: /tmp/go2.urdf (main_side/scene/go2_description/urdf/go2.urdf 복사본).
 remap: /joint_states → /robot/leg_joint_states.
 
 실행: ros2 launch main_side/robot_state_publisher.launch.py

@@ -121,7 +121,7 @@ else:
 # /World/Go2/base 로 컴포즈(ART_PRIM 와 일치).
 _GO2_USD = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "go2_unitree", "go2_unitree.usd")
+    "scene", "go2_unitree", "go2_unitree.usd")
 if not os.path.isfile(_GO2_USD):  # 폴백: 임포트 USD 없으면 S3 NVIDIA go2
     try:
         from isaacsim.core.utils.nucleus import get_assets_root_path as _gar

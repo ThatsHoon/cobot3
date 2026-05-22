@@ -19,7 +19,7 @@ from omni.physx import get_physx_interface
 GO2_USD  = ("https://omniverse-content-production.s3-us-west-2.amazonaws.com"
             "/Assets/Isaac/5.1/Isaac/Robots/Unitree/Go2/go2.usd")
 GO2_PRIM = "/World/Go2"
-CKPT     = ("/home/rokey/dev_ws/isaac_sim/cobot3/main_side/go2_policy"
+CKPT     = ("/home/rokey/dev_ws/isaac_sim/cobot3/main_side/scene/go2_policy"
             "/gait-conditioned-agility/pretrain-go2/train/142238.667503/checkpoints")
 
 TRAIN_ORDER = [

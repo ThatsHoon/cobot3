@@ -76,13 +76,13 @@ camera_publisher.py
   requires: Isaac Sim python.sh (standalone app)
   requires: /opt/ros/humble (no-scrub)
   requires: fastdds_no_shm.xml (SHM 비활성화)
-  reads:    gp_scene.usd + main_side/go2_unitree/go2.usd
+  reads:    gp_scene.usd + main_side/scene/go2_unitree/go2.usd
   writes:   OmniGraph /World/Graphs/sensor_bridge (단일 빌드)
   publishes: /cam/{rear,inspect,overhead}/rgb, /cam/rear/{depth,points},
              /robot/{odom,leg_joint_states}, /tf
 
 go2_controller.py (Go2WtwController)
-  requires: go2_policy/{adaptation_module,body}.jit (walk-these-ways)
+  requires: scene/go2_policy/{adaptation_module,body}.jit (walk-these-ways)
   requires: camera_publisher 에서 world.add_physics_callback 으로 주입
   reads:    OG SubCmd.outputs (cmd_vel, in-process)
   policy:   42-dim obs × 15-step history, PD kp=25/kd=0.6, standstill clamp

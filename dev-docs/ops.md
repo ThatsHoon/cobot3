@@ -120,7 +120,37 @@ docker run -d --rm --name cobot3-lichtblick -p 8080:8080 \
 
 ---
 
-## 2. 정지
+## 2. Scene 에셋 동기화 (Google Drive)
+
+`main_side/scene/` 의 대용량 바이너리(USD/USDZ/DAE/policy/.pgm)는 git-ignore 대상이므로
+Google Drive 아카이브로 팀 간 공유한다.
+
+### 업로드 (에셋 변경 후)
+
+```bash
+# git-ignore 에셋만 압축 → 프로젝트 루트에 cobot3_scene_assets_YYYYMMDD.tar.gz 생성
+bash main_side/scripts/scene_pack.sh
+
+# 생성된 tar.gz 를 Google Drive 에 수동 업로드
+# 공유 링크에서 FILE_ID 확인: https://drive.google.com/file/d/<FILE_ID>/view
+```
+
+### 다운로드 (최초 클론 또는 에셋 갱신 시)
+
+```bash
+# FILE_ID 설정 (아카이브 갱신 시마다 팀에 공유)
+export COBOT3_SCENE_GDRIVE_ID=<Google_Drive_File_ID>
+
+# scene/ 에셋 복원 (gdown 미설치 시 자동 pip install)
+bash main_side/scripts/scene_pull.sh
+```
+
+> **협업 규칙**: 에셋이 변경되면 `scene_pack.sh` → Drive 업로드 → `FILE_ID` 를 팀에 공유.
+> 코드 변경은 git push, 에셋 변경은 Drive 업로드 세트로 진행.
+
+---
+
+## 3. 정지
 
 ```bash
 cobot3-down_all   # 역할별 모든 프로세스 종료
@@ -135,7 +165,7 @@ docker stop cobot3-lichtblick 2>/dev/null
 
 ---
 
-## 3. 환경변수 완전 목록
+## 4. 환경변수 완전 목록
 
 ### ROS2/DDS (양쪽 PC 공통)
 | 변수 | 값 | 설명 |
@@ -191,7 +221,7 @@ docker stop cobot3-lichtblick 2>/dev/null
 
 ---
 
-## 4. 검증 명령어
+## 5. 검증 명령어
 
 ```bash
 # ROS2 토픽 확인 (Main PC)
@@ -216,7 +246,7 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 
 ---
 
-## 5. 트러블슈팅
+## 6. 트러블슈팅
 
 | 증상 | 원인 | 해결책 |
 |------|------|-------|
@@ -249,7 +279,7 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 
 ---
 
-## 6. 로그 파일
+## 7. 로그 파일
 
 | 로그 경로 | 내용 |
 |-----------|------|

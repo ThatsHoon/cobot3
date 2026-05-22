@@ -35,7 +35,7 @@ const URDF_URL_ENV = process.env.NEXT_PUBLIC_GO2_URDF_URL;
 function defaultUrdfUrl(): string {
   if (URDF_URL_ENV) return URDF_URL_ENV;
   if (typeof window === "undefined") return "";
-  return "http://192.168.10.94:8766/go2_description/urdf/go2.urdf";
+  return "http://192.168.10.94:8766/scene/go2_description/urdf/go2.urdf";
 }
 
 function useMjpegTexture(cam: CamConfig["id"]): THREE.Texture | null {
@@ -89,7 +89,7 @@ function Go2Urdf({ url }: { url: string }) {
     const loader = new URDFLoader();
     const m = url.match(/^(https?:\/\/[^/]+)/);
     const host = m ? m[1] : "";
-    (loader as any).packages = { go2_description: `${host}/go2_description` };
+    (loader as any).packages = { go2_description: `${host}/scene/go2_description` };
     loader.loadMeshCb = (path, manager, done) => {
       const ext = path.split(".").pop()?.toLowerCase();
       if (ext === "dae") {

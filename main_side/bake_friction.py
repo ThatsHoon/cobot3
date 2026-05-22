@@ -17,7 +17,7 @@ from pxr import Usd, UsdPhysics, UsdShade  # noqa: E402
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SCENE = os.path.join(_HERE, "scene", "gp_scene.usd")
-GO2 = os.path.join(_HERE, "go2_unitree", "go2_unitree.usd")
+GO2 = os.path.join(_HERE, "scene", "go2_unitree", "go2_unitree.usd")
 PM_PATH = "/World/Physics_Materials/physics_material"
 GO2_PM_PATH = "/go2_description/Physics_Materials/foot_material"
 

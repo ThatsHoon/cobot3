@@ -58,6 +58,17 @@
 
 ---
 
+## 에셋 배치 규칙
+
+**git-ignore 대상인 대용량 바이너리는 반드시 `main_side/scene/` 하위에 위치해야 한다.**
+
+- USD/USDZ/DAE/`.pt`/`.jit`/`.pgm` 등 대용량 파일 → `main_side/scene/` 전용
+- `main_side/` 루트에 에셋 전용 폴더 신설 금지 (ex. `main_side/go2_unitree/` ← 금지)
+- `.gitignore` 패턴 추가 시 반드시 `main_side/scene/<경로>` 형태 준수
+- `scene/` 전체는 Google Drive 아카이브로 팀 공유 (`scripts/scene_pack.sh` / `scripts/scene_pull.sh`)
+  - 코드·설정·USDA 텍스트 파일은 git 추적 대상 (scene/ 안에 있어도 동일)
+  - 대용량 바이너리만 Google Drive 경유 (git LFS 미사용)
+
 ## 개발 규칙 (전역)
 
 - sudo 비밀번호: `rokey1234` — `echo 'rokey1234' | sudo -S <cmd>`

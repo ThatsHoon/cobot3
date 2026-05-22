@@ -24,9 +24,9 @@
 | `run_urdf_server.sh` | URDF HTTP 서버 :8766 (CORS, Lichtblick urdf URL 소스) |
 | `bake_gp_static_map.py` / `bake_go2_recon_map.sh` | Nav2 정적 맵 베이크 (PhysX raycast 0.5m/px) |
 | `bake_friction.py` / `gp_path_tool.py` | 마찰/지면 도구 |
-| `go2_description/` | Go2 URDF + DAE 메시 (urdf_server 서빙 루트) |
-| `go2_policy/` | walk-these-ways JIT 정책 (adaptation_module · body) |
-| `go2_unitree/` | Unitree Go2 원본 자산 |
+| `scene/go2_description/` | Go2 URDF + DAE 메시 (urdf_server 서빙 루트) |
+| `scene/go2_policy/` | walk-these-ways JIT 정책 (adaptation_module · body) |
+| `scene/go2_unitree/` | Unitree Go2 원본 자산 |
 | `go2_nav_inject.py` | Nav2 goal 직접 주입 헬퍼 |
 | `scene/gp_scene.usd` | 루트 씬 (Go2 ref, 산악 지형, 철조망 울타리) |
 | `scene/maps/gp_static.{pgm,yaml}` | Nav2 정적 맵 (재베이크 산출물) |
@@ -137,7 +137,7 @@ refs = _robot_prim.GetReferences()
 refs.ClearReferences()
 refs.AddReference(str(_HERE / "go2_unitree" / "go2.usd"))
 ```
-Unitree Go2 자산은 로컬 `main_side/go2_unitree/go2.usd` 에서 직접 ref.
+Unitree Go2 자산은 로컬 `main_side/scene/go2_unitree/go2.usd` 에서 직접 ref.
 (walk-these-ways 정책과 함께 사용.)
 
 ---
@@ -243,7 +243,7 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 ├── Doro            ← 정적 props (12 mesh)
 ├── spike_ball / banana_obstacle / Landmine  ← 동적 장애물 (rigidBody, mass 2.0/0.3/1.0)
 ├── Go2_starting_point / militarybase / radar_tower  ← 시각화 마커 (collisionEnabled=false)
-├── Go2             ← go2.usd (로컬 main_side/go2_unitree/go2.usd ref) @ spawn (212.8, 890.53, 5.0)
+├── Go2             ← go2.usd (로컬 main_side/scene/go2_unitree/go2.usd ref) @ spawn (212.8, 890.53, 5.0)
 │   └── base
 │       ├── camera_rear      (UsdGeom.Camera, 후방)
 │       └── camera_inspect   (UsdGeom.Camera, 짐벌 stabilization)
@@ -253,7 +253,7 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 ```
 
 **에셋 경로 규칙:** 모두 `scene/` 상대 경로. `/home/...` 절대경로 금지.
-Go2 USD = 로컬 ref (`main_side/go2_unitree/go2.usd`).
+Go2 USD = 로컬 ref (`main_side/scene/go2_unitree/go2.usd`).
 
 ### 9개 신규 prim 의 collider/material binding 정책 (2026-05-21)
 
