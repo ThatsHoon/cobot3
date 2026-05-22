@@ -788,7 +788,23 @@ _ctrl = None
 if _SPOT_CTRL:
     try:
         from go2_controller import Go2WtwController
+        from isaacsim.core.prims import SingleArticulation as _SA
+        # GPU PhysX 모드에서 physics callback 내 initialize()는 GPU
+        # PhysicsSimulationView를 생성하지 못해 ~1000 step 후
+        # get_joint_positions() → 0-dim array → IndexError 폭주.
+        # world.reset() 직후 메인 스레드에서 미리 초기화해 주입
+        # (go2_nav_inject.py 와 동일 패턴 — dof 수로 성공 여부 검증).
+        _pre_art = _SA(prim_path=ART_PRIM)
+        _pre_art.initialize()
+        _pre_dof = list(_pre_art.dof_names) if _pre_art.dof_names else []
         _ctrl = Go2WtwController(SPOT_PRIM)
+        if len(_pre_dof) >= 12:
+            _ctrl._art = _pre_art
+            log(f"SingleArticulation 메인스레드 사전 초기화 OK "
+                f"(dof={len(_pre_dof)}): {ART_PRIM}")
+        else:
+            log(f"SingleArticulation 사전 초기화 dof={len(_pre_dof)} (<12) "
+                f"— 콜백 폴백 (GPU physics 지연 시 경고 가능)")
         world.add_physics_callback("go2_ctrl", _ctrl.on_physics_step)
         log("Go2WtwController 등록 — physics_callback 활성")
         # 외부 Nav2 사용 시 내부 P-제어 비활성 (GP_GO2_NAV=0). 충돌 방지

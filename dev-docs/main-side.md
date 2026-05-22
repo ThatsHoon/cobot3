@@ -135,10 +135,25 @@ latched.
 _robot_prim = stage.GetPrimAtPath("/World/Go2")
 refs = _robot_prim.GetReferences()
 refs.ClearReferences()
-refs.AddReference(str(_HERE / "go2_unitree" / "go2.usd"))
+refs.AddReference(str(_HERE / "scene" / "go2_unitree" / "go2_unitree.usd"))
 ```
-Unitree Go2 자산은 로컬 `main_side/scene/go2_unitree/go2.usd` 에서 직접 ref.
+Unitree Go2 자산은 로컬 `main_side/scene/go2_unitree/go2_unitree.usd` 에서 직접 ref.
 (walk-these-ways 정책과 함께 사용.)
+
+### SingleArticulation 메인스레드 사전 초기화
+
+GPU PhysX 모드에서 `physics callback 내 initialize()` 는 GPU PhysicsSimulationView 를
+생성하지 못해 ~1000 step 후 `get_joint_positions()` → 0-dim array → `IndexError` 폭주.
+`world.reset()` 직후 메인 스레드에서 미리 초기화하고 `_ctrl._art` 에 주입한다.
+
+```python
+_pre_art = SingleArticulation(prim_path=ART_PRIM)
+_pre_art.initialize()
+if len(list(_pre_art.dof_names)) >= 12:
+    _ctrl._art = _pre_art   # 주입 성공 → 콜백 내 deferred-init 스킵
+```
+
+`dof_names < 12` 이면 콜백 폴백(기존 방식). `go2_nav_inject.py` 와 동일 패턴.
 
 ---
 
