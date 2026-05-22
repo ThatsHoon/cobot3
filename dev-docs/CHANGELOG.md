@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-05-22 (B)
+
+### 씬 감사 + 지형 CollisionAPI 수정 + 철조망 재설치 + Go2 spawn/nav 경로점 연동
+
+**변경 파일:** `main_side/scene/gp_scene.usd` (수정),
+`main_side/camera_publisher.py` (수정),
+`dev-docs/main-side.md`, `dev-docs/ops.md` (갱신)
+
+**씬 감사 결과 수정 (gp_scene.usd):**
+- `Hill_terrain1` (15 mesh) + `Hill_terrain2` (13 mesh): CollisionAPI 0% → 100%, physics_material 바인딩. 기존 `/World/Terrain` 삭제 이후 camera_publisher.py safety-net 이 `/World/Terrain` 만 체크하던 버그 수정.
+- `Fence_Line` 완전 재설치: 기존 잘못된 에셋 경로(`scene/barbed_wire_fence.usdz` 미존재 → mesh 미렌더) → 올바른 경로(`scene/assets/barbed_wire_fence.usdz`) 로 재생성.
+- `Fence_Line` 19 세그먼트: `Fence_Waypoints` 45 waypoint 궤적 추종, 높이 5.2m, 지면 아래 0.59m 임베드(지면에서 솟아남), xformOpOrder [translate:world, rotateZ, scale, rotateX, translate:inner] 순서 확정.
+- `Fence_Line` 이전 xformOpOrder 버그: `SetXformOpOrder` 가 ops 를 역순으로 적용 → 펜스 위치 (-497, 0, -47) 로 오배치. 해결: AddXformOp 순서 자체를 outermost→innermost 로 정렬, SetXformOpOrder 제거.
+
+**camera_publisher.py:**
+- 지형 safety-net: `_TERR_ROOTS = ["/World/Hill_terrain1", "/World/Hill_terrain2", "/World/Terrain"]` (다중 지형 prim 지원).
+- physics_material 탐색 우선순위: `/World/Physics_Materials/physics_material` → fallback `/World/Terrain/**` 순.
+- Go2 spawn 위치: 하드코딩 → `/World/Routing_Zones/StartingPoint` Xform 자동 읽기 (fallback 194.56, 837.70, 5.02).
+- Go2 시동 nav 목표: `/World/Routing_Zones/Standard_Point` Xform 자동 읽기 (fallback 199.09, 892.60, 4.52).
+- arrive_box: 10.0m → **2.0m** (2m 이내 도달 = 목적지 도착 간주).
+- overhead 카메라 초기 위치: 하드코딩 (212.8, 890.53) → `_GO2_HOME_XYZ` 기반 동적 설정.
+
+**신규 환경변수:** `GP_GO2_GOAL_X/Y/Z` (Standard_Point 좌표 오버라이드).
+
+---
+
 ## 2026-05-22
 
 ### 씬 정리 + 철조망 울타리 설치 + MCP 서버 교체

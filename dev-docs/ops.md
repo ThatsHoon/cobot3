@@ -209,6 +209,10 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `GP_GO2_NAV` | `0` | 1=Go2WtwController 내부 NAV P-ctrl, 0=Nav2 stack 단독 |
 | `GP_GO2_SETTLE` | `500` | spawn 후 NAV P-ctrl 진입 settle step 수 |
 | `GP_GO2_CMD_MODE` | (없음) | `cal`=캘리브레이션 (vx=0.5 고정) |
+| `GP_GO2_SPAWN_X/Y/Z` | `194.56/837.70/5.02` | Go2 spawn 위치 (기본=Routing_Zones/StartingPoint, 2026-05-22) |
+| `GP_GO2_GOAL_X` | `199.09` | 시동 시 Nav 목표 X (기본=Routing_Zones/Standard_Point, 2026-05-22) |
+| `GP_GO2_GOAL_Y` | `892.60` | 시동 시 Nav 목표 Y (기본=Routing_Zones/Standard_Point) |
+| `GP_GO2_GOAL_Z` | `4.52` | 시동 시 Nav 목표 Z (기본=Routing_Zones/Standard_Point) |
 | `DEGRADE_IN` | (인스턴스별) | `/cam/{rear,inspect,overhead}/rgb` 중 하나 |
 | `DEGRADE_OUT` | (인스턴스별) | `/c2/{rear,inspect,overhead}/compressed` 중 하나 |
 | `URDF_SERVER_PORT` | `8766` | Go2 URDF HTTP 서버 포트 |

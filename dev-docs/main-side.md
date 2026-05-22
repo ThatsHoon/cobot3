@@ -57,7 +57,8 @@
 | `GP_GO2_NAV` | 0 | env | 1=set_nav_goal 활성, 0=Nav2 외부 단독 사용 |
 | `GP_GO2_SETTLE` | 500 | env | spawn 후 NAV P-ctrl 진입 settle step 수 |
 | `GP_GO2_CMD_MODE` | (없음) | env | "cal"=캘리브레이션 (vx=0.5 고정 + nav P) |
-| `_GO2_HOME_XYZ` | (212.8, 890.53, 5.0) | `GP_GO2_SPAWN_X/Y/Z` (2026-05-21) | Go2 spawn/home (world 좌표). `world_odom_tf_pub.py` 와 동일 env — SSOT. |
+| `_GO2_HOME_XYZ` | Routing_Zones/StartingPoint (194.56, 837.70, 5.02) | `GP_GO2_SPAWN_X/Y/Z` | Go2 spawn/home. stage 로드 후 `/World/Routing_Zones/StartingPoint` Xform 을 읽어 자동 설정 (2026-05-22). |
+| `_GO2_GOAL_XYZ` | Routing_Zones/Standard_Point (199.09, 892.60, 4.52) | `GP_GO2_GOAL_X/Y/Z` | 시동 시 이동 목표. `/World/Routing_Zones/Standard_Point` Xform 으로 자동 설정 (2026-05-22). arrive_box=2.0m. |
 | `Clock` 발행 주기 | 50 Hz (OnPlaybackTick 의 render_dt=1/50 기반) | — | `ROS2PublishClock` 은 자체 publishRate input 없음 — tick 펄스로 구동. Nav2 controller 10Hz 의 5× 마진. |
 
 ### OmniGraph 구조 (`/World/Graphs/sensor_bridge`)
@@ -249,17 +250,22 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 
 ```
 /World
-├── Hill_terrain1 / Hill_terrain2  ← 산악 지형 (physics_material dynFric=0.8)
+├── Hill_terrain1 / Hill_terrain2  ← 산악 지형 (CollisionAPI 100%, physics_material dynFric=0.8)
 ├── DomeLight_01    ← HDRI 환경광
 ├── Sun             ← 방향성 광원
 ├── WeatherEffects  ← 날씨 파티클
 ├── Looks / Physics_Materials  (material 컨테이너)
 ├── Doro            ← 정적 props (12 mesh) — MaterialBindingAPI sublayer 적용
 ├── Go2_starting_point / militarybase  ← 시각화 마커 (collisionEnabled=false)
-├── Fence_Waypoints ← 울타리 경로점 Xform 배열
-├── Fence_Line      ← 철조망 (barbed_wire_fence.usdz 49 세그먼트, Fence_Waypoints 따라 배치, 2026-05-22)
-├── Routing_Zones   ← 경로 구역 정의
-├── Go2             ← go2.usd (로컬 main_side/scene/go2_unitree/go2.usd ref) @ spawn (212.8, 890.53, 5.0)
+├── Fence_Waypoints ← 울타리 경로점 Xform 45개 (정렬: Xform → Xform_05 → ... → Xform_50)
+├── Fence_Line      ← 철조망 19 세그먼트 (scene/assets/barbed_wire_fence.usdz, 2026-05-22)
+│                      길이 5.9~11.9m, 높이 5.2m, Fence_Waypoints 궤적 추종
+│                      xformOpOrder: [translate:world, rotateZ, scale, rotateX, translate:inner]
+│                      GATE_THRESH=55m (Xform_50→Xform 162m 자연 장벽 스킵)
+├── Routing_Zones   ← 경로 구역 Xform
+│   ├── StartingPoint  @ (194.56, 837.70, 5.02) — Go2 spawn 기본값
+│   └── Standard_Point @ (199.09, 892.60, 4.52) — 시동 시 Nav 목표 (arrive_box=2.0m)
+├── Go2             ← go2.usd (로컬 main_side/scene/go2_unitree/go2.usd ref) @ spawn = StartingPoint
 │   └── base
 │       ├── camera_rear      (UsdGeom.Camera, 후방)
 │       └── camera_inspect   (UsdGeom.Camera, 짐벌 stabilization)
@@ -280,7 +286,7 @@ Go2 USD = 로컬 ref (`main_side/scene/go2_unitree/go2.usd`).
 | Doro | 정적 props | `MaterialBindingAPI` schema 사전 적용 | `MeshCollisionAPI(none)` + physics material binding |
 | Go2_starting_point | 시각 마커 | `collisionEnabled=false` | (skip) |
 | militarybase | 시각 마커 | `collisionEnabled=false` | (skip) |
-| Fence_Line | 철조망 (정적) | 해당 없음 (MCP 직접 생성) | 별도 collider 없음 |
+| Fence_Line | 철조망 (정적) | 해당 없음 (MCP 직접 생성) | root prim CollisionAPI 적용 |
 
 > Cube 는 정찰선 밖 디버그 잔재 — sublayer + gp_scene.usd 양쪽에 `active=false` 적용 (2026-05-21).
 

@@ -94,6 +94,22 @@ else:
     log(f"scene not found, empty stage: {SCENE}")
 stage = ctx.get_stage()
 
+# Routing_Zones 에서 StartingPoint / Standard_Point world 좌표 읽기.
+# 씬 Xform 을 진실의 원천으로 사용 — 씬 편집 시 코드 수정 불필요.
+def _routing_zone_pos(name):
+    p = stage.GetPrimAtPath(f"/World/Routing_Zones/{name}")
+    if p and p.IsValid():
+        m = UsdGeom.Xformable(p).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        t = m.ExtractTranslation()
+        return (float(t[0]), float(t[1]), float(t[2]))
+    return None
+_rz_start = _routing_zone_pos("StartingPoint")
+_rz_std   = _routing_zone_pos("Standard_Point")
+log(f"Routing_Zones/StartingPoint → "
+    f"{tuple(round(v,2) for v in _rz_start) if _rz_start else 'NOT FOUND'}")
+log(f"Routing_Zones/Standard_Point → "
+    f"{tuple(round(v,2) for v in _rz_std) if _rz_std else 'NOT FOUND'}")
+
 # 1b) sublayer 보강 — gp_scene.usd 무수정 원칙 유지 (단일 소스).
 # WHY: collider/material binding/mass 등 보강만 별도 USDA 에 모음. 강한 opinion
 # 으로 prepend → 기존 gp_scene.usd 의 누락된 attribute 가 sublayer 값으로 채워짐.
@@ -155,18 +171,30 @@ TERR_PRIM = ("/World/Terrain/Meshes/Sketchfab_model/root/"
 _CLEAR = float(os.environ.get("GP_GO2_SPAWN_CLEAR", "0.45"))
 
 
-# Go2 정찰 사양 (2026-05-20): 명시 spawn (212.8, 890.53, 5.0), 수색지(620.36,
-# 499.72, 52.138). 환경변수 GP_GO2_SPAWN_USE_TERRAIN=1 면 terrain nearest
-# vertex 보정(낙하 방지), 기본 0=명시 좌표 그대로 (씬 terrain 없거나 명시
-# z 가 신뢰 가능할 때).
-# 2026-05-21: GP_GO2_SPAWN_X/Y/Z env 추가 — world_odom_tf_pub.py 의 동일
-# env 와 일치시켜 spawn 좌표 단일 진실의 원천 (SSOT) 보장.
+# spawn = Routing_Zones/StartingPoint (씬 Xform 이 단일 소스).
+# env 명시 시 우선 — GP_GO2_SPAWN_X/Y/Z 로 덮어쓰기 가능.
+# 2026-05-22: 기본값을 StartingPoint 위치로 변경 (종전 212.8, 890.53, 5.0).
+_rz_start_fallback = (194.56, 837.70, 5.02)
 _GO2_HOME_XYZ = (
-    float(os.environ.get("GP_GO2_SPAWN_X", "212.8")),
-    float(os.environ.get("GP_GO2_SPAWN_Y", "890.53")),
-    float(os.environ.get("GP_GO2_SPAWN_Z", "5.0")),
+    float(os.environ.get("GP_GO2_SPAWN_X",
+          str((_rz_start or _rz_start_fallback)[0]))),
+    float(os.environ.get("GP_GO2_SPAWN_Y",
+          str((_rz_start or _rz_start_fallback)[1]))),
+    float(os.environ.get("GP_GO2_SPAWN_Z",
+          str((_rz_start or _rz_start_fallback)[2]))),
 )
-_GO2_GOAL_XYZ = (287.59, 1129.728, 29.53)
+# 시작 직후 이동 목표 = Routing_Zones/Standard_Point (준비 위치).
+# 이 목표에 2m 이내 도달 시 C2 patrol controller 가 "도착" 으로 간주하고
+# 정찰 임무를 이어받음. env GP_GO2_GOAL_X/Y/Z 로 덮어쓰기 가능.
+_rz_std_fallback = (199.09, 892.60, 4.52)
+_GO2_GOAL_XYZ = (
+    float(os.environ.get("GP_GO2_GOAL_X",
+          str((_rz_std or _rz_std_fallback)[0]))),
+    float(os.environ.get("GP_GO2_GOAL_Y",
+          str((_rz_std or _rz_std_fallback)[1]))),
+    float(os.environ.get("GP_GO2_GOAL_Z",
+          str((_rz_std or _rz_std_fallback)[2]))),
+)
 _USE_TERRAIN = os.environ.get("GP_GO2_SPAWN_USE_TERRAIN", "0") == "1"
 
 _spawn = Gf.Vec3d(*_GO2_HOME_XYZ)
@@ -199,7 +227,7 @@ if _USE_TERRAIN and _tm and _tm.IsValid():
 else:
     log(f"spawn 명시 좌표: {tuple(round(float(v),2) for v in _spawn)} "
         f"(GP_GO2_SPAWN_USE_TERRAIN={int(_USE_TERRAIN)})")
-log(f"nav_goal=수색지 {_cone_xy} (z={_GO2_GOAL_XYZ[2]:.2f})")
+log(f"nav_goal=Standard_Point {_cone_xy} (z={_GO2_GOAL_XYZ[2]:.2f})")
 
 # 씬 랜드마크 dump → landmarks_pub.py 가 읽어 /scene/landmarks (latched) 발행.
 # patrol controller(C2) 가 sortie 시 waypoint 구성에 사용.
@@ -210,7 +238,7 @@ try:
                  "z": float(_spawn[2])},
         "goal": {"x": float(_cone_xy[0]), "y": float(_cone_xy[1]),
                  "z": float(_GO2_GOAL_XYZ[2])},
-        "arrive_box": 10.0,
+        "arrive_box": 2.0,
     }
     with open("/tmp/cobot3_landmarks.json", "w") as _f:
         _json.dump(_lm, _f)
@@ -239,11 +267,17 @@ for _ in range(120):
 try:
     from pxr import UsdShade as _UsdShade, UsdPhysics as _UP
 
-    # 0) Terrain 하위 Mesh 진단 + CollisionAPI 누락 시 추가 적용
-    _terr_root = stage.GetPrimAtPath("/World/Terrain")
+    # 0) 지형 Mesh CollisionAPI 진단 + 누락 시 추가 적용.
+    # 2026-05-22: Hill_terrain1/2 로 교체됨 (구 /World/Terrain 삭제).
+    # 하위호환: Terrain 이 남아있으면 같이 처리.
+    _TERR_ROOTS = ["/World/Hill_terrain1", "/World/Hill_terrain2",
+                   "/World/Terrain"]
     _mesh_total = _mesh_with_col = _added_col = 0
-    if _terr_root and _terr_root.IsValid():
-        from pxr import Usd as _UsdT
+    from pxr import Usd as _UsdT
+    for _terr_path in _TERR_ROOTS:
+        _terr_root = stage.GetPrimAtPath(_terr_path)
+        if not (_terr_root and _terr_root.IsValid()):
+            continue
         for _m in _UsdT.PrimRange(_terr_root):
             if _m.GetTypeName() != "Mesh":
                 continue
@@ -255,14 +289,13 @@ try:
                 _UP.CollisionAPI.Apply(_m)
                 _UP.MeshCollisionAPI.Apply(_m)
                 _mca = _UP.MeshCollisionAPI(_m)
-                # static 지형이므로 trimesh("none") 안전 (Go2 는 dynamic
-                # 이지만 base/legs collider 는 robot prim 쪽에서 처리).
                 _mca.CreateApproximationAttr("none")
                 _added_col += 1
             except Exception as _ce:
-                log(f"⚠ Terrain CollisionAPI apply fail {_m.GetPath()}: {_ce!r}")
-        log(f"Terrain mesh diag: total={_mesh_total} "
-            f"pre_collider={_mesh_with_col} added_collider={_added_col}")
+                log(f"⚠ {_terr_path} CollisionAPI apply fail "
+                    f"{_m.GetPath()}: {_ce!r}")
+    log(f"지형 mesh diag: total={_mesh_total} "
+        f"pre_collider={_mesh_with_col} added_collider={_added_col}")
 
     # 1) 이미 binding 있나? (collider 가 모두 새로 추가됐다면 binding 0 → fix 진행)
     _scene_has_fric = False
@@ -304,7 +337,8 @@ try:
             if not _p.HasAPI(_UP.CollisionAPI):
                 continue
             _pp = str(_p.GetPath())
-            if (_pp.startswith("/World/Terrain")
+            if (_pp.startswith("/World/Hill_terrain")
+                    or _pp.startswith("/World/Terrain")
                     or "GP_NoiseTerrain" in _pp
                     or _pp.startswith(ROBOT_PRIM)):
                 _bind_phys(_p); _nb += 1
@@ -319,13 +353,16 @@ try:
     _STATIC_PRIMS = ["/World/Doro"]
     _EXTRA_PRIMS = _DYN_PRIMS + _STATIC_PRIMS
     # Terrain 의 physics_material path 자동 발견 (저장된 단일 소스)
-    _TERR_PM = None
-    for _t in stage.Traverse():
-        if _t.HasAPI(_UP.MaterialAPI) and "/World/Terrain" in str(_t.GetPath()):
-            _TERR_PM = _t
-            break
+    # physics_material: 신규 위치(/World/Physics_Materials/) 우선,
+    # 구 Terrain 내장 material 폴백 (Hill_terrain 전환 후 Terrain 부재 대응).
+    _TERR_PM = stage.GetPrimAtPath("/World/Physics_Materials/physics_material")
+    if not (_TERR_PM and _TERR_PM.IsValid()):
+        for _t in stage.Traverse():
+            if _t.HasAPI(_UP.MaterialAPI) and "/World/Terrain" in str(_t.GetPath()):
+                _TERR_PM = _t
+                break
     if _TERR_PM is None:
-        log("⚠ 추가 prim 마찰: Terrain physics_material 미발견 → 스킵")
+        log("⚠ 추가 prim 마찰: physics_material 미발견 → 스킵")
     else:
         from pxr import Usd as _Us2
         _pm_mat_ext = _UsdShade.Material(_TERR_PM)
@@ -487,8 +524,10 @@ if stage.GetPrimAtPath(CAM_OVERHEAD_PATH).IsValid():
 _cam_ov = UsdGeom.Camera.Define(stage, CAM_OVERHEAD_PATH)
 _xf_ov = UsdGeom.Xformable(_cam_ov.GetPrim())
 _xf_ov.ClearXformOpOrder()
-# 초기 spawn 위치 위에 두기 (Go2 spawn x=212.8, y=890.53, z=5.0 + 100)
-_xf_ov.AddTranslateOp().Set(Gf.Vec3f(212.8, 890.53, 105.0))
+# 초기 spawn 위치 위에 두기 (StartingPoint + 100m)
+_xf_ov.AddTranslateOp().Set(Gf.Vec3f(
+    float(_GO2_HOME_XYZ[0]), float(_GO2_HOME_XYZ[1]),
+    float(_GO2_HOME_XYZ[2]) + 100.0))
 _xf_ov.AddOrientOp().Set(_Q_DOWN)
 _cam_ov.GetFocalLengthAttr().Set(8.0)
 _cam_ov.GetHorizontalApertureAttr().Set(_HAP)
@@ -738,8 +777,8 @@ if _SPOT_CTRL:
         # 추적하면 명령 무시 증상 (2026-05-20 fix).
         if _cone_xy is not None and os.environ.get("GP_GO2_NAV", "1") != "0":
             _ctrl.set_nav_goal(_cone_xy[0], _cone_xy[1])
-            log(f"nav_goal=수색지 {tuple(round(v,2) for v in _cone_xy)} "
-                f"설정 — play 시 자율 보행 시작 (내부 P-제어)")
+            log(f"nav_goal=Standard_Point {tuple(round(v,2) for v in _cone_xy)} "
+                f"설정 — play 시 자율 보행 시작 (2m 이내 도달 → 도착)")
         else:
             log("GP_GO2_NAV=0 → 내부 P-제어 set_nav_goal 호출 스킵 "
                 "(외부 Nav2 cmd_vel 만 사용)")
