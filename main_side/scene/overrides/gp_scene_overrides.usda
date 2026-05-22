@@ -1,22 +1,11 @@
 #usda 1.0
 (
-    # gp_scene.usd 보강용 sublayer (2026-05-21).
-    # WHY: 신규 prim (Doro/spike_ball/banana_obstacle/Landmine/
-    # Go2_starting_point/militarybase) 의 collider/material binding/dynamic
-    # 설정이 USD 에 누락. gp_scene.usd 는 단일 소스로 보존하고
-    # 보강 사항만 이 sublayer 에 모음. 로드는 camera_publisher.py 가 런타임에
+    # gp_scene.usd 보강용 sublayer (2026-05-21, 갱신 2026-05-22).
+    # WHY: 신규 prim (Doro / Go2_starting_point / militarybase) 의
+    # collider/material binding 설정이 USD 에 누락.
+    # gp_scene.usd 는 단일 소스로 보존하고 보강 사항만 이 sublayer 에 모음.
+    # 로드는 camera_publisher.py 가 런타임에
     # subLayerPaths.insert(0, ...) 로 prepend (가장 강한 opinion).
-    #
-    # 사실 데이터:
-    # - Terrain physics_material 경로:
-    #   /World/Terrain/Meshes/Sketchfab_model/root/GLTF_SceneRootNode/
-    #     TerrainNode_0/Object_4/Object_0/physics_material
-    #   (dynFric=0.8, statFric=0.8, restit=0.0 이미 적용됨 — 검증완료)
-    # - spike_ball/banana_obstacle/Landmine 는 root 에 rigidBody=True 인데
-    #   collisionEnabled 미설정 → collider 비활성 → 동적 충돌 안 일어남.
-    #   이 sublayer 가 collisionEnabled=True + mass 명시.
-    # - leaf Mesh 의 MeshCollisionAPI(approximation=...) 는 자식 경로를 미리
-    #   열거하기 어려워 camera_publisher.py 의 safety-net 이 담당.
     #
     # 롤백: GP_USE_OVERRIDES=0 env, 또는 이 파일 삭제/이름변경.
     defaultPrim = "World"
@@ -38,34 +27,9 @@ over "World"
     }
 
     # ── B. 정적 props (Doro) ──
-    # 자식 mesh 의 MeshCollisionAPI(none) + Terrain 마찰 binding 은
+    # 자식 mesh 의 MeshCollisionAPI(none) + 마찰 binding 은
     # camera_publisher.py 의 safety-net 이 leaf Mesh 마다 적용.
     over "Doro" ( apiSchemas = ["MaterialBindingAPI"] )
     {
-    }
-
-    # ── C. 동적 장애물 — collisionEnabled + mass 명시 ──
-    # mass 는 현실 추정치: spike_ball 2 kg, banana 0.3 kg, Landmine 1 kg.
-    # rigidBody=True 는 USD 에 이미 있으므로 collision + mass 만 보강.
-    over "spike_ball" ( apiSchemas = ["PhysicsCollisionAPI",
-                                      "PhysicsMassAPI",
-                                      "MaterialBindingAPI"] )
-    {
-        bool  physics:collisionEnabled = true
-        float physics:mass             = 2.0
-    }
-    over "banana_obstacle" ( apiSchemas = ["PhysicsCollisionAPI",
-                                           "PhysicsMassAPI",
-                                           "MaterialBindingAPI"] )
-    {
-        bool  physics:collisionEnabled = true
-        float physics:mass             = 0.3
-    }
-    over "Landmine" ( apiSchemas = ["PhysicsCollisionAPI",
-                                    "PhysicsMassAPI",
-                                    "MaterialBindingAPI"] )
-    {
-        bool  physics:collisionEnabled = true
-        float physics:mass             = 1.0
     }
 }

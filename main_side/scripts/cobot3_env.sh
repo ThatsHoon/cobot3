@@ -201,7 +201,7 @@ _cobot3_isaac_up() {
             FASTRTPS_DEFAULT_PROFILES_FILE="$MAIN/fastdds_no_shm.xml" \
             ROS_DOMAIN_ID=130 ROS_LOCALHOST_ONLY=0 \
             ~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/isaac-sim.sh \
-            --ext-folder ~/dev_ws/isaac-sim-mcp/ \
+            --ext-folder ~/dev_ws/isaacsim-mcp-server/ \
             --enable isaac.sim.mcp_extension \
             </dev/null >/tmp/cobot3_isaac_mcp.console.log 2>&1 & )
         echo "[cobot3]   MCP 준비 후: camera_publisher 로직을 MCP 로 주입/구동"

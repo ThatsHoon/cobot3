@@ -56,6 +56,19 @@ cobot3-restart_all mcp      # = cobot3-clear → cobot3-start_all-with_mcp (Isaa
 
 내부 동작: 잔존 정리 PAT 가동 → 2초 SIGTERM → SIGKILL → 포트 점유 강제 해제 → Lichtblick 컨테이너 정리 → 그 후 `start_all` (자체 cleanup 이 이중 보호).
 
+### Isaac Sim MCP 확장 (2026-05-22)
+
+Claude Code ↔ Isaac Sim 직접 제어 채널. `cobot3-start_all-with_mcp` 또는 `cobot3-restart_all mcp` 시 자동 기동.
+
+| 항목 | 값 |
+|------|---|
+| 구현 | `whats2000/isaacsim-mcp-server` (`~/dev_ws/isaacsim-mcp-server/`) |
+| 확장 버전 | `isaac.sim.mcp_extension-0.4.1` |
+| ext-folder | `~/dev_ws/isaacsim-mcp-server/` (`cobot3_env.sh` 의 `_cobot3_isaac_up mcp` 분기) |
+| 포트 | `localhost:8766` (TCP, Kit 프로세스 내부) |
+| MCP 서버 진입점 | `uv run --directory ~/dev_ws/isaacsim-mcp-server isaacsim-mcp-server` |
+| 도구 수 | 42 (scene, objects, lighting, robots, sensors, materials, assets, simulation, graphs) |
+
 ### Nav2 lifecycle race 해결 — Isaac 안정화 대기 (2026-05-21)
 
 `cobot3-start_all` 의 MAIN 분기는 nav2 기동 전에 **`ros2 topic echo /clock --once`** 로 첫 클럭 메시지 도착까지 (최대 90초) 대기한다.
@@ -176,11 +189,10 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `ROS_LOCALHOST_ONLY` | `0` | 크로스호스트 허용 |
 | `ROS_DISTRO` | `humble` | 배포판 |
 
-### DMZ_Zone / YOLO (P2~P3, 2026-05-20)
+### YOLO (C2)
 
 | env | 기본값 | 설명 |
 |---|---|---|
-| `GP_GO2_SPAWN_ZONE` | `cube` | `cube`=기존 Cube nearest-vertex spawn / `dmz`=DMZ_Zone home(0,0) nearest-vertex |
 | `C2_YOLO_MODEL` | (없음) | YOLO 가중치 경로. 비우면 `sub1_side/server/models/*.pt` → `yolov8n.pt` 폴백 |
 | `C2_YOLO_ALERT_CONF` | `0.55` | person alert 최소 confidence |
 | `C2_YOLO_ALERT_COOLDOWN` | `3.0` | person alert cooldown(s) |

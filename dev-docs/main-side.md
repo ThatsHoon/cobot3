@@ -245,46 +245,42 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 
 ---
 
-## 씬 구조 (`scene/gp_scene.usd`, 2026-05-21)
+## 씬 구조 (`scene/gp_scene.usd`, 2026-05-22)
 
 ```
 /World
-├── Terrain         ← terrain.usdz (산악, PBR 텍스처) — physics_material dynFric=0.8
+├── Hill_terrain1 / Hill_terrain2  ← 산악 지형 (physics_material dynFric=0.8)
 ├── DomeLight_01    ← HDRI 환경광
+├── Sun             ← 방향성 광원
+├── WeatherEffects  ← 날씨 파티클
 ├── Looks / Physics_Materials  (material 컨테이너)
-├── Cube            ← (비활성, 디버그 잔재)
-├── Watchtowers     ← 정적 props (6 mesh)
-├── Fence           ← 정적 props (1650 mesh — instancing 후보)
-├── Doro            ← 정적 props (12 mesh)
-├── spike_ball / banana_obstacle / Landmine  ← 동적 장애물 (rigidBody, mass 2.0/0.3/1.0)
-├── Go2_starting_point / militarybase / radar_tower  ← 시각화 마커 (collisionEnabled=false)
+├── Doro            ← 정적 props (12 mesh) — MaterialBindingAPI sublayer 적용
+├── Go2_starting_point / militarybase  ← 시각화 마커 (collisionEnabled=false)
+├── Fence_Waypoints ← 울타리 경로점 Xform 배열
+├── Fence_Line      ← 철조망 (barbed_wire_fence.usdz 49 세그먼트, Fence_Waypoints 따라 배치, 2026-05-22)
+├── Routing_Zones   ← 경로 구역 정의
 ├── Go2             ← go2.usd (로컬 main_side/scene/go2_unitree/go2.usd ref) @ spawn (212.8, 890.53, 5.0)
 │   └── base
 │       ├── camera_rear      (UsdGeom.Camera, 후방)
 │       └── camera_inspect   (UsdGeom.Camera, 짐벌 stabilization)
 ├── Overhead_Camera (UsdGeom.Camera, world 직속 — Go2 child 아님)
 └── Graphs
-    └── sensor_bridge  (OmniGraph — Clock 60Hz, OdoPub, LegJS, TF [BASE_PRIM])
+    └── sensor_bridge  (OmniGraph — Clock 50Hz, OdoPub, LegJS, TF [BASE_PRIM])
 ```
 
 **에셋 경로 규칙:** 모두 `scene/` 상대 경로. `/home/...` 절대경로 금지.
 Go2 USD = 로컬 ref (`main_side/scene/go2_unitree/go2.usd`).
 
-### 9개 신규 prim 의 collider/material binding 정책 (2026-05-21)
+### prim 별 sublayer override 정책 (2026-05-22)
 
-`scene/overrides/gp_scene_overrides.usda` sublayer + `camera_publisher.py` safety-net 가 분담. 상세는 [scene-overrides.md](scene-overrides.md) / [physics-scene-audit.md](physics-scene-audit.md).
+`scene/overrides/gp_scene_overrides.usda` sublayer + `camera_publisher.py` safety-net 분담. 상세는 [scene-overrides.md](scene-overrides.md).
 
-| Prim | 분류 | root 속성 (sublayer) | leaf Mesh (safety-net) | mass |
-|---|---|---|---|---|
-| spike_ball | 동적 | `collisionEnabled=true` | `MeshCollisionAPI(convexHull)` + Terrain material binding | 2.0 kg |
-| banana_obstacle | 동적 | `collisionEnabled=true` | `convexHull` + binding | 0.3 kg |
-| Landmine | 동적 | `collisionEnabled=true` | `convexHull` + binding | 1.0 kg |
-| Watchtowers | 정적 | `MaterialBindingAPI` schema | `MeshCollisionAPI(none)` + binding | — |
-| Fence | 정적 | 동일 | `none` + binding | — |
-| Doro | 정적 | 동일 | `none` + binding | — |
-| Go2_starting_point | 시각 마커 | `collisionEnabled=false` | (collider 생성 안 함) | — |
-| militarybase | 시각 마커 | 동일 | (skip) | — |
-| radar_tower | 시각 마커 | 동일 | (skip) | — |
+| Prim | 분류 | root 속성 (sublayer) | leaf Mesh (safety-net) |
+|---|---|---|---|
+| Doro | 정적 props | `MaterialBindingAPI` schema 사전 적용 | `MeshCollisionAPI(none)` + physics material binding |
+| Go2_starting_point | 시각 마커 | `collisionEnabled=false` | (skip) |
+| militarybase | 시각 마커 | `collisionEnabled=false` | (skip) |
+| Fence_Line | 철조망 (정적) | 해당 없음 (MCP 직접 생성) | 별도 collider 없음 |
 
 > Cube 는 정찰선 밖 디버그 잔재 — sublayer + gp_scene.usd 양쪽에 `active=false` 적용 (2026-05-21).
 

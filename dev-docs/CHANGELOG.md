@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-05-22
+
+### 씬 정리 + 철조망 울타리 설치 + MCP 서버 교체
+
+**변경 파일:** `main_side/scene/gp_scene.usd` (수정),
+`main_side/scene/overrides/gp_scene_overrides.usda` (수정),
+`main_side/camera_publisher.py` (수정),
+`main_side/scripts/cobot3_env.sh` (수정),
+`dev-docs/main-side.md`, `dev-docs/scene-overrides.md`, `dev-docs/ops.md` (갱신)
+
+**씬 정리 (gp_scene.usd):**
+- 삭제: Cube (디버그 잔재), radar_tower / Watchtowers / Fence (기존 정적 props), spike_ball / banana_obstacle / Landmine (동적 장애물). 총 7개 prim 제거.
+- 추가: `Fence_Line` — `barbed_wire_fence.usdz` 49개 세그먼트를 `Fence_Waypoints` Xform 배열을 따라 배치 (2026-05-22 MCP로 직접 생성). 높이 9m, RotateX=+90° (Y-up→Z-up 변환).
+- `gp_scene_overrides.usda` — 삭제된 prim 의 `over` 항목 전부 제거. 현재 override 대상: Go2_starting_point / militarybase / Doro 3개.
+
+**camera_publisher.py:**
+- `_build_dmz_zone()` 함수 및 관련 DMZ 상수 전체 제거 (DMZ_Zone prim 삭제에 따른 정리).
+- `_EXTRA_PRIMS` = `["/World/spike_ball", "/World/banana_obstacle", "/World/Landmine", "/World/Doro"]` → `["/World/Doro"]` 로 축소.
+- `_MARKER_PRIMS` 제거 (radar_tower 포함 시각 마커 prim 삭제).
+
+**MCP 서버 교체:**
+- 구 `~/dev_ws/isaac-sim-mcp/` (9도구) → `~/dev_ws/isaacsim-mcp-server/` (whats2000/isaacsim-mcp-server, 42도구).
+- `cobot3_env.sh` `--ext-folder` 경로 변경.
+
+---
+
 ## 2026-05-21
 
 ### Nav2 lifecycle race 해결 — Isaac /clock 대기 후 nav2 기동

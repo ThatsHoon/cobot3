@@ -28,34 +28,26 @@ _rl.subLayerPaths.insert(0, _rel)   # 가장 강한 opinion
 - **`GP_USE_OVERRIDES=0`** env 로 비활성화 가능 (디버그 / 롤백)
 - **파일 부재 시**: skip 로그 + runtime safety-net 만 동작
 
-## 현재 적용된 override 표
+## 현재 적용된 override 표 (2026-05-22 갱신)
 
 | Prim | 변경 항목 | 값 | 이유 |
 |---|---|---|---|
-| `/World/Cube` | `active` | `false` | 정찰선 밖 의문 prim, 시연 영역 무관 |
 | `/World/Go2_starting_point` | `physics:collisionEnabled` | `false` | scale 0.01 시각 마커, 충돌 불필요 |
 | `/World/militarybase` | `physics:collisionEnabled` | `false` | scale 0.1 시각 마커 |
-| `/World/radar_tower` | `physics:collisionEnabled` | `false` | 시각 마커 |
-| `/World/Watchtowers` | `apiSchemas += MaterialBindingAPI` | — | leaf Mesh binding 을 runtime 이 처리 가능하게 schema 사전 적용 |
-| `/World/Fence` | 동일 | — | 동일 |
-| `/World/Doro` | 동일 | — | 동일 |
-| `/World/spike_ball` | `physics:collisionEnabled`, `physics:mass`, schemas | `true`, `2.0`, CollisionAPI + MassAPI + MaterialBindingAPI | 동적 장애물 — rigidBody 는 base 에 있고 collision/mass 보강 |
-| `/World/banana_obstacle` | 동일 | `true`, `0.3` | 동적 (가벼움) |
-| `/World/Landmine` | 동일 | `true`, `1.0` | 동적 |
+| `/World/Doro` | `apiSchemas += MaterialBindingAPI` | — | leaf Mesh binding 을 runtime 이 처리 가능하게 schema 사전 적용 |
 
-> Note — Cube 의 `active=false` 는 sublayer **와** gp_scene.usd 양쪽에 적용됨 (감사 도중 1회 직접 저장). sublayer 비활성화 시에도 gp_scene.usd 만으로 Cube 비활성 유지.
+> **삭제된 prim override** — Cube / radar_tower / Watchtowers / Fence / spike_ball / banana_obstacle / Landmine 은 gp_scene.usd 에서 완전 삭제됨 (2026-05-22). 대응 sublayer 항목도 제거 완료.
 
 ## leaf-Mesh CollisionAPI 정책 (runtime safety-net)
 
-sublayer 는 자식 mesh 경로를 미리 열거하기 어려워, leaf Mesh 에는 `camera_publisher.py:380-434` 의 safety-net 이 적용:
+sublayer 는 자식 mesh 경로를 미리 열거하기 어려워, leaf Mesh 에는 `camera_publisher.py` 의 safety-net 이 적용:
 
 | Prim 분류 | approximation | 이유 |
 |---|---|---|
-| **동적** (spike_ball / banana_obstacle / Landmine) | `convexHull` | PhysX 가 dynamic rigidBody 에 trimesh-none 금지 |
-| **정적** (Watchtowers / Fence / Doro) | `none` (trimesh) | 정적 props 는 정확 mesh collision 가능 |
-| **시각 마커** (Go2_starting_point / militarybase / radar_tower) | 적용 안 함 | sublayer 가 root 에서 collisionEnabled=false |
+| **정적** (Doro) | `none` (trimesh) | 정적 props 는 정확 mesh collision 가능 |
+| **시각 마커** (Go2_starting_point / militarybase) | 적용 안 함 | sublayer 가 root 에서 collisionEnabled=false |
 
-binding 은 Terrain 내부의 `physics_material` (dynFric=0.8, statFric=0.8) 을 leaf Mesh 마다 `weakerThanDescendants` 로 적용.
+physics material binding 은 씬 내 Physics_Materials 의 `physics_material` (dynFric=0.8, statFric=0.8) 를 적용.
 
 ## 새 항목 추가 절차 (4-step)
 
