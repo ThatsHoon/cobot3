@@ -12,7 +12,7 @@ export default function DiagnosticsStrip({
   armQ: number[];
   legQ: number[];
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const bars = (arr: number[], n: number, color: string, scale: number) =>
     (arr.length ? arr : Array(n).fill(null)).map((q, i) => (
       <div key={i} className="spark h-7 flex-1">

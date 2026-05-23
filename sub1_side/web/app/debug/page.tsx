@@ -58,10 +58,13 @@ export default function DebugPage() {
       </header>
 
       <div className="flex-1 min-h-0 grid grid-cols-12 gap-2 p-2"
-           style={{ gridTemplateRows: "minmax(0,3.5fr) minmax(0,1fr) auto auto" }}>
-        {/* row1: ImmersiveCameraView 전체 (Lichtblick 제거) */}
-        <div className="col-span-12 min-h-0">
+           style={{ gridTemplateRows: "minmax(0,2.25fr) minmax(0,1fr) auto" }}>
+        {/* row1: ImmersiveCameraView & EventLog 5:5 분할 배치 */}
+        <div className="col-span-6 min-h-0 h-full">
           <ImmersiveCameraView yaw={yaw} />
+        </div>
+        <div className="col-span-6 min-h-0 h-full">
+          <EventLog events={eventStream} />
         </div>
 
         {/* row2 좌: 토픽 헬스 모니터 */}
@@ -82,11 +85,6 @@ export default function DebugPage() {
         {/* row3: 관절 메트릭 (DiagnosticsStrip) */}
         <div className="col-span-12">
           <DiagnosticsStrip armQ={armQ} legQ={legQ} />
-        </div>
-
-        {/* row4: EventLog */}
-        <div className="col-span-12 h-[160px]">
-          <EventLog events={eventStream} />
         </div>
       </div>
     </main>

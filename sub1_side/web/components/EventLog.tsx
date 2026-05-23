@@ -4,7 +4,7 @@ import { C2Event } from "@/lib/api";
 
 type LogEntry = { ts: string; type: string; summary: string };
 
-const MAX = 14;
+const MAX = 100;
 
 function summarize(e: C2Event): string {
   switch (e.type) {
@@ -43,12 +43,12 @@ export default function EventLog({
   }, [events]);
 
   return (
-    <div className="panel">
+    <div className="panel h-full flex flex-col">
       <div className="panel-hd">
         <span>EVENT LOG</span>
         <span className="text-[11px] text-dim">{rows.length}/{MAX}</span>
       </div>
-      <div className="px-2 py-1 text-[10px] font-mono max-h-40 overflow-auto">
+      <div className="px-2 py-1 text-[10px] font-mono flex-1 overflow-auto">
         {rows.length === 0 && (
           <div className="text-dim px-2 py-1">이벤트 없음</div>
         )}

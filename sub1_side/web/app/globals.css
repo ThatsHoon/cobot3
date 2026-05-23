@@ -3,14 +3,23 @@
 @tailwind utilities;
 
 :root {
-  --base: #060a08;
-  --panel: #0c120f;
-  --line: #1d2a23;
-  --phos: #46f4a8;     /* 인광 그린 */
+  --base: #04080a;
+  --panel: #08110d;
+  --panel-2: #0c1612;
+  --line: #1b2922;
+  --line-2: #2a3d33;
+  --phos: #46f4a8;
+  --phos-dim: #2a9468;
+  --phos-faint: rgba(70, 244, 168, 0.12);
+  --phos-glow: rgba(70, 244, 168, 0.45);
   --amber: #f4b740;
+  --amber-dim: #93701c;
   --alert: #ff4d4d;
+  --alert-dim: #a02626;
   --ink: #d6efe2;
+  --ink-2: #93a99c;
   --dim: #5d7a6c;
+  --graphite: #15201b;
   --font-display: "Chakra Petch", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 }
@@ -23,9 +32,11 @@ html, body {
   background: var(--base);
   color: var(--ink);
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* 작전실 분위기: 그리드 + 비네팅 + 스캔라인 */
+/* 작전실 분위기: 그리드 + 비네팅 + 미세 스캔라인 + 인광 후광 */
 body::before {
   content: "";
   position: fixed;
@@ -35,9 +46,9 @@ body::before {
   background-image:
     linear-gradient(var(--line) 1px, transparent 1px),
     linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 44px 44px;
-  opacity: 0.22;
-  mask-image: radial-gradient(ellipse at center, #000 35%, transparent 85%);
+  background-size: 56px 56px;
+  opacity: 0.16;
+  mask-image: radial-gradient(ellipse at center, #000 30%, transparent 88%);
 }
 body::after {
   content: "";
@@ -46,38 +57,78 @@ body::after {
   pointer-events: none;
   z-index: 2;
   background: repeating-linear-gradient(
-    0deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.18) 2px 3px);
+    0deg, rgba(0, 0, 0, 0) 0 3px, rgba(0, 0, 0, 0.16) 3px 4px);
   mix-blend-mode: overlay;
-  opacity: 0.5;
+  opacity: 0.38;
 }
 
-/* HUD 코너 브래킷 패널 */
+/* HUD 코너 브래킷 패널 — 4모서리 모두 */
 .panel {
   position: relative;
-  background: linear-gradient(180deg, var(--panel), #080d0b);
-  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel), #060b09 92%);
+  border: 1px solid var(--line-2);
 }
-.panel::before, .panel::after {
+.panel::before {
   content: "";
   position: absolute;
-  width: 14px; height: 14px;
-  border-color: var(--phos);
-  border-style: solid;
+  inset: -1.5px;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    /* Top Left */
+    linear-gradient(var(--phos), var(--phos)) 0 0 / 14px 2px no-repeat,
+    linear-gradient(var(--phos), var(--phos)) 0 0 / 2px 14px no-repeat,
+    /* Top Right */
+    linear-gradient(var(--phos), var(--phos)) 100% 0 / 14px 2px no-repeat,
+    linear-gradient(var(--phos), var(--phos)) 100% 0 / 2px 14px no-repeat,
+    /* Bottom Left */
+    linear-gradient(var(--phos), var(--phos)) 0 100% / 14px 2px no-repeat,
+    linear-gradient(var(--phos), var(--phos)) 0 100% / 2px 14px no-repeat,
+    /* Bottom Right */
+    linear-gradient(var(--phos), var(--phos)) 100% 100% / 14px 2px no-repeat,
+    linear-gradient(var(--phos), var(--phos)) 100% 100% / 2px 14px no-repeat;
 }
-.panel::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
-.panel::after  { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
 
+/* Panel header — 타이포 자체가 하이라이트. 깔끔한 한 줄 + 우측 메타. */
 .panel-hd {
   font-family: var(--font-display);
-  letter-spacing: 0.22em;
-  font-size: 11px;
+  letter-spacing: 0.26em;
+  font-size: 10.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  color: var(--dim);
-  border-bottom: 1px solid var(--line);
+  color: var(--phos);
+  text-shadow: 0 0 6px var(--phos-glow);
+  border-bottom: 1px solid var(--line-2);
   padding: 8px 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--phos) 18%, var(--panel)),
+      var(--panel));
+}
+.panel-hd::after {
+  content: "";
+  position: absolute;
+  left: 12px; right: 12px; bottom: -1px;
+  height: 1.5px;
+  background: linear-gradient(90deg, var(--phos), transparent 75%);
+  opacity: 1.0;
+  pointer-events: none;
+}
+.panel-hd .panel-idx {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--dim);
+}
+
+/* 안쪽 부속 패널 */
+.subpanel {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
 }
 
 .led {
@@ -87,30 +138,96 @@ body::after {
 }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
+/* ── HUD 버튼 ────────────────────────────────────────────────────── */
 .btn {
   font-family: var(--font-display);
-  letter-spacing: 0.15em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  font-size: 12px;
-  border: 1px solid var(--line);
-  background: #0a1410;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, #0c1611, #050a08);
   color: var(--ink);
   padding: 9px 14px;
   cursor: pointer;
-  transition: all .12s ease;
+  transition: all .14s ease;
+  position: relative;
+  outline: none;
 }
-.btn:hover { border-color: var(--phos); color: var(--phos); box-shadow: var(--glow); }
-.btn-fire {
+.btn:hover:not(:disabled) {
+  border-color: var(--phos);
+  color: var(--phos);
+  box-shadow: 0 0 14px -3px var(--phos-glow), inset 0 0 0 1px var(--phos-faint);
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn[data-tone="phos"]  { border-color: var(--phos-dim);  color: var(--phos);  }
+.btn[data-tone="amber"] { border-color: var(--amber-dim); color: var(--amber); }
+.btn[data-tone="alert"] { border-color: var(--alert-dim); color: var(--alert); }
+
+.btn[data-tone="amber"]:hover:not(:disabled) {
+  border-color: var(--amber); color: var(--amber);
+  box-shadow: 0 0 14px -3px var(--amber);
+}
+.btn[data-tone="alert"]:hover:not(:disabled) {
+  border-color: var(--alert); color: var(--alert);
+  background: linear-gradient(180deg, rgba(255, 77, 77, 0.18), transparent);
+  box-shadow: 0 0 14px -3px var(--alert);
+}
+
+.btn[data-active="true"] {
+  background: var(--phos);
+  border-color: var(--phos);
+  color: var(--base);
+  box-shadow: 0 0 10px var(--phos-glow);
+  font-weight: 600;
+}
+
+.btn[data-active="true"][data-tone="amber"] {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--base);
+  box-shadow: 0 0 10px rgba(244, 183, 64, 0.45);
+  font-weight: 600;
+}
+
+.btn[data-active="true"][data-tone="alert"] {
+  background: var(--alert);
+  border-color: var(--alert);
+  color: var(--base);
+  box-shadow: 0 0 10px rgba(255, 77, 77, 0.45);
+  font-weight: 600;
+}
+
+.btn-fire { /* legacy alias */
   border-color: var(--alert); color: var(--alert);
 }
 .btn-fire:hover {
-  background: var(--alert); color: #150202; box-shadow: var(--alertglow);
+  background: var(--alert); color: #150202; box-shadow: 0 0 16px -2px var(--alert);
 }
+
+/* 체크박스 아이콘 — 4분할 grid 의 micro 컨트롤 */
+.btn-icon {
+  font-family: var(--font-mono);
+  border: 1px solid var(--line-2);
+  background: linear-gradient(180deg, #0c1611, #050a08);
+  color: var(--ink-2);
+  padding: 8px 0;
+  cursor: pointer;
+  transition: all .12s ease;
+  display: flex; align-items: center; justify-content: center;
+}
+.btn-icon:hover:not(:disabled) {
+  border-color: var(--phos); color: var(--phos);
+  box-shadow: inset 0 0 0 1px var(--phos-faint);
+}
+.btn-icon:disabled { opacity: 0.35; cursor: not-allowed; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--panel); }
-::-webkit-scrollbar-thumb { background: var(--line); }
-::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--phos-dim); }
 
 .scan {
   background: linear-gradient(90deg, transparent, var(--phos), transparent);
@@ -119,7 +236,7 @@ body::after {
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
 /* ── 경보 모드: 접촉(침입자) 발생 시 UI 전역 강조 ───────────────── */
-.alert-active { --phos: #ff5a5a; }
+.alert-active { --phos: #ff5a5a; --phos-dim: #a82a2a; --phos-faint: rgba(255,90,90,0.14); --phos-glow: rgba(255,90,90,0.5); }
 .alert-active body::before { opacity: 0.30; }
 
 /* THREAT 상태 바 */
@@ -127,12 +244,12 @@ body::after {
   position: relative;
   border: 1px solid var(--line);
   background:
-    linear-gradient(180deg, rgba(70,244,168,0.05), transparent);
+    linear-gradient(180deg, var(--phos-faint), transparent);
   overflow: hidden;
 }
 .threat.contact {
   border-color: var(--alert);
-  background: linear-gradient(180deg, rgba(255,77,77,0.14), transparent);
+  background: linear-gradient(180deg, rgba(255, 77, 77, 0.14), transparent);
   animation: threatpulse 1.1s ease-in-out infinite;
 }
 @keyframes threatpulse {
@@ -144,19 +261,68 @@ body::after {
 }
 .threat.contact .threat-rail { background: var(--alert); }
 
-/* 컴팩트 상태 타일 */
+/* ── 컴팩트 상태 타일 ──────────────────────────────────────────── */
 .tile {
   border: 1px solid var(--line);
-  background: #0a0f0d;
+  background: var(--panel-2);
   padding: 9px 11px;
 }
 .tile .k {
-  font-size: 9.5px; letter-spacing: 0.22em; color: var(--dim);
+  font-family: var(--font-display);
+  font-size: 9.5px; letter-spacing: 0.30em; color: var(--dim);
   text-transform: uppercase;
 }
 .tile .v {
   font-family: var(--font-display);
   font-size: 19px; line-height: 1.15; margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* ── Stat 블록 (TelemetryStrip) ─────────────────────────────────── */
+.stat {
+  display: flex; flex-direction: column;
+  padding: 9px 16px;
+  flex: 1; min-width: 0;
+  position: relative;
+}
+.stat + .stat::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 18%; bottom: 18%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, var(--line-2) 30%, var(--line-2) 70%, transparent);
+}
+.stat .k {
+  font-family: var(--font-display);
+  font-size: 9px;
+  letter-spacing: 0.34em;
+  color: var(--dim);
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 6px;
+}
+.stat .k::before {
+  content: "";
+  width: 4px; height: 4px;
+  background: var(--phos-dim);
+  display: inline-block;
+}
+.stat .v {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  line-height: 1.1;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  font-weight: 500;
+}
+.stat .u {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.14em;
+  margin-left: 5px;
 }
 
 /* 작전 로그 행 */
@@ -168,3 +334,94 @@ body::after {
 
 .spark { background: var(--line); position: relative; overflow: hidden; }
 .spark > i { position: absolute; bottom: 0; left: 0; right: 0; display: block; }
+
+/* 마이크로 corner brackets */
+.codecorner { position: relative; }
+.codecorner::before, .codecorner::after {
+  content: "";
+  position: absolute;
+  width: 8px; height: 8px;
+  border-color: var(--phos);
+  border-style: solid;
+  pointer-events: none;
+}
+.codecorner::before { top: 0; left: 0;     border-width: 1px 0 0 1px; }
+.codecorner::after  { bottom: 0; right: 0; border-width: 0 1px 1px 0; }
+
+/* tabular helper */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Range input — phos */
+input[type="range"] {
+  accent-color: var(--phos);
+  height: 4px;
+}
+
+/* Custom speed slider thumb styling with large click targets */
+input[type="range"].speed-slider-custom {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--line-2);
+  height: 6px;
+  border-radius: 3px;
+  outline: none;
+}
+input[type="range"].speed-slider-custom::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--phos);
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--phos-glow);
+  transition: transform 0.1s;
+}
+input[type="range"].speed-slider-custom::-webkit-slider-thumb:hover {
+  transform: scale(1.3);
+}
+input[type="range"].speed-slider-custom::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--phos);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 8px var(--phos-glow);
+  transition: transform 0.1s;
+}
+input[type="range"].speed-slider-custom::-moz-range-thumb:hover {
+  transform: scale(1.3);
+}
+
+/* Unacknowledged alarm log row pulsing animations */
+@keyframes alert-row-pulse {
+  0%, 100% {
+    background-color: rgba(255, 77, 77, 0.03);
+  }
+  50% {
+    background-color: rgba(255, 77, 77, 0.12);
+    box-shadow: inset 0 0 6px rgba(255, 77, 77, 0.1);
+  }
+}
+.alert-unack-pulse {
+  animation: alert-row-pulse 2s infinite ease-in-out;
+  border-left: 2px solid var(--alert) !important;
+}
+
+@keyframes animal-row-pulse {
+  0%, 100% {
+    background-color: rgba(244, 183, 64, 0.03);
+  }
+  50% {
+    background-color: rgba(244, 183, 64, 0.12);
+    box-shadow: inset 0 0 6px rgba(244, 183, 64, 0.1);
+  }
+}
+.animal-unack-pulse {
+  animation: animal-row-pulse 2s infinite ease-in-out;
+  border-left: 2px solid var(--amber) !important;
+}
+
+/* 선택 배경 */
+::selection { background: var(--phos); color: #050a08; }

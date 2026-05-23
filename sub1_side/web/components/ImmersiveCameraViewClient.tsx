@@ -1,6 +1,6 @@
 "use client";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Environment } from "@react-three/drei";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import URDFLoader, { URDFRobot } from "urdf-loader";
@@ -115,6 +115,22 @@ function Go2Urdf({ url }: { url: string }) {
       (e: any) => setErr(String(e?.message || e)));
   }, [url]);
 
+  useEffect(() => {
+    if (!robot) return;
+    robot.traverse((child: THREE.Object3D) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        if (mesh.material instanceof THREE.MeshStandardMaterial) {
+          mesh.material.roughness = 0.45;
+          mesh.material.metalness = 0.55;
+          mesh.material.needsUpdate = true;
+        }
+      }
+    });
+  }, [robot]);
+
   if (err) {
     return (
       <mesh position={[0, 0.3, 0]}>
@@ -133,7 +149,32 @@ function Go2Urdf({ url }: { url: string }) {
       </group>
     );
   }
-  return <primitive object={robot} />;
+  return (
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <primitive object={robot} />
+    </group>
+  );
+}
+
+function SceneBase() {
+  return (
+    <>
+      {/* 바닥 반사 원형 링 */}
+      {([1.0, 1.8, 2.8] as number[]).map((r) => (
+        <mesh key={r} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
+          <ringGeometry args={[r - 0.04, r, 64]} />
+          <meshStandardMaterial
+            color="#00ff88"
+            emissive="#00ff88"
+            emissiveIntensity={0.4}
+            transparent
+            opacity={0.25}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+    </>
+  );
 }
 
 function Ground() {
@@ -180,20 +221,42 @@ export default function ImmersiveCameraViewClient({
   return (
     <div className="relative w-full h-full bg-black">
       <Canvas
+        shadows
         camera={{ position: [2.5, 2.0, 2.5], fov: 50, near: 0.05, far: 60 }}
         gl={{ antialias: true, alpha: false }}
         style={{ background: "#000" }}
+        onCreated={({ gl }) => {
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.1;
+          gl.shadowMap.enabled = true;
+          gl.shadowMap.type = THREE.PCFSoftShadowMap;
+        }}
       >
-        <ambientLight intensity={0.55} />
-        <pointLight position={[3, 4, 3]} intensity={1.5} color="#ffffff" />
-        <pointLight position={[-3, 2, -3]} intensity={0.6} color="#00ff88" />
+        <fog attach="fog" args={["#000000", 8, 20]} />
+        <ambientLight intensity={0.3} />
+        <directionalLight
+          castShadow
+          position={[5, 8, 5]}
+          intensity={1.4}
+          shadow-mapSize={[2048, 2048] as any}
+          shadow-camera-near={0.5}
+          shadow-camera-far={50}
+          shadow-camera-left={-5}
+          shadow-camera-right={5}
+          shadow-camera-top={5}
+          shadow-camera-bottom={-5}
+        />
+        <directionalLight position={[-4, 4, -3]} intensity={0.4} color="#aaccff" />
+        <pointLight position={[0, -2, 3]} intensity={0.6} color="#ff8844" distance={12} />
+
+        <Environment preset="city" />
 
         <YawGroup yaw={yaw}>
           <Go2Urdf url={url} />
           {CAMS.map((c) => <CameraSector key={c.id} cam={c} />)}
-          <SphereWireframe />
         </YawGroup>
 
+        <SceneBase />
         <Ground />
 
         <OrbitControls enableDamping dampingFactor={0.08}

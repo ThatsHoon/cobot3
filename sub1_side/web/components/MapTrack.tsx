@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getApiBase, postJSON, ROBOT_ID, LandmarksPayload, IntruderState,
-         PatrolStatePayload } from "@/lib/api";
+         PatrolStatePayload, RoutingStatePayload } from "@/lib/api";
 
 type Pt = { x: number; y: number; yaw?: number };
 
@@ -22,6 +22,8 @@ export default function MapTrack({
   intruders,
   patrolState,
   alertActive,
+  routingState,
+  previewRoute,
 }: {
   track: Pt[];
   cur: Pt | null;
@@ -29,6 +31,8 @@ export default function MapTrack({
   intruders?: IntruderState[];
   patrolState?: PatrolStatePayload | null;
   alertActive?: boolean;
+  routingState?: RoutingStatePayload | null;
+  previewRoute?: { x: number; y: number }[] | null;
 }) {
   const cv = useRef<HTMLCanvasElement>(null);
   const [pending, setPending] = useState<Pt | null>(null);
@@ -201,24 +205,50 @@ export default function MapTrack({
       const HALF = FOV_RAD / 2;
       const RANGE_M = 25;
       const rangePx = (RANGE_M / view.extent) * (W / 2);
-      const drawCone = (centerYaw: number, fill: string, stroke: string) => {
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        // canvas: +y down → screen yaw = -world yaw
+      const drawFov = (centerYaw: number, rgb: string) => {
         const a0 = -(centerYaw - HALF);
         const a1 = -(centerYaw + HALF);
-        ctx.arc(px, py, rangePx, a0, a1, true);
+        const x0 = px + Math.cos(a0) * rangePx;
+        const y0 = py + Math.sin(a0) * rangePx;
+        const x1 = px + Math.cos(a1) * rangePx;
+        const y1 = py + Math.sin(a1) * rangePx;
+        ctx.save();
+        // 옅은 wedge fill — 영역 인식용(끝선=호 없음)
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(x0, y0);
+        ctx.lineTo(x1, y1);
         ctx.closePath();
-        ctx.fillStyle = fill;
+        const grad = ctx.createRadialGradient(px, py, 0, px, py, rangePx);
+        grad.addColorStop(0,   `rgba(${rgb},0.14)`);
+        grad.addColorStop(0.5, `rgba(${rgb},0.06)`);
+        grad.addColorStop(1,   `rgba(${rgb},0.00)`);
+        ctx.fillStyle = grad;
         ctx.fill();
-        ctx.strokeStyle = stroke;
-        ctx.lineWidth = 1;
+        // 좌우 경계 라인 — phos glow 톤
+        ctx.shadowColor = `rgba(${rgb},0.95)`;
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = `rgba(${rgb},0.95)`;
+        ctx.lineWidth = 1.4;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(px, py); ctx.lineTo(x0, y0);
+        ctx.moveTo(px, py); ctx.lineTo(x1, y1);
         ctx.stroke();
+        // 두 번째 패스 — 안쪽 더 밝은 코어 라인
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(255,255,255,0.55)`;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(px, py); ctx.lineTo(x0, y0);
+        ctx.moveTo(px, py); ctx.lineTo(x1, y1);
+        ctx.stroke();
+        ctx.restore();
       };
-      // inspect (전방) — cyan 반투명
-      drawCone(yaw, "rgba(80,200,255,0.10)", "rgba(80,200,255,0.55)");
-      // rear (후방) — orange 반투명
-      drawCone(yaw + Math.PI, "rgba(255,170,80,0.07)", "rgba(255,170,80,0.4)");
+      // inspect (전방) — phos 형광 그린
+      drawFov(yaw, "70,244,168");
+      // rear (후방) — amber 형광
+      drawFov(yaw + Math.PI, "244,183,64");
 
       // robot 원 + yaw 화살표
       ctx.fillStyle = "#46f4a8";
@@ -252,7 +282,85 @@ export default function MapTrack({
       ctx.font = "bold 11px monospace";
       ctx.fillText("ALERT", 8, 16);
     }
-  }, [track, cur, pending, view, landmarks, intruders, patrolState, alertActive]);
+
+    // world frame → odom frame 변환 헬퍼
+    // routing_zones 의 StartingPoint(Nav2 odom 원점의 USD world 좌표)를 기준으로 변환.
+    const sp = landmarks?.routing_zones?.find(z => z.name === "StartingPoint");
+    const w2o = (pt: { x: number; y: number }) =>
+      sp ? { x: pt.x - sp.x, y: pt.y - sp.y } : pt;
+
+    // TP 마커 (적색 역삼각형 + 이름)
+    const tps = landmarks?.tactical_points;
+    if (tps) {
+      Object.entries(tps).forEach(([name, pos]) => {
+        const { px, py } = toPx(w2o(pos));
+        const isTarget = routingState?.tp_id === name && !routingState?.completed;
+        ctx.fillStyle = isTarget ? "#fbbf24" : "#dc2626";
+        ctx.beginPath();
+        ctx.moveTo(px, py - 9);
+        ctx.lineTo(px - 7, py + 5);
+        ctx.lineTo(px + 7, py + 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = isTarget ? "#fbbf24" : "#fff";
+        ctx.font = "bold 8px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(name, px, py + 15);
+        ctx.textAlign = "left";
+      });
+    }
+
+    // 미리보기 경로 (TP 선택 시, 실제 이동 전 — 회색 점선)
+    const activelyRouting = routingState && !routingState.completed;
+    if (!activelyRouting && previewRoute && previewRoute.length > 1) {
+      ctx.strokeStyle = "rgba(156,163,175,0.7)"; // gray-400 반투명
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      previewRoute.forEach((pt, i) => {
+        const { px, py } = toPx(w2o(pt));
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 경유 zone 작은 원
+      previewRoute.slice(0, -1).forEach((pt) => {
+        const { px, py } = toPx(w2o(pt));
+        ctx.strokeStyle = "rgba(156,163,175,0.5)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, 2 * Math.PI);
+        ctx.stroke();
+      });
+    }
+
+    // 라우팅 경로 점선 + 현재 목표 zone 강조
+    if (routingState && !routingState.completed && routingState.route.length > 1) {
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      routingState.route.forEach((pt, i) => {
+        const { px, py } = toPx(w2o(pt));
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 현재 목표 zone 원형 표시
+      if (routingState.current_idx < routingState.route.length) {
+        const cur2 = routingState.route[routingState.current_idx];
+        const { px, py } = toPx(w2o(cur2));
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 9, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
+  }, [track, cur, pending, view, landmarks, intruders, patrolState, alertActive, routingState, previewRoute]);
 
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const c = cv.current!;
@@ -318,8 +426,8 @@ export default function MapTrack({
         {/* 시야각 범례 */}
         <div className="absolute bottom-1 left-1 text-[9px] font-mono
                         bg-black/70 px-1.5 py-0.5 flex gap-2 leading-tight">
-          <span className="text-cyan-300">▲ INSPECT 60°·25m</span>
-          <span className="text-amber-300">▼ REAR 60°·25m</span>
+          <span className="text-phos">▲ INSPECT 60°·25m</span>
+          <span className="text-amber">▼ REAR 60°·25m</span>
         </div>
       </div>
       <div className="px-3 py-1.5 text-[11px] text-amber border-t border-line min-h-[26px]">

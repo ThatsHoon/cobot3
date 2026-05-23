@@ -331,6 +331,38 @@ async def mission_command(body: dict):
     return {"ok": True, "command": cmd}
 
 
+@app.post("/robots/{rid}/goto_tp", dependencies=[Depends(require_key)])
+async def goto_tactical_point(rid: str, body: dict):
+    """body: {"tp_id": "TP_A"} → /mission_command "goto_tp:TP_A"."""
+    tp_id = str(body.get("tp_id", "")).strip().upper()
+    if not tp_id.startswith("TP_") or len(tp_id) < 4:
+        raise HTTPException(400, f"invalid tp_id: {tp_id!r} (expected TP_A, TP_B, ...)")
+    ros.pub_mission(f"goto_tp:{tp_id}")
+    return {"ok": True, "tp_id": tp_id}
+
+
+@app.get("/robots/{rid}/preview_route", dependencies=[Depends(require_key)])
+async def preview_route(rid: str, tp_id: str):
+    """이동 명령 없이 TP 경로만 계산해서 반환 (MapTrack 미리보기용)."""
+    tp_id = tp_id.strip().upper()
+    if not tp_id.startswith("TP_"):
+        raise HTTPException(400, f"invalid tp_id: {tp_id!r}")
+    lm = ros.latest.get("landmarks") or {}
+    zones = lm.get("routing_zones", [])
+    tps = lm.get("tactical_points", {})
+    if not zones:
+        raise HTTPException(503, "routing_zones 미수신 (landmarks 대기 중)")
+    if tp_id not in tps:
+        raise HTTPException(404, f"{tp_id} 없음")
+    from zone_router import ZoneRouter
+    edges = lm.get("routing_edges") or None
+    router = ZoneRouter(zones, tps, routing_edges=edges)
+    # 시작점: StartingPoint zone (C2 측에 world-frame pose 없음 — 미리보기 전용)
+    start = next((z for z in zones if z["name"] == "StartingPoint"), zones[0])
+    waypoints = router.plan((start["x"], start["y"]), tp_id)
+    return {"tp_id": tp_id, "route": [{"x": p[0], "y": p[1]} for p in waypoints]}
+
+
 @app.post("/robots/{rid}/inspect", dependencies=[Depends(require_key)])
 async def inspect_command(rid: str, body: dict):
     """검사 카메라 짐벌 명령 → /robot/inspect/command.

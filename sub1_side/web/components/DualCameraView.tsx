@@ -1,21 +1,8 @@
 "use client";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApiBase, AlertPayload } from "@/lib/api";
 import { useWeaponSafety } from "./WeaponSafetyContext";
 
-/** 검사(짐벌) + 후방(real) 카메라 MJPEG 2-panel + HITL 사격 클릭.
- *
- *  inspect 패널:
- *    - 최근 YOLO alert 의 bbox 를 빨강 outline 으로 표시
- *    - bbox 클릭 → bbox 중심 좌표로 격발 요청 (안전장치 검사)
- *    - 빈 영역 클릭 → 클릭 좌표로 격발 요청
- *
- *  안전장치 OFF 면 useWeaponSafety.requestFire() → 확인 모달 → 격발.
- *  안전장치 ON 이면 toast "안전장치 해제 요망".
- *
- *  bbox 좌표계: AlertPayload.bbox_xyxy = inspect 카메라 이미지 픽셀 (1280×720
- *  기본 가정 — config 의 CamInspect 해상도). 클릭 좌표 변환 동일.
- */
 const INSPECT_W = 1280;
 const INSPECT_H = 720;
 
@@ -24,20 +11,21 @@ export default function DualCameraView({
 }: {
   liveAlerts?: { ts: string; data: AlertPayload }[];
 }) {
-  // 최근 5초 이내 alert 들 (overlay 표시)
   const now = Date.now();
   const recent = (liveAlerts || []).filter(e =>
     now - new Date(e.ts).getTime() < 5000);
 
   return (
-    <div className="panel">
+    <div className="panel h-full flex flex-col">
       <div className="panel-hd">
-        <span>DUAL CAMERA</span>
-        <span className="text-[11px] text-dim">
-          MJPEG · 5fps · INSPECT 클릭=격발 ({recent.length} bbox)
+        <span>DUAL CAMERA · REALSENSE</span>
+        <span className="flex items-center gap-2">
+          <span className="panel-idx tabular">
+            MJPEG · 5 FPS · BBOX {String(recent.length).padStart(2, "0")}
+          </span>
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-1.5 p-1.5">
+      <div className="grid grid-cols-2 gap-1.5 p-1.5 flex-1 min-h-0">
         <InspectCamera alerts={recent} />
         <RearCamera />
       </div>
@@ -45,14 +33,24 @@ export default function DualCameraView({
   );
 }
 
+/** 마운트 전엔 src 비워서 SSR/CSR hydration mismatch 회피. */
+function useMjpegSrc(camera: "inspect" | "rear") {
+  const [src, setSrc] = useState<string>("");
+  useEffect(() => {
+    setSrc(`${getApiBase()}/c2/video/mjpeg?camera=${camera}`);
+  }, [camera]);
+  return src;
+}
+
 function RearCamera() {
+  const src = useMjpegSrc("rear");
   return (
-    <div className="relative bg-black aspect-video">
+    <div className="relative bg-black aspect-video codecorner">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={`${getApiBase()}/c2/video/mjpeg?camera=rear`}
-           alt="REAR" className="w-full h-full object-contain" />
-      <div className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px]
-                      bg-black/70 text-phos font-mono">REAR</div>
+      {src && <img src={src} alt="REAR"
+                   className="w-full h-full object-contain" />}
+      <CamBadge label="REAR" side="left" tone="phos" sub="06 · REAR-WIDE" />
+      <Reticle />
     </div>
   );
 }
@@ -62,8 +60,8 @@ function InspectCamera({ alerts }: {
 }) {
   const { requestFire, safetyOff } = useWeaponSafety();
   const containerRef = useRef<HTMLDivElement>(null);
+  const src = useMjpegSrc("inspect");
 
-  // 픽셀 좌표 (1280×720 기준) → 화면 좌표(%) 로 표시
   const toViewBox = (x: number, y: number, w: number, h: number) => ({
     left: `${(x / INSPECT_W) * 100}%`,
     top: `${(y / INSPECT_H) * 100}%`,
@@ -73,10 +71,9 @@ function InspectCamera({ alerts }: {
 
   const onContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
-    // 이미 bbox 클릭 핸들러가 stopPropagation 하면 여기 안 옴.
     const rect = containerRef.current.getBoundingClientRect();
-    const u = (e.clientX - rect.left) / rect.width;   // 0..1
-    const v = (e.clientY - rect.top) / rect.height;   // 0..1
+    const u = (e.clientX - rect.left) / rect.width;
+    const v = (e.clientY - rect.top) / rect.height;
     const px = u * INSPECT_W;
     const py = v * INSPECT_H;
     requestFire({
@@ -100,14 +97,14 @@ function InspectCamera({ alerts }: {
   return (
     <div ref={containerRef}
          onClick={onContainerClick}
-         className={`relative bg-black aspect-video
+         className={`relative bg-black aspect-video codecorner
                      ${safetyOff ? "cursor-crosshair" : "cursor-not-allowed"}`}
          title={safetyOff ? "클릭하여 격발 (확인 후)"
                           : "🔒 SAFETY ON — 우측 WEAPON 패널에서 해제 필요"}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={`${getApiBase()}/c2/video/mjpeg?camera=inspect`}
-           alt="INSPECT" className="w-full h-full object-contain
-                                    pointer-events-none" />
+      {src && <img src={src} alt="INSPECT"
+                   className="w-full h-full object-contain pointer-events-none" />}
+
       {/* bbox overlay */}
       {alerts.map((a, i) => {
         const bbox = parseBbox(a.data.bbox_xyxy);
@@ -117,35 +114,83 @@ function InspectCamera({ alerts }: {
         return (
           <div key={i}
                onClick={e => onBboxClick(e, a.data)}
-               className={`absolute border-2 ${safetyOff
-                 ? "border-rose-500 hover:border-yellow-300 hover:bg-rose-500/20"
-                 : "border-rose-500/40"} cursor-pointer pointer-events-auto`}
-               style={style}>
-            <div className="absolute -top-4 left-0 text-[9px] font-mono
-                            bg-rose-600 text-white px-1">
-              {a.data.event} {a.data.confidence.toFixed(2)}
+               className={`absolute cursor-pointer pointer-events-auto`}
+               style={{
+                 ...style,
+                 border: `1.5px solid ${safetyOff ? "var(--alert)" : "rgba(255,77,77,0.45)"}`,
+                 boxShadow: safetyOff
+                   ? "0 0 0 1px rgba(0,0,0,0.5), inset 0 0 12px rgba(255,77,77,0.25)"
+                   : undefined,
+               }}>
+            {/* corner brackets */}
+            <span className="absolute -top-px -left-px w-2 h-2 border-t border-l border-alert" />
+            <span className="absolute -top-px -right-px w-2 h-2 border-t border-r border-alert" />
+            <span className="absolute -bottom-px -left-px w-2 h-2 border-b border-l border-alert" />
+            <span className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-alert" />
+            <div className="absolute -top-[18px] left-0 text-[9px] font-display
+                            tracking-[0.16em] bg-alert text-base px-1.5">
+              {a.data.event} · {a.data.confidence.toFixed(2)}
             </div>
           </div>
         );
       })}
-      {/* 라벨 + 안전장치 인디케이터 */}
-      <div className="absolute top-1 left-1 px-1.5 py-0.5 text-[10px]
-                      bg-black/70 text-phos font-mono">INSPECT</div>
-      <div className={`absolute top-1 right-1 px-1.5 py-0.5 text-[10px]
-                       font-mono ${safetyOff
-                         ? "bg-rose-600 text-white animate-pulse"
-                         : "bg-emerald-700/80 text-white"}`}>
-        {safetyOff ? "🔓 ARMED" : "🔒 SAFE"}
-      </div>
-      {/* 십자선 (참고용, 사격 시 inspect 가 클릭 위치로 회전) */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none"
-           viewBox="0 0 100 100" preserveAspectRatio="none">
-        <line x1="50" y1="46" x2="50" y2="54" stroke="rgba(255,80,80,0.5)"
-              strokeWidth="0.2" vectorEffect="non-scaling-stroke" />
-        <line x1="46" y1="50" x2="54" y2="50" stroke="rgba(255,80,80,0.5)"
-              strokeWidth="0.2" vectorEffect="non-scaling-stroke" />
-      </svg>
+
+      <CamBadge label="INSPECT" side="left" tone="phos" sub="05 · TURRET-CAM" />
+      <CamBadge
+        label={safetyOff ? "ARMED" : "SAFE"}
+        side="right"
+        tone={safetyOff ? "alert" : "phos"}
+        sub={safetyOff ? "FCS · OPEN" : "FCS · CLOSED"}
+        pulse={safetyOff}
+      />
+
+      <Reticle armed={safetyOff} />
     </div>
+  );
+}
+
+function CamBadge({
+  label, side, tone, sub, pulse,
+}: {
+  label: string; side: "left" | "right";
+  tone: "phos" | "alert" | "amber";
+  sub?: string; pulse?: boolean;
+}) {
+  const c = tone === "phos" ? "text-phos border-phos-dim"
+    : tone === "alert" ? "text-alert border-alert-dim"
+    : "text-amber border-amber-dim";
+  return (
+    <div className={`absolute top-1.5 ${side === "left" ? "left-1.5" : "right-1.5"}
+                     bg-black/75 backdrop-blur-sm border ${c}
+                     px-2 py-0.5 ${pulse ? "animate-pulse" : ""}`}>
+      <div className="font-display tracking-[0.22em] text-[10px] leading-tight">{label}</div>
+      {sub && <div className="font-mono text-[8px] tracking-[0.18em] text-dim leading-tight">{sub}</div>}
+    </div>
+  );
+}
+
+function Reticle({ armed }: { armed?: boolean }) {
+  const c = armed ? "var(--alert)" : "rgba(70, 244, 168, 0.55)";
+  return (
+    <svg className="absolute inset-0 w-full h-full pointer-events-none"
+         viewBox="0 0 100 100" preserveAspectRatio="none">
+      {/* main crosshair */}
+      <line x1="50" y1="44" x2="50" y2="56" stroke={c}
+            strokeWidth="0.18" vectorEffect="non-scaling-stroke" />
+      <line x1="44" y1="50" x2="56" y2="50" stroke={c}
+            strokeWidth="0.18" vectorEffect="non-scaling-stroke" />
+      {/* outer ticks */}
+      <line x1="50" y1="20" x2="50" y2="24" stroke={c}
+            strokeWidth="0.12" vectorEffect="non-scaling-stroke" />
+      <line x1="50" y1="76" x2="50" y2="80" stroke={c}
+            strokeWidth="0.12" vectorEffect="non-scaling-stroke" />
+      <line x1="20" y1="50" x2="24" y2="50" stroke={c}
+            strokeWidth="0.12" vectorEffect="non-scaling-stroke" />
+      <line x1="76" y1="50" x2="80" y2="50" stroke={c}
+            strokeWidth="0.12" vectorEffect="non-scaling-stroke" />
+      {/* center dot */}
+      <circle cx="50" cy="50" r="0.4" fill={c} />
+    </svg>
   );
 }
 

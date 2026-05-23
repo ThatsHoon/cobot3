@@ -258,6 +258,9 @@ if RCLPY_OK:
                                      self._on_wind_state, rel_qos)
             self.create_subscription(String, T["weapon_state"],
                                      self._on_weapon_state, latched_qos)
+            # ---- Zone 기반 라우팅 (2026-05-22) ----
+            self.create_subscription(String, T["routing_state"],
+                                     self._on_routing_state, rel_qos)
             self._weather_pub = self.create_publisher(
                 String, T["weather_cmd"], rel_qos)
             # ---- 업링크 발행/클라이언트 ----
@@ -278,7 +281,8 @@ if RCLPY_OK:
                         "leg": 0, "rosout": 0,
                         "intruders": 0, "patrol_state": 0, "landmarks": 0,
                         "fall_alert": 0, "fall_state": 0,
-                        "wind_state": 0, "weapon_state": 0}
+                        "wind_state": 0, "weapon_state": 0,
+                        "routing_state": 0}
             self.create_timer(5.0, self._health)
             self.get_logger().info(
                 "구독: state/gps/odom/leg/rosout/video_rear/video_inspect/"
@@ -534,6 +538,13 @@ if RCLPY_OK:
             if prev.get("state") != d.get("state"):
                 self.br._emit({"type": "weapon_state", "ts": _now_iso(),
                                "data": d})
+
+        def _on_routing_state(self, msg):
+            try:
+                d = json.loads(msg.data)
+            except Exception:
+                return
+            self.br._emit({"type": "routing_state", "ts": _now_iso(), "data": d})
 
         # ---- 업링크 ----
         def pub_cmd_vel(self, lin: float, ang: float, vy: float = 0.0):

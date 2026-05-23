@@ -33,35 +33,39 @@ export default function AnimalAlertsLog({
   }, [liveEvents]);
 
   return (
-    <div className="panel">
+    <div className="panel h-full flex flex-col">
       <div className="panel-hd">
         <span>ANIMAL ALERTS</span>
         <span className="text-[11px] text-dim">
           {rows.filter(r => !r.ack).length} open
         </span>
       </div>
-      <div className="px-2 py-1 max-h-44 overflow-auto text-[11px] font-mono">
+      <div className="px-2 py-1 h-[192px] overflow-auto text-[11px] font-mono">
         {rows.length === 0 && (
           <div className="text-dim px-2 py-1">동물 알람 없음</div>
         )}
         {rows.map((r, i) => (
           <div key={i}
-               className={`flex items-center justify-between gap-2 px-2 py-1 ` +
-                          `border-b border-line ${r.ack ? "opacity-50" : ""}`}>
+               className={`flex items-center justify-between gap-2 px-2 py-1.5 border-b border-line ` +
+                          `${!r.ack ? "animal-unack-pulse" : ""} ` +
+                          `${r.ack ? "opacity-30" : ""}`}>
             <div className="flex-1 min-w-0">
-              <div className="text-amber">
+              <div className="text-amber font-display tracking-[0.04em]">
                 {r.label.toUpperCase()}
-                <span className="text-dim"> conf={r.conf.toFixed(2)}</span>
+                <span className="text-dim ml-2 tabular">
+                  conf <span className="text-ink-2">{r.conf.toFixed(2)}</span>
+                </span>
               </div>
-              <div className="text-dim truncate">
-                {new Date(r.ts).toLocaleTimeString()}
+              <div className="text-dim text-[10px] tabular">
+                {new Date(r.ts).toLocaleTimeString("en-GB")}
               </div>
             </div>
             {!r.ack && (
               <button
                 onClick={() => setRows(p => p.map((x, j) =>
                   j === i ? { ...x, ack: true } : x))}
-                className="text-[10px] px-2 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600">
+                className="btn !py-1 !px-2 !text-[9.5px] !tracking-[0.18em]"
+                title="acknowledge">
                 ACK
               </button>
             )}

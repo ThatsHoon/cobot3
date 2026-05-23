@@ -62,6 +62,8 @@ TOPICS = {
     # Weapon (2026-05-21, HITL)
     "weapon_state": "/robot/weapon/state",  # std_msgs/String (JSON 1Hz latched)
     "weapon_fire":  "/robot/weapon/fire",   # std_srvs/Trigger
+    # Zone 기반 라우팅 (2026-05-22)
+    "routing_state": "/routing_state",      # std_msgs/String (JSON) — zone 경유 진행상황
 }
 
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)

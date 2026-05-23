@@ -6,10 +6,13 @@ import { useEffect, useRef, useState } from "react";
 const _STATIC_BASE = process.env.NEXT_PUBLIC_C2_API ?? "";
 export function getApiBase(): string {
   if (_STATIC_BASE) return _STATIC_BASE;
-  // SSR (prerender) 안전 guard — window 미정의 시 빈 string. 클라이언트 hydrate
-  // 후 첫 render 부터 정상 hostname 사용.
   if (typeof window === "undefined") return "";
-  return `http://${window.location.hostname}:8000`;
+  // 단일오리진(Cloudflare Tunnel: 443→경로분기) 또는 80/443 직접 서빙이면
+  // 현재 오리진을 그대로 — http→ws 치환 시 자동으로 wss 가 되어 mixed-content 회피.
+  // LAN 개발(:3000 → :8000)일 때만 호스트 동일·포트만 8000 으로 강제.
+  const { protocol, host, hostname, port } = window.location;
+  if (port === "" || port === "8000") return `${protocol}//${host}`;
+  return `http://${hostname}:8000`;
 }
 export const API_BASE = _STATIC_BASE || "http://localhost:8000"; // SSR 호환용 (fetch 직접 호출 시 fallback)
 export const ROBOT_ID = process.env.NEXT_PUBLIC_GP_ROBOT || "gp0";
@@ -52,6 +55,9 @@ export type LandmarksPayload = {
   dmz_cone?: Landmark;
   dmz_patrol_w?: Landmark;
   dmz_fence?: Landmark[];
+  // Zone 기반 라우팅 (2026-05-22)
+  routing_zones?: { name: string; x: number; y: number; z: number }[];
+  tactical_points?: Record<string, { x: number; y: number; z: number }>;
 };
 export type PatrolStatePayload = {
   mode: string;
@@ -111,6 +117,16 @@ export type FireEvent = {
   success: boolean;
 };
 
+// Zone 기반 라우팅 상태 (2026-05-22)
+export type RoutingStatePayload = {
+  tp_id: string;
+  route: { x: number; y: number }[];
+  current_idx: number;
+  total: number;
+  completed: boolean;
+  pose?: { x: number; y: number; yaw: number } | null;
+};
+
 export type C2Event =
   | { type: "state"; ts: string; data: any }
   | { type: "gps"; ts: string; data: { lat: number; lon: number; alt: number } }
@@ -125,7 +141,21 @@ export type C2Event =
   | { type: "fall_alert"; ts: string; data: FallPayload }
   | { type: "patrol_state"; ts: string; data: PatrolStatePayload }
   | { type: "intruder_state"; ts: string; data: IntruderState[] | { items: IntruderState[] } }
-  | { type: "landmarks"; ts: string; data: LandmarksPayload };
+  | { type: "landmarks"; ts: string; data: LandmarksPayload }
+  | { type: "routing_state"; ts: string; data: RoutingStatePayload };
+
+/** body: {tp_id: "TP_A"} → POST /robots/{rid}/goto_tp */
+export async function gotoTacticalPoint(rid: string, tp_id: string) {
+  return postJSON(`/robots/${rid}/goto_tp`, { tp_id });
+}
+
+/** 이동 명령 없이 TP 경로만 미리 계산 → MapTrack 오버레이용 */
+export async function previewRoute(
+  rid: string,
+  tp_id: string
+): Promise<{ tp_id: string; route: { x: number; y: number }[] }> {
+  return getJSON(`/robots/${rid}/preview_route?tp_id=${encodeURIComponent(tp_id)}`);
+}
 
 /** WS /events 구독. 자동 재연결. */
 export function useEvents(onEvent: (e: C2Event) => void) {

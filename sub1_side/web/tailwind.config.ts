@@ -7,12 +7,19 @@ const config: Config = {
       colors: {
         base: "var(--base)",
         panel: "var(--panel)",
+        "panel-2": "var(--panel-2)",
         line: "var(--line)",
-        phos: "var(--phos)",      // 인광 그린 (정상/주신호)
-        amber: "var(--amber)",    // 경보/주의
-        alert: "var(--alert)",    // 위협/사격
+        "line-2": "var(--line-2)",
+        phos: "var(--phos)",
+        "phos-dim": "var(--phos-dim)",
+        amber: "var(--amber)",
+        "amber-dim": "var(--amber-dim)",
+        alert: "var(--alert)",
+        "alert-dim": "var(--alert-dim)",
         ink: "var(--ink)",
+        "ink-2": "var(--ink-2)",
         dim: "var(--dim)",
+        graphite: "var(--graphite)",
       },
       fontFamily: {
         display: ["var(--font-display)", "sans-serif"],

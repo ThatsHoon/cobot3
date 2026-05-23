@@ -4,14 +4,18 @@ import StatusHeader from "@/components/StatusHeader";
 import TelemetryStrip from "@/components/TelemetryStrip";
 import DualCameraView from "@/components/DualCameraView";
 import MapTrack from "@/components/MapTrack";
-import RobotControlPanel from "@/components/RobotControlPanel";
+import PatrolControls from "@/components/PatrolControls";
+import InspectorCameraPanel from "@/components/InspectorCameraPanel";
 import AlertsLog from "@/components/AlertsLog";
 import AnimalAlertsLog from "@/components/AnimalAlertsLog";
+import TeleopPad from "@/components/TeleopPad";
+import BaseMovementPanel from "@/components/BaseMovementPanel";
 import NpcSpawnButton from "@/components/NpcSpawnButton";
 import FallStatusBadge from "@/components/FallStatusBadge";
 import WeatherControl from "@/components/WeatherControl";
 import WindGauge from "@/components/WindGauge";
-import TacticalOpsPanel from "@/components/TacticalOpsPanel";
+import WeaponFireControl from "@/components/WeaponFireControl";
+import TacticalPointsPanel from "@/components/TacticalPointsPanel";
 import { WeaponSafetyProvider } from "@/components/WeaponSafetyContext";
 import {
   C2Event, getJSON, ROBOT_ID, useEvents,
@@ -44,9 +48,10 @@ export default function Page() {
   const [fireEvents, setFireEvents] =
     useState<{ fire_id: string | null; target: string }[]>([]);
   const [routingState, setRoutingState] = useState<RoutingStatePayload | null>(null);
-  const [previewRoute, setPreviewRoute] = useState<{ x: number; y: number }[] | null>(null);
   const [eventStream, setEventStream] = useState<C2Event[]>([]);
   const [lastAlertTs, setLastAlertTs] = useState<number | null>(null);
+  const [showTeleop, setShowTeleop] = useState(false);
+  const [showBaseMv, setShowBaseMv] = useState(true);
 
   // 초기 스냅샷 폴백 (4초 폴링)
   useEffect(() => {
@@ -120,9 +125,9 @@ export default function Page() {
     <WeaponSafetyProvider>
     <div className={alertActive ? "alert-active" : ""}>
       <main className="relative z-10 min-h-screen flex flex-col">
-        <div className="flex items-stretch h-14 border-b border-line">
-          <div className="flex-1 min-w-0"><StatusHeader wsOk={wsOk} landmarks={landmarks} /></div>
-          <div className="flex items-stretch flex-shrink-0">
+        <div className="flex items-stretch">
+          <div className="flex-1"><StatusHeader wsOk={wsOk} landmarks={landmarks} /></div>
+          <div className="flex items-center gap-2 pr-3 border-b border-line bg-black/40">
             <WindGauge wind={wind} />
             <FallStatusBadge liveFallEvents={fallEvents} />
           </div>
@@ -134,56 +139,80 @@ export default function Page() {
           patrol={patrolState}
         />
 
-        {/* ROW 1: CAMERA & MAP (Full Width 75% / 25%) */}
-        <section className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3 pb-0" aria-label="cameras-map">
-          <div className="xl:col-span-9 min-w-0 min-h-[320px]">
+        {/* HERO: ImmersiveCamera + MapTrack + Controls — 1 viewport row */}
+        <section
+          className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3"
+          aria-label="hero">
+          {/* 좌측 5col — DualCameraView (기존 INSPECT + REAR) */}
+          <div className="xl:col-span-5 min-w-0 min-h-[420px]">
             <DualCameraView liveAlerts={alertEvents} />
           </div>
-          <div className="xl:col-span-3 min-w-0">
+          {/* 중앙 4col — MapTrack (정사각형) */}
+          <div className="xl:col-span-4 min-w-0">
             <MapTrack track={track} cur={cur}
                       landmarks={landmarks}
                       intruders={intruders}
                       patrolState={patrolState}
                       alertActive={alertActive}
-                      routingState={routingState}
-                      previewRoute={previewRoute} />
+                      routingState={routingState} />
+          </div>
+          {/* 우측 3col — Patrol + TacticalPoints + Inspect+BaseMv (통합) */}
+          <div className="xl:col-span-3 flex flex-col gap-2 min-w-0">
+            <PatrolControls patrolState={patrolState} />
+            <TacticalPointsPanel routingState={routingState} />
+            {/* InspectCam + BaseMovement 통합 컨테이너 (사용자 요청) */}
+            <div className="panel flex flex-col">
+              <div className="panel-hd">
+                <span>ROBOT CONTROL</span>
+                <span className="text-[10px] text-dim">INSPECT · MOVE</span>
+              </div>
+              <div className="p-2 flex flex-col gap-2">
+                {/* INSPECT CAM + BASE MOVEMENT 가로 2-column 배치 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div className="min-w-0">
+                    <InspectorCameraPanel />
+                  </div>
+                  <div className="min-w-0">
+                    {showBaseMv && <BaseMovementPanel />}
+                    {showTeleop && <TeleopPad />}
+                  </div>
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowBaseMv((v) => !v)}
+                    className="flex-1 text-[10px] px-2 py-0.5 rounded
+                               bg-zinc-800 hover:bg-zinc-700 text-dim">
+                    {showBaseMv ? "▼" : "▶"} BASE MV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowTeleop((v) => !v)}
+                    className="flex-1 text-[10px] px-2 py-0.5 rounded
+                               bg-zinc-800 hover:bg-zinc-700 text-dim">
+                    {showTeleop ? "▼" : "▶"} TELEOP
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* ROW 2: UNIFIED TACTICAL MISSION CONTROL & ROBOT DRIVING */}
-        <section className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3 pb-0" aria-label="tactical-operations-driving">
-          <div className="xl:col-span-8 min-w-0 h-full">
-            <TacticalOpsPanel
-              weapon={weapon}
-              liveFireEvents={fireEvents}
-              patrolState={patrolState}
-              routingState={routingState}
-              onPreviewChange={setPreviewRoute}
-            />
-          </div>
-          <div className="xl:col-span-4 min-w-0 h-full">
-            <RobotControlPanel />
-          </div>
+        {/* WEAPON HITL + ENV row (2026-05-21) */}
+        <section
+          className="grid grid-cols-1 lg:grid-cols-2 gap-3 px-3 pb-3"
+          aria-label="weapon-env">
+          <WeaponFireControl weapon={weapon} liveFireEvents={fireEvents} />
+          <WeatherControl />
         </section>
 
-        {/* ROW 3: ALERTS LOGS */}
-        <section className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3 pb-0" aria-label="alerts-logs">
-          <div className="xl:col-span-8 min-w-0 h-full">
-            <AlertsLog liveEvents={alertEvents} />
-          </div>
-          <div className="xl:col-span-4 min-w-0 h-full">
-            <AnimalAlertsLog liveEvents={animalAlertEvents} />
-          </div>
-        </section>
-
-        {/* ROW 4: SIMULATION & ENV CONFIG */}
-        <section className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3" aria-label="simulation-env">
-          <div className="xl:col-span-8 min-w-0">
-            <WeatherControl />
-          </div>
-          <div className="xl:col-span-4 min-w-0">
-            <NpcSpawnButton />
-          </div>
+        {/* ALERTS + NPC row */}
+        <section
+          className="grid grid-cols-1 lg:grid-cols-3 gap-3 px-3 pb-3"
+          aria-label="alerts">
+          <AlertsLog liveEvents={alertEvents} />
+          <AnimalAlertsLog liveEvents={animalAlertEvents} />
+          <NpcSpawnButton />
         </section>
       </main>
     </div>
