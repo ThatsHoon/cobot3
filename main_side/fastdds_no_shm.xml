@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Isaac 번들 FastDDS ↔ 시스템 FastDDS 상호 디스커버리 보장.
+  두 fastdds 빌드가 SharedMemory 세그먼트 불일치로 서로 못 보는 문제 →
+  공유메모리 전송 제거(UDPv4 only) 강제 시 상호운용됨 (NVIDIA 문서 해법).
+  적용: FASTRTPS_DEFAULT_PROFILES_FILE=<이 파일 경로>  (Isaac·C2·CLI 동일)
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only_transport</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="udp_only" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>udp_only_transport</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

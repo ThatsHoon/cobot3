@@ -1,0 +1,165 @@
+<?xml version="1.0"?>
+<!-- Spot URDF using Isaac Sim USD prim frame names (12-DOF legs, no arm).
+     Link/joint names match ROS2PublishTransformTree TF output exactly.
+     Joint origins/meshes taken from spot_description (rai-opensource). -->
+<robot name="spot">
+
+  <!-- ── Body ─────────────────────────────────────────────────────── -->
+  <link name="base">
+    <visual>
+      <geometry>
+        <mesh filename="package://spot_description/meshes/base_simple/visual/body.obj"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <!-- ══ FRONT-LEFT LEG ════════════════════════════════════════════ -->
+  <joint name="fl_hx" type="revolute">
+    <parent link="base"/><child link="fl_hip"/>
+    <origin xyz="0.29785 0.05500 0.00000" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.7854" upper="0.7854"/>
+  </joint>
+  <link name="fl_hip">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/front_left_hip.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="fl_hy" type="revolute">
+    <parent link="fl_hip"/><child link="fl_uleg"/>
+    <origin xyz="0.0 0.110945 0.0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.8989" upper="2.2951"/>
+  </joint>
+  <link name="fl_uleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/front_left_upper_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="fl_kn" type="revolute">
+    <parent link="fl_uleg"/><child link="fl_lleg"/>
+    <origin xyz="0.0 0.0 -0.3365" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="115" velocity="17.647" lower="-2.7928" upper="-0.2548"/>
+  </joint>
+  <link name="fl_lleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/front_left_lower_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+  <!-- ══ FRONT-RIGHT LEG ═══════════════════════════════════════════ -->
+  <joint name="fr_hx" type="revolute">
+    <parent link="base"/><child link="fr_hip"/>
+    <origin xyz="0.29785 -0.05500 0.00000" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.7854" upper="0.7854"/>
+  </joint>
+  <link name="fr_hip">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/front_right_hip.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="fr_hy" type="revolute">
+    <parent link="fr_hip"/><child link="fr_uleg"/>
+    <origin xyz="0.0 -0.110945 0.0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.8989" upper="2.2951"/>
+  </joint>
+  <link name="fr_uleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/front_right_upper_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="fr_kn" type="revolute">
+    <parent link="fr_uleg"/><child link="fr_lleg"/>
+    <origin xyz="0.0 0.0 -0.3365" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="115" velocity="17.647" lower="-2.7928" upper="-0.2548"/>
+  </joint>
+  <link name="fr_lleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/front_right_lower_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+  <!-- ══ HIND-LEFT LEG ═════════════════════════════════════════════ -->
+  <joint name="hl_hx" type="revolute">
+    <parent link="base"/><child link="hl_hip"/>
+    <origin xyz="-0.29785 0.05500 0.00000" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.7854" upper="0.7854"/>
+  </joint>
+  <link name="hl_hip">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/rear_left_hip.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="hl_hy" type="revolute">
+    <parent link="hl_hip"/><child link="hl_uleg"/>
+    <origin xyz="0.0 0.110945 0.0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.8989" upper="2.2951"/>
+  </joint>
+  <link name="hl_uleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/rear_left_upper_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="hl_kn" type="revolute">
+    <parent link="hl_uleg"/><child link="hl_lleg"/>
+    <origin xyz="0.0 0.0 -0.3365" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="115" velocity="17.647" lower="-2.7928" upper="-0.2548"/>
+  </joint>
+  <link name="hl_lleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/rear_left_lower_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+  <!-- ══ HIND-RIGHT LEG ════════════════════════════════════════════ -->
+  <joint name="hr_hx" type="revolute">
+    <parent link="base"/><child link="hr_hip"/>
+    <origin xyz="-0.29785 -0.05500 0.00000" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.7854" upper="0.7854"/>
+  </joint>
+  <link name="hr_hip">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/rear_right_hip.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="hr_hy" type="revolute">
+    <parent link="hr_hip"/><child link="hr_uleg"/>
+    <origin xyz="0.0 -0.110945 0.0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="45" velocity="17.647" lower="-0.8989" upper="2.2951"/>
+  </joint>
+  <link name="hr_uleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/rear_right_upper_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+  <joint name="hr_kn" type="revolute">
+    <parent link="hr_uleg"/><child link="hr_lleg"/>
+    <origin xyz="0.0 0.0 -0.3365" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="115" velocity="17.647" lower="-2.7928" upper="-0.2548"/>
+  </joint>
+  <link name="hr_lleg">
+    <visual><geometry>
+      <mesh filename="package://spot_description/meshes/base/visual/rear_right_lower_leg.obj"/>
+    </geometry></visual>
+  </link>
+
+
+</robot>

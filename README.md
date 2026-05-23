@@ -1,355 +1,299 @@
-# DMZ Sentry
+# cobot3
 
-Isaac Sim과 ROS 2 Humble을 이용한 4족 보행 정찰 로봇 시뮬레이션 프로젝트입니다.  
-ANYmal이 DMZ 스타일의 울타리, 강가, 벙커, 감시탑이 있는 환경을 순찰하고, 카메라 기반 YOLO 사람 감지, Nav2 기반 순찰, 웹 전술 지도, 관측용 줌 카메라를 함께 사용합니다.
+Isaac Sim에서 Unitree Go2 4족보행 로봇을 움직이고, 웹 화면에서 카메라와
+전술 지도를 보는 프로젝트입니다.
 
-## 현재 구현된 기능
+쉽게 말하면:
 
-- Isaac Sim standalone 시뮬레이션
-- ANYmal 기반 4족 보행 로봇
-- GP 스타일 지형, 울타리, 강, 벙커, 감시탑, 경고 표지, 조명
-- 움직이는 사람 target 시나리오
-- RGB-D 감지 카메라
-- 별도 관측용 Inspector 카메라
-- YOLOv8 사람 감지
-- `/alerts` 기반 경보 발생
-- Nav2 기반 waypoint 순찰
-- 웹 전술 지도
-- 웹에서 출격, 홈, 정지, 재개 명령
-- 웹에서 target 클릭 시 Inspector 카메라가 해당 target을 바라봄
-- 웹에서 Inspector 카메라 pan/tilt/zoom 수동 조작
-- target 확인 처리: Clear 버튼을 누르면 Confirmed 초록색 상태로 변경
+- Isaac Sim 컴퓨터는 로봇과 맵을 실행합니다.
+- C2 웹 컴퓨터는 영상을 보고, 로봇을 조종하고, 탐지 결과를 표시합니다.
+- 큰 맵 파일은 GitHub에 올리지 않고 Google Drive로 따로 받습니다.
 
-## 전체 구조
+## 이번 브랜치에서 추가된 기능
 
-```text
-Isaac Sim
-  ANYmal
-  SentryFrontCamera          YOLO 감지용 카메라
-  SentryInspectionCamera     target 확인/줌 관측용 카메라
-  IntruderScenario           움직이는 사람 target
-  /camera/image_raw
-  /camera/depth
-  /inspection_camera/image_raw
-  /odom
-  /tf
+이 브랜치는 기존 cobot3에 우리가 작업한 기능을 합친 버전입니다.
 
-ROS 2
-  yolo_person_detector       사람 감지, /alerts 발행
-  inspection_bridge          웹 명령과 Isaac Sim 파일 브리지 연결
-  Nav2                       경로 계획과 순찰 주행
-  nav2_patrol_controller     웹 mission command를 Nav2 goal로 변환
-  rosbridge                  웹과 ROS 2 연결
+- `main_side`와 `sub1_side` 구조로 정리했습니다.
+- Unitree Go2 로봇을 Isaac Sim에서 실행합니다.
+- 로봇 카메라 영상을 웹에서 볼 수 있습니다.
+- TP_A, TP_B, TP_C, TP_D 위치에 고정 감시 카메라를 만들었습니다.
+- TP 카메라 위치에 감시탑 모델을 배치했습니다.
+- TP 카메라 RGB와 depth 토픽을 발행합니다.
+- YOLO 모델로 사람, 동물, 군인, 드론을 탐지합니다.
+- 탐지된 대상은 Tactical Map에 점으로 표시합니다.
+  - 사람/군인: 빨간 점
+  - 동물/기타: 노란 점
+- TP_A/B/C/D 카메라 위치는 Tactical Map에 초록 점으로 표시합니다.
+- Tactical Map 배경은 overhead camera 화면을 사용합니다.
+- depth 거리와 지도상 거리를 따로 볼 수 있게 했습니다.
+- C2 웹은 Next.js로 실행합니다.
+- FastAPI 서버가 ROS2 토픽을 받아 웹으로 보내줍니다.
+- `main_side/scene`은 큰 파일이라 GitHub에 넣지 않고 따로 받게 했습니다.
 
-Web
-  tactical_map               전술 지도, target 표시, 출격/정지/카메라 제어
-```
-
-## Target 위치 표시 방식
-
-현재 웹에 표시되는 target 위치는 Isaac Sim 내부의 시뮬레이션 좌표를 사용합니다.
+## 폴더 설명
 
 ```text
-Isaac Sim IntruderScenario
-→ /tmp/dmz_sentry_intruder_states.json
-→ inspection_bridge
-→ /intruder_states
-→ web tactical map
+cobot3/
+  common/
+    공통 설정 파일
+
+  main_side/
+    Isaac Sim 컴퓨터에서 실행하는 코드
+    로봇, 카메라, 감시탑, 맵, ROS2 토픽 발행 담당
+
+  sub1_side/
+    C2 웹 컴퓨터에서 실행하는 코드
+    웹 화면, 서버, YOLO, ROS2 토픽 수신 담당
+
+  dev-docs/
+    자세한 설명 문서
+
+  tests/
+    테스트 코드
 ```
 
-즉 지금은 **YOLO + Depth로 실제 위치를 추정한 방식이 아니라**, 시뮬레이션이 알고 있는 ground-truth 좌표를 웹에 표시합니다.  
-YOLO는 target 표시를 위한 위치 계산보다는 사람 감지와 alert 발생에 사용됩니다.
+## 아주 중요한 점
 
-추후 현실적인 방식으로 확장하려면 다음 구조로 바꿀 수 있습니다.
+`main_side/scene` 폴더는 GitHub에 거의 들어있지 않습니다.
+
+이유는 맵, USD, USDZ, texture 파일이 너무 크기 때문입니다.
+
+그래서 팀원은 다음 두 가지를 받아야 합니다.
+
+1. GitHub 코드
+2. Google Drive의 `cobot3_scene.zip`
+
+최종 폴더 구조는 이렇게 되어야 합니다.
 
 ```text
-YOLO bbox
-+ /camera/depth
-+ /camera/camera_info
-+ TF
-→ world 좌표 추정
-→ /tracked_targets publish
+cobot3/
+  main_side/
+    camera_publisher.py
+    run_camera_pub_gui.sh
+    scene/
+      gp_scene.usd
+      assets/
+      overrides/
+      go2_unitree/
+      go2_policy/
+  sub1_side/
+  common/
 ```
 
-또는 3D LiDAR를 사용할 경우:
+## 처음 설치하는 방법
 
-```text
-YOLO bbox
-+ LiDAR point cloud projection
-→ bbox 안 point cloud cluster
-→ target 3D 위치 추정
-```
-
-## 웹 전술 지도 기능
-
-웹 지도는 `web/tactical_map`에 있습니다.
-
-기능:
-
-- 로봇 현재 위치 표시
-- 순찰 waypoint 표시
-- target 위치 표시
-- YOLO alert 상태 표시
-- target 클릭 시 Inspector 카메라가 해당 target을 바라봄
-- Confirmed target은 초록색으로 표시
-- target이 재소환되어 위치가 크게 바뀌면 Confirmed 상태 자동 해제
-
-버튼:
-
-- `출격`: 순찰 시작
-- `홈`: 홈 위치로 복귀
-- `정지`: 정지
-- `재개`: 이전 순찰 모드 재개
-- `Pan Left / Pan Right`: Inspector 카메라 좌우 조작
-- `Tilt Up / Tilt Down`: Inspector 카메라 상하 조작
-- `Center`: Inspector 카메라 정면 복귀
-- `Zoom + / Zoom -`: Inspector 카메라 줌 인/아웃
-- `Reset`: 줌 초기화
-- `Clear`: target 추적 해제, 선택 target을 Confirmed 상태로 변경
-- `Thermal`: 침입자 target에 pseudo-thermal 시각 효과 토글
-
-## Inspector 카메라
-
-기존 카메라는 YOLO 감지용으로 계속 넓게 앞을 봅니다.  
-Inspector 카메라는 target 확인용으로 따로 추가된 관측 카메라입니다.
-
-```text
-SentryFrontCamera
-  YOLO 감지용
-  /camera/image_raw
-  /camera/annotated
-
-SentryInspectionCamera
-  target 확인/줌 관측용
-  /inspection_camera/image_raw
-```
-
-웹에서 target을 클릭하면 `/inspection_camera/command`가 발행되고, `inspection_bridge`가 이 명령을 Isaac Sim에 전달합니다. Isaac Sim은 해당 좌표를 바라보도록 Inspector 카메라 방향을 갱신합니다.
-
-현재 Inspector 카메라는 실제 물리 짐벌 모델이 아니라, 코드로 카메라 방향을 바꾸는 **가상 짐벌** 방식입니다.
-
-## 환경/날씨 시각 모드
-
-Isaac Sim 내부 `DMZ Sentry Modes` 창에서 `Morning`, `Noon`, `Evening`, `Night` 시간대와 `Clear`, `Cloudy`, `Fog`, `Rain`, `Snow` 날씨 프리셋을 바꿀 수 있습니다. 실행 시 `--time-of-day evening --weather rain`처럼 초기 프리셋을 지정할 수도 있습니다.
-
-이 기능은 조명, sky 색감, rain/snow/fog 오버레이를 바꾸는 시각 데모입니다. 실제 강수/안개 물리나 센서 산란 모델은 아닙니다.
-
-## Pseudo-thermal 시각 모드
-
-열화상 센서 물리 모델이 아니라 데모용 시각 효과입니다. Isaac Sim 내부 `DMZ Sentry Modes` 창이나 웹 `Thermal` 버튼으로 침입자 material false-color를 토글할 수 있고, 실행 시 `--thermal-visuals`를 주면 처음부터 켜집니다. `/camera/depth`는 기존처럼 거리 데이터만 제공하므로, 열 신호가 아니라 위치 추정 보조용으로 사용합니다.
-
-Inspector 카메라에서만 thermal처럼 보이는 영상은 별도 ROS 2 후처리 노드가 발행합니다. `./scripts/demo_inspection_thermal_view.sh`를 실행하면 `/inspection_camera/image_raw`에서 사람을 감지해 `/inspection_camera/thermal/image_raw`로 false-color thermal 영상을 내보냅니다.
-
-## YOLO 사람 감지
-
-현재 사용하는 학습 모델:
-
-```text
-models/dmz_person_calibration_001_best.pt
-```
-
-YOLO 노드:
-
-```text
-ros2_ws/src/dmz_sentry_perception/dmz_sentry_perception/yolo_person_detector.py
-```
-
-출력 토픽:
-
-- `/detections_text`: 감지 결과 JSON
-- `/alerts`: confidence 기준 이상이면 alert 발행
-- `/camera/annotated`: bbox가 그려진 확인용 이미지
-
-학습 데이터 변환 스크립트:
-
-```text
-scripts/convert_replicator_to_yolo.py
-```
-
-학습은 별도 Python 코드가 아니라 Ultralytics CLI로 수행했습니다.
+### 1. 코드 받기
 
 ```bash
-yolo detect train \
-  model=yolov8n.pt \
-  data=/home/rokey/dev_ws/dmz_sentry/datasets/yolo_person_calibration_001/data.yaml \
-  epochs=50 \
-  imgsz=640 \
-  device=0 \
-  project=/home/rokey/dev_ws/dmz_sentry/runs/yolo \
-  name=dmz_person_calibration_001
+cd /home/rokey/dev_ws/isaac_sim
+git clone -b new_hi https://github.com/ThatsHoon/cobot3.git cobot3
 ```
 
-## Nav2 순찰
+### 2. scene 파일 받기
 
-현재 순찰은 Nav2 기반입니다.
+Google Drive에서 `cobot3_scene.zip`을 받습니다.
 
-```text
-web 출격 버튼
-→ /mission_command
-→ nav2_patrol_controller
-→ /navigate_to_pose action
-→ Nav2
-→ /cmd_vel_nav2_raw
-→ cmd_vel_safety_filter
-→ /cmd_vel
-→ Isaac Sim ANYmal
-```
-
-이 프로젝트에서는 SLAM을 아직 사용하지 않습니다.  
-현재는 DMZ 환경을 알고 있다고 가정하고, 정적 map과 `world` frame을 이용하는 known-map 방식입니다.
-
-Nav2 확인용 명령:
+그 다음 아래처럼 풉니다.
 
 ```bash
-ros2 action list | grep navigate_to_pose
-ros2 topic echo /patrol_state
-ros2 topic echo /cmd_vel
+cd /home/rokey/dev_ws/isaac_sim/cobot3
+unzip /path/to/cobot3_scene.zip
 ```
 
-`/navigate_to_pose`가 없으면 Nav2가 켜지지 않은 상태입니다.
-
-## 자주 확인하는 토픽
-
-```bash
-ros2 topic hz /camera/image_raw
-ros2 topic hz /camera/annotated
-ros2 topic hz /inspection_camera/image_raw
-ros2 topic echo /intruder_states --once
-ros2 topic echo /alerts --once
-ros2 topic echo /patrol_state
-ros2 topic info /inspection_camera/command
-```
-
-정상 상태 예:
+압축을 풀고 나서 아래 파일이 있어야 합니다.
 
 ```text
-/camera/image_raw             average rate ...
-/inspection_camera/image_raw  average rate ...
-/intruder_states              data: "{...}"
-/inspection_camera/command    Publisher count 1, Subscription count 1
-/navigate_to_pose             action 존재
+/home/rokey/dev_ws/isaac_sim/cobot3/main_side/scene/gp_scene.usd
 ```
 
-## 폴더 구조
+이 파일이 없으면 Isaac Sim이 제대로 열리지 않습니다.
 
-```text
-dmz_sentry/
-  isaacsim/
-    anymal_gp_terrain.py              Isaac Sim 메인 시뮬레이션
+## ROS2 설정
 
-  ros2_ws/src/dmz_sentry_perception/
-    yolo_person_detector.py           YOLO 사람 감지 노드
-    inspection_thermal_view.py        Inspector 전용 pseudo-thermal 영상 노드
+우리 프로젝트는 `ROS_DOMAIN_ID=129`를 씁니다.
 
-  ros2_ws/src/dmz_sentry_control/
-    nav2_patrol_controller.py         Nav2 순찰 컨트롤러
-    cmd_vel_safety_filter.py          ANYmal 안정 주행용 속도 필터
-    inspection_bridge.py              웹/ROS/Isaac Sim 카메라 명령 브리지
-    config/nav2_dmz_params.yaml       Nav2 설정
-    maps/                             정적 지도
-
-  web/tactical_map/
-    index.html
-    app.js
-    style.css                         웹 전술 지도
-
-  scripts/
-    demo_dmz_sim.sh
-    demo_yolo_detector.sh
-    demo_inspection_thermal_view.sh
-    demo_inspection_bridge.sh
-    demo_nav2_bringup.sh
-    demo_nav2_patrol_controller.sh
-    demo_rosbridge.sh
-    demo_tactical_map.sh
-
-  models/
-    dmz_person_calibration_001_best.pt
-```
-
-## 빌드
-
-ROS 2 노드를 수정했거나 처음 실행하는 경우:
+터미널마다 아래를 먼저 해주세요.
 
 ```bash
-cd /home/rokey/dev_ws/dmz_sentry/ros2_ws
 source /opt/ros/humble/setup.bash
-colcon build --symlink-install
+export ROS_DOMAIN_ID=129
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_LOCALHOST_ONLY=0
+export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/main_side/fastdds_no_shm.xml
 ```
 
-## 실행 커맨드 정리
+## Isaac Sim 쪽 실행 방법
 
-아래 순서대로 터미널을 열어서 실행하면 현재 데모 전체가 동작합니다.
+로봇, 맵, 카메라, 감시탑을 실행합니다.
 
 ```bash
-# Terminal 1: Isaac Sim 시뮬레이션
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_dmz_sim.sh
+cd /home/rokey/dev_ws/isaac_sim/cobot3/main_side
+bash run_camera_pub_gui.sh
 ```
+
+카메라 영상을 웹으로 보내는 압축 노드도 실행합니다.
+
+다른 터미널에서:
 
 ```bash
-# Terminal 2: Inspector 카메라/target 위치 브리지
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_inspection_bridge.sh
+cd /home/rokey/dev_ws/isaac_sim/cobot3/main_side
+bash run_degrade.sh
 ```
+
+## C2 서버 실행 방법
+
+웹 서버와 YOLO 서버를 켭니다.
 
 ```bash
-# Terminal 3: YOLO 사람 감지
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_yolo_detector.sh
+cd /home/rokey/dev_ws/isaac_sim/cobot3/sub1_side/server
+python3 -m venv --system-site-packages .venv
+./.venv/bin/pip install -r requirements.txt
+bash run.sh
 ```
 
-```bash
-# Terminal 4: Inspector 전용 thermal view
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_inspection_thermal_view.sh
-```
-
-```bash
-# Terminal 5: Nav2 실행
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_nav2_bringup.sh
-```
-
-```bash
-# Terminal 6: Nav2 순찰 컨트롤러
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_nav2_patrol_controller.sh
-```
-
-```bash
-# Terminal 7: rosbridge websocket
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_rosbridge.sh
-```
-
-```bash
-# Terminal 8: 웹 전술 지도
-cd /home/rokey/dev_ws/dmz_sentry
-./scripts/demo_tactical_map.sh
-```
-
-웹 브라우저에서 아래 주소를 엽니다.
+YOLO 모델은 기본적으로 아래 파일을 찾습니다.
 
 ```text
-http://localhost:8080
+/home/rokey/Downloads/dmz_4class_v14.pt
 ```
 
-rqt로 카메라를 확인하려면:
+이 파일이 없으면 팀원에게 모델 파일도 따로 받아야 합니다.
+
+## 웹 실행 방법
+
+처음 한 번만 설치합니다.
 
 ```bash
-rqt_image_view
+cd /home/rokey/dev_ws/isaac_sim/cobot3/sub1_side/web
+npm install
 ```
 
-감지 카메라:
+웹을 실행합니다.
 
-```text
-/camera/annotated
+```bash
+cd /home/rokey/dev_ws/isaac_sim/cobot3/sub1_side/web
+npm run dev -- -H 0.0.0.0
 ```
 
-Inspector 카메라:
+브라우저에서 엽니다.
 
 ```text
-/inspection_camera/image_raw
-/inspection_camera/thermal/image_raw
+http://localhost:3000
+```
+
+다른 노트북에서 보려면 Isaac/C2 컴퓨터 IP를 넣습니다.
+
+예시:
+
+```text
+http://192.168.10.70:3000
+```
+
+## 잘 켜졌는지 확인하는 법
+
+토픽 목록 확인:
+
+```bash
+ros2 topic list
+```
+
+TP_A 카메라 영상이 있는지 확인:
+
+```bash
+ros2 topic hz /cam/tactical/tp_a/rgb
+```
+
+TP_A depth가 있는지 확인:
+
+```bash
+ros2 topic hz /cam/tactical/tp_a/depth
+```
+
+YOLO 탐지 결과 확인:
+
+```bash
+ros2 topic echo /detections_text --once --full-length
+```
+
+웹에서 직접 TP_A 영상 확인:
+
+```text
+http://localhost:3000/c2/video/mjpeg?camera=tp_a
+```
+
+## Tactical Map에서 보이는 것
+
+- 초록 점: TP_A/B/C/D 고정 감시 카메라 위치
+- 빨간 점: 사람 또는 군인
+- 노란 점: 동물 또는 기타 대상
+- `d` 값: 카메라 depth 값
+- `g` 값: 지도 위에서의 수평 거리
+
+예시:
+
+```text
+TP_A person d13.6 g3.2m 74%
+```
+
+뜻:
+
+- TP_A 카메라가 사람을 봤습니다.
+- depth 카메라 기준 거리는 13.6m입니다.
+- 지도상 수평 거리는 3.2m입니다.
+- YOLO confidence는 74%입니다.
+
+## 감시탑 크기 조절
+
+기본 감시탑 scale은 `0.01`입니다.
+
+바꾸고 싶으면 Isaac 실행 전에 설정합니다.
+
+```bash
+export GP_TACTICAL_TOWER_SCALE=0.01
+export GP_TACTICAL_TOWER_ROLL_DEG=90
+export GP_TACTICAL_TOWER_X_OFFSET=0
+export GP_TACTICAL_TOWER_Y_OFFSET=0
+export GP_TACTICAL_TOWER_Z_OFFSET=0
+```
+
+그 다음 다시 실행합니다.
+
+```bash
+cd /home/rokey/dev_ws/isaac_sim/cobot3/main_side
+bash run_camera_pub_gui.sh
+```
+
+## 팀원에게 전달할 때
+
+코드는 GitHub `new_hi` 브랜치로 공유합니다.
+
+scene은 따로 압축해서 Google Drive로 공유합니다.
+
+scene 압축 방법:
+
+```bash
+cd /home/rokey/dev_ws/isaac_sim/cobot3
+zip -r cobot3_scene.zip main_side/scene
+```
+
+팀원에게 알려줄 말:
+
+```text
+1. GitHub에서 new_hi 브랜치를 받으세요.
+2. Google Drive에서 cobot3_scene.zip을 받으세요.
+3. cobot3 폴더 안에서 zip을 푸세요.
+4. main_side/run_camera_pub_gui.sh를 실행하세요.
+5. sub1_side/server/run.sh를 실행하세요.
+6. sub1_side/web에서 npm run dev -- -H 0.0.0.0을 실행하세요.
+```
+
+## 문제가 생기면
+
+더 자세한 문서는 여기에 있습니다.
+
+```text
+dev-docs/project_requirments.md
+dev-docs/ops.md
+dev-docs/main-side.md
+dev-docs/sub1-side.md
 ```

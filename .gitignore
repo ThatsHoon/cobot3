@@ -1,21 +1,87 @@
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
+*.egg-info/
+
+# venv (sub1_side/server/.venv — requirements.txt 로 재생성)
 .venv/
 
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
+# Node / Next.js (npm install 로 재생성)
+node_modules/
+.next/
+sub1_side/web/.env.local
 
-media/recordings/
-assets/raw/
-datasets/
-runs/
-models/
-*.bag/
-*.db3
+# YOLO 가중치 (ultralytics 가 web_server 첫 기동 시 자동 다운로드 — 재생성)
+sub1_side/server/*.pt
 
-# generated files
-frames_*.pdf
-frames_*.gv
-*.pt
+# 생성 산출물
+# (구 scenes/assets/ 규칙 제거 — scenes/ 는 dev-docs/legacy_scenes/ 로
+#  아카이브, m0609 URDF→USD 산출물은 cobot3 외부 GP_SCENE 경로에 생성)
+
+# 로그/임시
+*.log
+/tmp/
+*.zip
+cobot3_scene*.zip
+
+# 씬 에셋 백업/패치 (대용량 바이너리)
+*.usdz.bak
+*.usd.bak
+*.usd.bak.*
+*_patch.usdz
+
+# 임시 작업 폴더 (계획/메모 — 커밋 대상 아님)
+TEMP/
+
+# 대형 USD/USDZ/PBR 자산 (Isaac S3 또는 별도 자산 보관소에서 다운로드)
+# go2_unitree.usd 18MB, gp_scene.usd 27MB, USDZ 텍스처 13~30MB
+main_side/scene/go2_unitree/*.usd
+main_side/scene/go2_unitree/*.usdz
+main_side/scene/go2_unitree/dae/
+main_side/scene/go2_unitree/urdf/
+main_side/scene/go2_description/dae/
+main_side/scene/gp_scene.usd
+main_side/scene/gp_scene2.usd
+main_side/scene/assets/Stylized_Deer.usdz
+main_side/scene/assets/Cirrus.usd
+main_side/scene/assets/m0609.usd
+main_side/scene/assets/terrain.usdz
+main_side/scene/assets/terrain_patch.usdz
+main_side/scene/assets/barbed_wire_fence.usdz
+main_side/scene/assets/materials/
+main_side/scene/assets/props/
+main_side/scene/assets/dmz/**/*.usdz
+# Sketchfab 외부 다운로드 에셋 (대용량 바이너리 — 재다운로드 필요)
+main_side/scene/assets/27132.jpg
+main_side/scene/assets/Aerial_Scan_Radar_Station_Camp_Hero_Montauk_NY.usdz
+main_side/scene/assets/Aerial_Scan_Radar_Station_Camp_Hero_Montauk_NY/
+main_side/scene/assets/Banana_Peel_Mario_Kart.usdz
+main_side/scene/assets/Banana_Peel_Mario_Kart/
+main_side/scene/assets/Doro.usdz
+main_side/scene/assets/Doro/
+main_side/scene/assets/Landmine.usdz
+main_side/scene/assets/Landmine/
+main_side/scene/assets/Military_Base_2_-_Truck_Masters_India_Simulator.usdz
+main_side/scene/assets/Military_Base_2_-_Truck_Masters_India_Simulator/
+main_side/scene/assets/Spikeball_Obstacles.usdz
+main_side/scene/assets/Spikeball_Obstacles/
+main_side/scene/assets/Watchtower.usdz
+main_side/scene/assets/Watchtower/
+# 2026-05-21 추가 Sketchfab 에셋
+main_side/scene/assets/Army_Base/
+main_side/scene/assets/Army_Base.usdz
+main_side/scene/assets/Turret/
+main_side/scene/assets/Turret.usdz
+main_side/scene/assets/Mangatainoka_Cemetery_-_28_Oct_2022/
+main_side/scene/assets/Mangatainoka_Cemetery_-_28_Oct_2022.usdz
+main_side/scene/assets/Coast_Road_-_31_Mar_2022/
+main_side/scene/assets/Coast_Road_-_31_Mar_2022.usdz
+
+# Nav2 베이크 산출물 (bake_gp_static_map.py 로 재생성)
+main_side/scene/maps/*.pgm
+
+# TypeScript 빌드 캐시
+*.tsbuildinfo
+
+# RL 정책 체크포인트 (대용량 — Git LFS 없이는 추적 불가)
+main_side/scene/go2_policy/

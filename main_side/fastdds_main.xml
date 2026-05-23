@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Isaac/시뮬(main_side) PC 측 FastDDS 프로파일 (2-PC LAN ROS2 정공).
+  sub1_side/fastdds_web.xml 과 대칭 — 발행측(이 PC) 관점.
+
+  Isaac 번들 ROS2 가 이 프로파일로 /cam/realsense/rgb·/robot/* 등을
+  발행하고, C2 PC 가 같은 RMW(rmw_fastrtps_cpp)로 수신한다. 크로스-호스트
+  안정화 4요소(sub1 과 동일 원리):
+    1) SHM 제거 + UDPv4 only   (호스트 못 넘는 전송 배제, NVIDIA 해법)
+    2) initialPeers 유니캐스트  (멀티캐스트 차단 LAN 에서 Publisher 0 방지)
+    3) interfaceWhiteList       (docker0/wifi 로 잘못 announce 방지)
+    4) 송수신 버퍼 확대         (큰 메시지 드랍 방지; OS 버퍼도 함께)
+
+  ▶ 배포 전 반드시 치환(repo 에는 placeholder 로만 보관):
+      __C2_PC_IP__   : C2/웹 PC 의 LAN IP   (예: 192.168.10.16)
+      __MAIN_LAN_IP__: 이 Isaac PC 의 LAN NIC IP (예: 192.168.10.94, docker0/wifi 아님)
+  ▶ 치환본은 repo 밖(예: ~/.config/cobot3/fastdds_main.xml)에 두고
+      FASTRTPS_DEFAULT_PROFILES_FILE 로 가리킨다(placeholder 파일 커밋 오염 방지).
+  ▶ 멀티캐스트 허용 LAN 이면 <initialPeersList> 절 생략 가능.
+  자세한 설명/절차: ./FASTDDS.md
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only_transport</transport_id>
+        <type>UDPv4</type>
+        <sendBufferSize>4194304</sendBufferSize>
+        <receiveBufferSize>4194304</receiveBufferSize>
+        <!-- 이 Isaac PC 의 LAN 인터페이스만 사용 -->
+        <interfaceWhiteList>
+          <address>__MAIN_LAN_IP__</address>
+        </interfaceWhiteList>
+      </transport_descriptor>
+    </transport_descriptors>
+
+    <participant profile_name="udp_only" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>udp_only_transport</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <builtin>
+          <!-- 멀티캐스트 비의존: C2 PC 를 유니캐스트 디스커버리 피어로 명시 -->
+          <initialPeersList>
+            <locator>
+              <udpv4>
+                <address>__C2_PC_IP__</address>
+              </udpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>
