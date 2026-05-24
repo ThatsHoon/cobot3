@@ -29,6 +29,9 @@ Isaac Sim에서 Unitree Go2 4족보행 로봇을 움직이고, 웹 화면에서 
 - C2 웹은 Next.js로 실행합니다.
 - FastAPI 서버가 ROS2 토픽을 받아 웹으로 보내줍니다.
 - `main_side/scene`은 큰 파일이라 GitHub에 넣지 않고 따로 받게 했습니다.
+- 철책 밖에서 다가오는 동물/사람/군인/드론 오브젝트를 자동 소환합니다.
+- 멧돼지, 늑대, 사슴, 드론 에셋은 USDZ 리깅/애니메이션을 연결해서 움직임을 확인했습니다.
+- 늑대 에셋 안에 들어있던 바닥용 helper mesh는 자동으로 숨깁니다.
 
 ## 폴더 설명
 
@@ -241,6 +244,65 @@ TP_A person d13.6 g3.2m 74%
 - depth 카메라 기준 거리는 13.6m입니다.
 - 지도상 수평 거리는 3.2m입니다.
 - YOLO confidence는 74%입니다.
+
+## 접근 오브젝트 애니메이션
+
+Isaac Sim 실행 시 `main_side/camera_publisher.py`가 `/World/Approach_Objects` 아래에
+접근 오브젝트를 만듭니다.
+
+현재 연결된 에셋:
+
+- `boar`: `main_side/scene/assets/objects/boar_walk.usdz`
+- `wolf`: `main_side/scene/assets/objects/wolf_animated.usdz`
+- `deer`: `main_side/scene/assets/objects/deer_low_poly_animated.usdz`
+- `drone`: `main_side/scene/assets/objects/drone.usdz`
+- `person`: `main_side/scene/assets/objects/person.usdz`
+- `soldier`: `main_side/scene/assets/objects/soldier.usdz`
+
+현재 상태:
+
+- 멧돼지는 다리 움직임이 적용되어 뛰어옵니다.
+- 늑대는 달리는 애니메이션이 적용되어 뛰어옵니다.
+- 사슴은 새 `deer_low_poly_animated.usdz`로 교체했고 `Take_001` 애니메이션 바인딩이 잡힙니다.
+- 드론은 hover 애니메이션 바인딩이 잡히지만, 뼈/타겟 수가 많아서 반복 샘플 복사는 하지 않습니다.
+
+멧돼지를 움직이게 만든 방법:
+
+1. USDZ 안에서 `Skeleton`과 `SkelAnimation`을 찾습니다.
+2. `_force_skel_animation_binding()`에서 mesh에 skeleton과 animation source를 강제로 연결합니다.
+3. 축이 안 맞는 에셋은 `_APPROACH_ASSET_FIX_ROT_X`로 X축을 보정합니다.
+4. 정면 방향이 안 맞는 에셋은 `_APPROACH_ASSET_YAW_DEG`로 Z축 yaw를 보정합니다.
+5. 걷다가 멈추는 에셋은 `_repeat_skel_animation_samples()`로 애니메이션 샘플을 반복 생성합니다.
+6. 너무 크거나 작으면 `_APPROACH_ASSETS`의 scale 값을 조절합니다.
+7. 공중에 뜨거나 바닥을 뚫으면 `_APPROACH_ASSETS`의 마지막 값 `z_extra`를 조절합니다.
+
+Claude Code로 이어서 작업할 때 줄 프롬프트:
+
+```text
+cobot3의 main_side/camera_publisher.py에서 접근 오브젝트 애니메이션을 정리해줘.
+
+핵심 위치:
+- _APPROACH_ASSETS: label, usd 파일명, scale, lane, x_offset, y_extra, z_extra 설정
+- _APPROACH_ASSET_FIX_ROT_X: Y-up/Z-up 축 보정
+- _APPROACH_ASSET_YAW_DEG: 정면 방향 yaw 보정
+- _force_skel_animation_binding(): Skeleton/SkelAnimation 강제 연결
+- _repeat_skel_animation_samples(): 멈추는 애니메이션을 반복 샘플로 확장
+- _APPROACH_ANIM_REPEAT_LABELS: 반복 샘플 확장을 적용할 label 목록
+
+현재 동작:
+- boar, wolf는 반복 샘플 확장 대상이다.
+- deer는 Take_001 애니메이션 바인딩은 잡히지만 반복 샘플 확장 대상에서는 제외했다.
+- drone은 hover animation이 있지만 타겟 수가 많아 반복 샘플 확장 대상에서 제외해야 한다.
+
+새 동물 에셋을 추가할 때:
+1. USDZ 안에 Skeleton과 SkelAnimation이 있는지 로그로 확인한다.
+2. skel binding 로그가 없으면 해당 파일은 다리 애니메이션으로 쓰기 어렵다.
+3. 에셋이 세로로 서면 _APPROACH_ASSET_FIX_ROT_X를 조절한다.
+4. 옆을 보면 _APPROACH_ASSET_YAW_DEG를 조절한다.
+5. 너무 작거나 크면 _APPROACH_ASSETS의 scale을 바꾼다.
+6. 반복 샘플 확장 후 Isaac Sim 클릭이 안 먹으면 해당 label을 GP_APPROACH_ANIM_REPEAT_LABELS에서 뺀다.
+7. scene/assets/objects 안의 USDZ 파일은 GitHub가 아니라 scene zip으로 공유한다.
+```
 
 ## 감시탑 크기 조절
 

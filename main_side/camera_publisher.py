@@ -28,12 +28,21 @@ simulation_app = SimulationApp(
 import omni.usd
 import omni.timeline
 import omni.graph.core as og
-from pxr import UsdGeom, Usd, Gf, Sdf
+from pxr import UsdGeom, Usd, UsdSkel, Gf, Sdf
 from isaacsim.core.api import World
 from isaacsim.core.utils.extensions import enable_extension
 
-# ROS2 bridge 확장 명시 enable (standalone 앱에 자동 로드 안 됨)
-enable_extension("isaacsim.ros2.bridge")
+# ROS2/animation 확장 명시 enable (standalone 앱에 자동 로드 안 됨)
+for _ext in (
+    "isaacsim.ros2.bridge",
+    "omni.anim.skelJoint",
+    "omni.anim.asset",
+    "omni.anim.timeline",
+):
+    try:
+        enable_extension(_ext)
+    except Exception as _exc:
+        print(f"[camera_pub] extension enable skipped: {_ext} ({_exc!r})")
 for _ in range(60):              # 노드 타입 등록될 때까지 app 펌프
     simulation_app.update()
 
@@ -741,21 +750,104 @@ _APPROACH_ASSET_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "scene", "assets", "objects")
 _APPROACH_ASSETS = [
     # label, usd, scale, lane, x_offset, y_extra, z_extra
-    # deer.usdz currently contains textures/Stylized_Deer.usdz as an image
-    # texture reference, which Isaac rejects as "Invalid image format extension".
-    # Keep it out of the live scene until the source asset is repacked.
-    ("wolf", "wolf.usdz", 4.5, "TP_A", 0.0, 0.0, 0.0),
+    # 기존 deer.usdz 는 texture reference 가 깨져 있어 제외하고,
+    # Downloads 에서 받은 animated USDZ 를 scene/assets/objects 에 복사해 사용한다.
+    ("wolf", "wolf_animated.usdz", 0.060, "TP_A", 0.0, 0.0, 0.0),
+    ("deer", "deer_low_poly_animated.usdz", 0.010, "TP_A", -8.0, 0.0, 0.0),
     ("person", "person.usdz", 4.2, "TP_A", 8.0, 0.0, 0.0),
-    ("boar", "boar.usdz", 4.5, "TP_B", -58.0, 0.0, 0.0),
+    ("boar", "boar_walk.usdz", 0.05, "TP_B", -58.0, 0.0, 0.1),
     ("soldier", "soldier.usdz", 4.2, "TP_B", -50.0, 0.0, 0.0),
     ("drone", "drone.usdz", 3.3, "TP_B", -42.0, 0.0, 0.0),
 ]
+# USDZ exporters sometimes use Y-up character coordinates. The animated boar
+# comes in standing upright unless we convert its local Y-up pose to Isaac Z-up.
+_APPROACH_ASSET_FIX_ROT_X = {
+    "boar": 90.0,
+    "deer": 90.0,
+    "wolf": 90.0,
+    "drone": 90.0,
+}
+_APPROACH_ASSET_YAW_DEG = {
+    "boar": 0.0,
+    "deer": -90.0,
+    "wolf": 90.0,
+}
+_APPROACH_ASSET_HIDE_NAME_TOKENS = {
+    # Wolf_with_Animations.usdz 안에 바닥 helper Plane 이 같이 들어와
+    # 씬 바닥에 큐브/판처럼 보인다. 본체가 아니므로 비활성화한다.
+    "wolf": ("plane", "cube", "box"),
+}
+_APPROACH_GROUND_CLEARANCE = {}
+_APPROACH_ANIM_START_TC = 0.0
+_APPROACH_ANIM_CYCLE_TC = 52.0
+_APPROACH_ANIM_SOURCE_START_TC = float(os.environ.get(
+    "GP_APPROACH_ANIM_SOURCE_START_TC", "4.0"))
+_APPROACH_ANIM_SOURCE_END_TC = float(os.environ.get(
+    "GP_APPROACH_ANIM_SOURCE_END_TC", "44.0"))
+_APPROACH_ANIM_FPS = 24.0
+_APPROACH_ANIM_SPEED = float(os.environ.get("GP_APPROACH_ANIM_SPEED", "1.0"))
+_APPROACH_ANIM_SPEED_BY_LABEL = {
+    "boar": _APPROACH_ANIM_SPEED,
+    "deer": float(os.environ.get("GP_APPROACH_DEER_ANIM_SPEED", "1.0")),
+    "wolf": float(os.environ.get("GP_APPROACH_WOLF_ANIM_SPEED", "1.0")),
+    "drone": float(os.environ.get("GP_APPROACH_DRONE_ANIM_SPEED", "1.0")),
+}
+_APPROACH_ANIM_REPEAT_CYCLES = int(os.environ.get(
+    "GP_APPROACH_ANIM_REPEAT_CYCLES", "300"))
+_APPROACH_ANIM_REPEAT_CYCLES_BY_LABEL = {
+    "boar": _APPROACH_ANIM_REPEAT_CYCLES,
+    "deer": int(os.environ.get("GP_APPROACH_DEER_ANIM_REPEAT_CYCLES", "120")),
+    "wolf": int(os.environ.get("GP_APPROACH_WOLF_ANIM_REPEAT_CYCLES", "120")),
+}
+_APPROACH_ANIM_REPEAT_LABELS = {
+    label.strip()
+    for label in os.environ.get(
+        "GP_APPROACH_ANIM_REPEAT_LABELS", "boar,wolf").split(",")
+    if label.strip()
+}
 _approach_objects = []
 
 
 def _quat_yaw(deg):
     rad = math.radians(float(deg)) * 0.5
     return Gf.Quatf(math.cos(rad), Gf.Vec3f(0.0, 0.0, math.sin(rad)))
+
+
+def _quat_roll_x(deg):
+    rad = math.radians(float(deg)) * 0.5
+    return Gf.Quatf(math.cos(rad), Gf.Vec3f(math.sin(rad), 0.0, 0.0))
+
+
+def _configure_approach_animation_timeline():
+    if not any(filename == "boar_walk.usdz" for _, filename, *_ in _APPROACH_ASSETS):
+        return
+    try:
+        anim_speed = max(0.1, _APPROACH_ANIM_SPEED)
+        source_start = max(_APPROACH_ANIM_START_TC, _APPROACH_ANIM_SOURCE_START_TC)
+        source_end = min(_APPROACH_ANIM_CYCLE_TC, _APPROACH_ANIM_SOURCE_END_TC)
+        source_len = max(1.0, source_end - source_start)
+        cycle_duration_tc = source_len / anim_speed
+        timeline_end_tc = cycle_duration_tc * max(1, _APPROACH_ANIM_REPEAT_CYCLES)
+        stage.SetStartTimeCode(_APPROACH_ANIM_START_TC)
+        stage.SetEndTimeCode(max(stage.GetEndTimeCode(), timeline_end_tc))
+        stage.SetFramesPerSecond(_APPROACH_ANIM_FPS)
+        stage.SetTimeCodesPerSecond(_APPROACH_ANIM_FPS)
+
+        tl = omni.timeline.get_timeline_interface()
+        if hasattr(tl, "set_start_time"):
+            tl.set_start_time(_APPROACH_ANIM_START_TC / _APPROACH_ANIM_FPS)
+        if hasattr(tl, "set_end_time"):
+            tl.set_end_time(timeline_end_tc / _APPROACH_ANIM_FPS)
+        if hasattr(tl, "set_current_time"):
+            tl.set_current_time(_APPROACH_ANIM_START_TC / _APPROACH_ANIM_FPS)
+        if hasattr(tl, "set_looping"):
+            tl.set_looping(False)
+        log("[approach] animation timeline configured "
+            f"{_APPROACH_ANIM_START_TC:.0f}-{timeline_end_tc:.0f}tc "
+            f"@ {_APPROACH_ANIM_FPS:.0f}fps, src={source_start:.0f}-{source_end:.0f}tc, "
+            f"speed={anim_speed:.2f}x, global-loop=off")
+    except Exception as exc:
+        log(f"[approach] animation timeline 설정 실패: {exc!r}")
 
 
 def _nearest_tp_for_x(x):
@@ -863,6 +955,182 @@ def _normalize_referenced_asset(asset_prim, offset_prim, label, scale):
         log(f"[approach] {label} bbox 보정 실패: {exc!r}")
 
 
+def _hide_asset_helper_prims(asset_prim, label):
+    tokens = _APPROACH_ASSET_HIDE_NAME_TOKENS.get(label, ())
+    if not tokens:
+        return
+
+    paths_to_hide = []
+    for prim in Usd.PrimRange(asset_prim):
+        try:
+            if not prim or not prim.IsValid():
+                continue
+            typ = prim.GetTypeName()
+            if typ != "Mesh":
+                continue
+            name = prim.GetName().lower()
+            path = str(prim.GetPath()).lower()
+            if any(token in name or f"/{token}" in path for token in tokens):
+                paths_to_hide.append(prim.GetPath())
+        except Exception as exc:
+            log(f"[approach] {label} helper prim 숨김 실패: {exc!r}")
+
+    hidden = []
+    for path in sorted(paths_to_hide, key=lambda p: len(str(p)), reverse=True):
+        try:
+            prim = stage.GetPrimAtPath(path)
+            if prim and prim.IsValid():
+                prim.SetActive(False)
+                hidden.append(str(path))
+        except Exception as exc:
+            log(f"[approach] {label} helper prim 비활성화 실패 "
+                f"{path}: {exc!r}")
+
+    if hidden:
+        log(f"[approach] {label} helper prim 숨김 {len(hidden)}개: "
+            + ", ".join(hidden[:4]))
+
+
+def _align_object_bottom_to_ground(root_prim, trans_op, label, x, y, z):
+    if label not in _APPROACH_GROUND_CLEARANCE:
+        return z
+    try:
+        simulation_app.update()
+        cache = UsdGeom.BBoxCache(
+            Usd.TimeCode.Default(), ["default", "render", "proxy"])
+        bound = cache.ComputeWorldBound(root_prim)
+        rng = bound.ComputeAlignedRange()
+        if rng.IsEmpty():
+            return z
+
+        min_z = float(rng.GetMin()[2])
+        clearance = float(_APPROACH_GROUND_CLEARANCE.get(label, 0.0))
+        target_min_z = _APPROACH_GROUND_Z + clearance
+        dz = target_min_z - min_z
+        if abs(dz) < 1e-4:
+            return z
+
+        new_z = float(z) + dz
+        trans_op.Set(Gf.Vec3d(float(x), float(y), new_z))
+        log(f"[approach] {label} ground align minZ={min_z:.2f} "
+            f"target={target_min_z:.2f} dz={dz:.2f} z={new_z:.2f}")
+        return new_z
+    except Exception as exc:
+        log(f"[approach] {label} ground align 실패: {exc!r}")
+        return z
+
+
+def _force_skel_animation_binding(asset_prim, label):
+    skeleton = None
+    animation = None
+    skel_roots = []
+    meshes = []
+
+    for prim in Usd.PrimRange(asset_prim):
+        typ = prim.GetTypeName()
+        if typ == "Skeleton" and skeleton is None:
+            skeleton = prim
+        elif typ == "SkelAnimation" and animation is None:
+            animation = prim
+        elif typ == "SkelRoot":
+            skel_roots.append(prim)
+        elif typ == "Mesh":
+            meshes.append(prim)
+
+    if not skeleton or not animation:
+        log(f"[approach] {label} skel animation 없음 "
+            f"(skeleton={bool(skeleton)}, animation={bool(animation)})")
+        return
+
+    targets = skel_roots + meshes
+    fixed = 0
+    for prim in targets:
+        try:
+            api = UsdSkel.BindingAPI.Apply(prim)
+            api.CreateSkeletonRel().SetTargets([skeleton.GetPath()])
+            api.CreateAnimationSourceRel().SetTargets([animation.GetPath()])
+            fixed += 1
+        except Exception as exc:
+            log(f"[approach] {label} skel binding 실패 {prim.GetPath()}: {exc!r}")
+
+    log(f"[approach] {label} skel binding 강제 적용 "
+        f"targets={fixed} skeleton={skeleton.GetPath().name} "
+        f"animation={animation.GetPath().name}")
+
+
+def _repeat_skel_animation_samples(asset_prim, label):
+    if label not in _APPROACH_ANIM_REPEAT_LABELS:
+        log(f"[approach] {label} skel animation 반복 샘플 생략 "
+            f"(repeat labels={sorted(_APPROACH_ANIM_REPEAT_LABELS)})")
+        return
+
+    repeat_cycles = int(_APPROACH_ANIM_REPEAT_CYCLES_BY_LABEL.get(
+        label, _APPROACH_ANIM_REPEAT_CYCLES))
+    if repeat_cycles <= 1:
+        return
+
+    animation = None
+    for prim in Usd.PrimRange(asset_prim):
+        if prim.GetTypeName() == "SkelAnimation":
+            animation = prim
+            break
+    if not animation:
+        log(f"[approach] {label} skel animation 반복 불가 "
+            "(SkelAnimation prim 없음)")
+        return
+
+    attrs = []
+    all_samples = []
+    for attr_name in ("rotations", "translations", "scales"):
+        attr = animation.GetAttribute(attr_name)
+        if not attr:
+            continue
+        samples = [float(t) for t in attr.GetTimeSamples()]
+        all_samples.extend(samples)
+        attrs.append((attr, samples))
+
+    if not all_samples:
+        log(f"[approach] {label} skel animation 반복 불가 "
+            "(timeSamples 없음)")
+        return
+
+    if label == "boar":
+        source_start = max(min(all_samples), _APPROACH_ANIM_SOURCE_START_TC)
+        source_end = min(max(all_samples), _APPROACH_ANIM_SOURCE_END_TC)
+    else:
+        source_start = min(all_samples)
+        source_end = max(all_samples)
+
+    if source_end <= source_start:
+        return
+
+    anim_speed = max(0.1, _APPROACH_ANIM_SPEED_BY_LABEL.get(label, 1.0))
+    source_len = max(1.0, source_end - source_start)
+    cycle_duration_tc = source_len / anim_speed
+    filtered_attrs = []
+    for attr, samples in attrs:
+        source_samples = [
+            float(t) for t in samples if source_start <= float(t) <= source_end
+        ]
+        if source_samples:
+            filtered_attrs.append((attr, source_samples))
+
+    authored = 0
+    for attr, source_samples in filtered_attrs:
+        values = [(t, attr.Get(Usd.TimeCode(t))) for t in source_samples]
+        for cycle in range(repeat_cycles):
+            base = cycle_duration_tc * cycle
+            for sample_t, value in values:
+                local_t = (sample_t - source_start) / anim_speed
+                attr.Set(value, Usd.TimeCode(base + local_t))
+                authored += 1
+
+    log(f"[approach] {label} skel animation 반복 샘플 확장 "
+        f"src={source_start:.0f}-{source_end:.0f}tc "
+        f"cycles={repeat_cycles} speed={anim_speed:.2f}x "
+        f"authored={authored}")
+
+
 def _setup_approach_objects():
     if stage.GetPrimAtPath(APPROACH_OBJECT_ROOT).IsValid():
         stage.RemovePrim(APPROACH_OBJECT_ROOT)
@@ -899,16 +1167,23 @@ def _setup_approach_objects():
         xf.ClearXformOpOrder()
         trans_op = xf.AddTranslateOp()
         trans_op.Set(Gf.Vec3d(float(x), float(start_y), float(z)))
-        xf.AddOrientOp().Set(_quat_yaw(180.0))
+        xf.AddOrientOp().Set(_quat_yaw(_APPROACH_ASSET_YAW_DEG.get(label, 180.0)))
 
         scale_prim = stage.DefinePrim(f"{path}/scale", "Xform")
         sx = UsdGeom.Xformable(scale_prim)
         sx.ClearXformOpOrder()
         sx.AddScaleOp().Set(Gf.Vec3f(float(scale), float(scale), float(scale)))
+        fix_rot_x = _APPROACH_ASSET_FIX_ROT_X.get(label)
+        if fix_rot_x is not None:
+            sx.AddOrientOp().Set(_quat_roll_x(fix_rot_x))
         offset_prim = stage.DefinePrim(f"{path}/scale/offset", "Xform")
         asset_prim = stage.DefinePrim(f"{path}/scale/offset/asset", "Xform")
         ref_path = _add_asset_reference(asset_prim, asset_path)
+        _hide_asset_helper_prims(asset_prim, label)
+        _force_skel_animation_binding(asset_prim, label)
+        _repeat_skel_animation_samples(asset_prim, label)
         _normalize_referenced_asset(asset_prim, offset_prim, label, scale)
+        z = _align_object_bottom_to_ground(root, trans_op, label, x, start_y, z)
 
         _approach_objects.append({
             "label": label,
@@ -938,6 +1213,7 @@ def _update_approach_objects(dt):
 
 
 _setup_approach_objects()
+_configure_approach_animation_timeline()
 
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
