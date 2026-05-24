@@ -3,8 +3,9 @@ import { useState } from "react";
 import { postJSON, ROBOT_ID } from "@/lib/api";
 import SettingsPopover from "./SettingsPopover";
 
-const PAN_STEP = 8 * Math.PI / 180;
-const TILT_STEP = 5 * Math.PI / 180;
+// 2026-05-24: 정밀 조준용 2°/click 로 통일 (DS rate 2°/s 와 정합).
+const PAN_STEP = 2 * Math.PI / 180;
+const TILT_STEP = 2 * Math.PI / 180;
 const LIMIT = 70 * Math.PI / 180;
 const clamp = (v: number) => Math.max(-LIMIT, Math.min(LIMIT, v));
 

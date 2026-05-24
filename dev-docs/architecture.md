@@ -9,14 +9,19 @@ Main PC (Isaac Sim)              C2 PC (Command Center)
 Isaac Sim 5.1 (Go2)              FastAPI :8000
   └ camera_publisher        ──ROS2──→ ros_bridge (rclpy, PAUSED 가드)
   └ Go2WtwController                └ db_writer → PostgreSQL :5432
-  └ video_degrade ×3                └ /events WS → Next.js :3000
-  └ telemetry_bridge                └ Nav2 stack + safety_filter + patrol FSM
-  └ mission_echo · npc_relay        └ dualsense_worker (PS5 50Hz)
-  └ world_odom_tf_pub · landmarks   └ foxglove_sdk_publisher :8767
-  └ camera_info_publisher       ←   ← /robot/cmd_vel (rear/inspect/overhead)
-                                    Foxglove Bridge :8765
+  └ video_degrade ×7 (rear/inspect/  └ /events WS → Next.js :3000
+     overhead/tp_a~d)               └ Nav2 stack + safety_filter + patrol FSM
+  └ depth_degrade ×4 (tp_a~d)       └ dualsense_worker (PS5 50Hz)
+  └ telemetry_bridge                └ foxglove_sdk_publisher :8767
+  └ mission_echo · npc_relay   ──→  ← /robot/cmd_vel
+  └ world_odom_tf_pub · landmarks
+  └ camera_info_publisher           Foxglove Bridge :8765
 HTTP :8766 (Go2 URDF + DAE)  ────→  Lichtblick :8080 (8765+8767 dual)
                                     Cloudflare Tunnel (optional)
+
+LAN 트래픽 (2026-05-24 효율화 후): Main → C2 ≈ 0.6 MB/s (이전 17.9 MB/s)
+RAW 카메라 토픽 /cam/*/rgb /cam/tactical/*/depth = Main 내부만 (video/depth_degrade 가 압축본 재발행).
+상세: [communication-optimization.md](communication-optimization.md)
 ```
 
 **네트워크 설정 단일소스:** `common/site.env`
@@ -126,17 +131,28 @@ dualsense_worker.py (C2 사이드카, 2026-05-21)
 
 ## 5. 데이터 흐름 (End-to-End)
 
-### 카메라 영상 다운링크 (2026-05-21, inspect 가 YOLO 입력)
+### 카메라 영상 다운링크 (2026-05-24, inspect+rear+overhead+TP_A~D+tp_grid)
 ```
 Isaac OG (50Hz) → /cam/inspect/rgb (Image)
   → video_degrade_node (throttle 5fps, resize 640×360, JPEG q50)
   → /c2/inspect/compressed (CompressedImage)
-  → ros_bridge._on_video("inspect") (OpenCV decode + YOLO dmz_sentry_best.pt)
+  → ros_bridge._on_video("inspect") (OpenCV decode + YOLO, config.YOLO_CAMERAS 가드)
   → ros_bridge._video["inspect"] (BGR ndarray, thread-safe lock)
   → GET /c2/video/mjpeg?camera=inspect (MJPEG 스트림)
-  → Next.js DualCameraView / TripleCameraView / ImmersiveCameraView
+  → Next.js DualCameraView / ImmersiveCameraView
   → person 검출 시 /alerts publish → foxglove_sdk_publisher → /sdk/alert_log
   → animal 검출 시 /animal_alerts publish → WS animal_alert event
+
+TP_A~D depth (2026-05-24 신규):
+Isaac OG → /cam/tactical/tp_*/depth (32FC1, 920KB) ← Main 내부만 (LAN 미통과)
+  → depth_degrade_node (320×180 downsample + PNG 16UC1 압축, ~22KB)
+  → /c2/tp_*/depth_compressed → ros_bridge._on_depth (PNG decode → meter ndarray)
+  → YOLO 3D projection (bbox 중앙 픽셀 거리 샘플 → world XY)
+
+TP_A~D RGB mosaic (2026-05-24 신규, 브라우저 HTTP/1.1 connection 제한 회피):
+app.py /c2/video/mjpeg?camera=tp_grid
+  → _build_tp_grid_frame: get_video_frame(tp_a..d) × 320×180 hconcat (1280×180)
+  → JPEG → 단일 MJPEG 연결로 4 채널 표시
 ```
 
 ### 텔레메트리 상태 업링크

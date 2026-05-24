@@ -1,18 +1,21 @@
 """Nav2 patrol 컨트롤러 — Go2 정찰 단순화 사양 (2026-05-20).
 
-지통실의 mission_command (sortie/home/stop/resume/idle) 를 받아 Nav2
+지통실의 mission_command (sortie/home/stop/resume/idle/goto_tp:TP_X) 를 받아 Nav2
 navigate_to_pose action 으로 전송. 도착 ±10m 사각 판정. stop → PAUSED 진입 +
 stop_burst 타이머 (10Hz × 2s) Twist(0) 반복으로 cmd_vel chain 잔여 덮어쓰기.
 resume → 보존된 mode + goal 재전송.
+goto_tp:TP_X → ROUTING 모드 — ZoneRouter Dijkstra 경로 → zone 순차 경유 → TP 도착.
 
 I/O:
 - 구독: /mission_command (String), /robot/odom (Odometry),
         /scene/landmarks (latched String JSON), /robot/nav/goal (PoseStamped)
-- 발행: /patrol_state (5Hz String JSON), /robot/cmd_vel (Twist 정지용)
+- 발행: /patrol_state (5Hz String JSON), /routing_state (String JSON), /robot/cmd_vel (Twist 정지용)
 - Action: /navigate_to_pose (nav2_msgs/NavigateToPose)
 """
 import json
 import math
+import sys
+import os
 import time
 from enum import Enum
 
@@ -27,20 +30,33 @@ from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
                        ReliabilityPolicy)
 from std_msgs.msg import String
 
+# ZoneRouter — 같은 디렉토리에서 import (없으면 경고만, ROUTING 기능 비활성)
+try:
+    _this_dir = os.path.dirname(os.path.abspath(__file__))
+    if _this_dir not in sys.path:
+        sys.path.insert(0, _this_dir)
+    from zone_router import ZoneRouter as _ZoneRouter
+    _ZONE_ROUTER_AVAILABLE = True
+except ImportError:
+    _ZoneRouter = None
+    _ZONE_ROUTER_AVAILABLE = False
+
 # 사용자 사양 좌표 (2026-05-20)
 DEFAULT_HOME = (212.8, 890.53)
 DEFAULT_GOAL = (287.59, 1129.728)
-ARRIVE_HALF = 10.0   # 도착 판정 ±10m 사각 box
+ARRIVE_HALF = 10.0       # 도착 판정 ±10m 사각 box (PATROL/HOME)
+ROUTING_ARRIVE = 3.0     # ROUTING 모드 zone 경유 도착 허용 오차 ±3m
 
 NAV_GOAL_TOPIC = "/robot/nav/goal"   # web 맵 클릭 manual goal
 
 
 class MissionMode(str, Enum):
     IDLE = "IDLE"
-    PATROL = "PATROL"       # → goal (수색위치)
-    HOME = "HOME"           # → home
-    PAUSED = "PAUSED"       # stop 명령 — mode·goal 보존
+    PATROL = "PATROL"             # → goal (수색위치)
+    HOME = "HOME"                 # → home
+    PAUSED = "PAUSED"             # stop 명령 — mode·goal 보존
     WAITING_FOR_NAV2 = "WAITING_FOR_NAV2"
+    ROUTING = "ROUTING"           # zone 경유 Tactical Point 이동
 
 
 def _yaw_from_quaternion(q) -> float:
@@ -107,6 +123,13 @@ class Nav2PatrolController(Node):
         self._pending_target = None    # cancel done → 이 target 으로 dispatch
         self._diag_ctr = 0             # 5Hz tick 안 5초 주기 lifecycle 진단
 
+        # ROUTING 모드 상태
+        self._router = None            # ZoneRouter 인스턴스 (landmarks 수신 후 초기화)
+        self._sp_world = None          # StartingPoint world (x,y) — odom→world 변환용
+        self._route: list = []         # [(x,y), ...] 순차 웨이포인트
+        self._route_idx: int = 0       # 현재 목표 웨이포인트 인덱스
+        self._route_tp_id: str = ""    # 목표 Tactical Point ID
+
         latched = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -117,6 +140,7 @@ class Nav2PatrolController(Node):
         self._nav_client = ActionClient(self, NavigateToPose, self._action_name)
         self._cmd_pub = self.create_publisher(Twist, self._cmd_vel_topic, 10)
         self._state_pub = self.create_publisher(String, self._state_topic, 10)
+        self._routing_state_pub = self.create_publisher(String, "/routing_state", 10)
         self.create_subscription(String, self._mission_topic, self._on_mission, 10)
         self.create_subscription(Odometry, self._odom_topic, self._on_odom, 20)
         self.create_subscription(String, self._landmarks_topic,
@@ -150,6 +174,21 @@ class Nav2PatrolController(Node):
         self.get_logger().info(
             f"landmarks 수신: home=({self._home[0]:.1f},{self._home[1]:.1f}) "
             f"goal=({self._goal[0]:.1f},{self._goal[1]:.1f})")
+        # ZoneRouter 초기화 (routing_zones + tactical_points 포함 시).
+        # 2026-05-24 라우팅 정확도 개선: StartingPoint world 좌표 캐시 — odom→world 변환 키.
+        zones = payload.get("routing_zones", [])
+        tps = payload.get("tactical_points", {})
+        sp = next((z for z in zones if z["name"] == "StartingPoint"), None)
+        if sp:
+            self._sp_world = (float(sp["x"]), float(sp["y"]))
+        if zones and tps and _ZONE_ROUTER_AVAILABLE:
+            self._router = _ZoneRouter(zones, tps)
+            self.get_logger().info(
+                f"ZoneRouter 빌드: {self._router.zone_count}개 zone, "
+                f"TPs={self._router.available_tps()}, "
+                f"sp_world={self._sp_world}")
+        elif zones and tps and not _ZONE_ROUTER_AVAILABLE:
+            self.get_logger().warn("zone_router.py import 실패 — ROUTING 기능 비활성")
 
     # ── manual nav goal (web map 더블클릭) ─────────────────────────────
     def _on_nav_goal(self, msg: PoseStamped) -> None:
@@ -167,7 +206,17 @@ class Nav2PatrolController(Node):
     def _on_odom(self, msg: Odometry) -> None:
         position = msg.pose.pose.position
         yaw = _yaw_from_quaternion(msg.pose.pose.orientation)
-        self._pose = (float(position.x), float(position.y), float(yaw))
+        # 2026-05-24: /robot/odom 은 IsaacComputeOdometry 누적 변위 (spawn=0,0 기준 odom 좌표).
+        # self._home/_goal/route_waypoints 가 모두 world 좌표라 일관성 위해
+        # spawn world (=StartingPoint) 오프셋 적용해 self._pose 를 world 좌표로 저장.
+        # _sp_world 미수신 시(landmarks 늦은 join) 임시로 odom 값 유지 — 다음 callback 에서 정상화.
+        ox, oy = float(position.x), float(position.y)
+        if self._sp_world is not None:
+            wx = self._sp_world[0] + ox
+            wy = self._sp_world[1] + oy
+        else:
+            wx, wy = ox, oy
+        self._pose = (wx, wy, float(yaw))
         # 도착 사각 박스 판정 (PATROL/HOME 진행 중)
         if self._mode in (MissionMode.PATROL, MissionMode.HOME):
             tgt = self._goal if self._mode == MissionMode.PATROL else self._home
@@ -181,6 +230,7 @@ class Nav2PatrolController(Node):
                     self.get_logger().info(
                         f"{self._mode.value} 도착 (사각 ±{self._arrive_half}m) → IDLE 제자리 사수")
                     self._mode = MissionMode.IDLE
+
 
     # ── mission_command ───────────────────────────────────────────────
     def _on_mission(self, msg: String) -> None:
@@ -197,10 +247,12 @@ class Nav2PatrolController(Node):
             self.get_logger().info(f"mission: home → {self._home}")
         elif command in ("stop", "halt", "pause"):
             # mode 보존
-            if self._mode in (MissionMode.PATROL, MissionMode.HOME):
+            if self._mode in (MissionMode.PATROL, MissionMode.HOME, MissionMode.ROUTING):
                 self._paused_from_mode = self._mode
                 self._paused_goal = (self._goal if self._mode == MissionMode.PATROL
-                                     else self._home)
+                                     else self._home if self._mode == MissionMode.HOME
+                                     else (self._route[self._route_idx]
+                                           if self._route else self._home))
             self._mode = MissionMode.PAUSED
             self._cancel_current_goal()
             self._publish_stop()
@@ -222,6 +274,9 @@ class Nav2PatrolController(Node):
             self._cancel_current_goal()
             self._publish_stop()
             self.get_logger().info("mission: idle")
+        elif command.startswith("goto_tp:"):
+            tp_id = command[8:].upper().strip()
+            self._start_routing(tp_id)
         else:
             self.get_logger().warn(f"unknown mission command: {msg.data}")
 
@@ -292,15 +347,76 @@ class Nav2PatrolController(Node):
         status = future.result().status
         if self._mode in (MissionMode.PAUSED, MissionMode.IDLE):
             return
-        if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info("Nav2 goal 성공 (도착 사각 판정과 별개)")
-        else:
+        if self._mode == MissionMode.ROUTING and status == GoalStatus.STATUS_SUCCEEDED:
+            self._advance_routing()
+        elif status != GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().warn(f"Nav2 goal 종료 status={status}")
+
+    def _advance_routing(self) -> None:
+        self._route_idx += 1
+        if self._route_idx >= len(self._route):
+            self._mode = MissionMode.IDLE
+            self._publish_stop()
+            self.get_logger().info(
+                f"ROUTING 완료: {self._route_tp_id} 도착")
+            self._publish_routing_state(completed=True)
+        else:
+            next_wp = self._route[self._route_idx]
+            self.get_logger().info(
+                f"ROUTING zone 통과 [{self._route_idx}/{len(self._route)}] "
+                f"→ 다음 ({next_wp[0]:.1f},{next_wp[1]:.1f})")
+            self._send_goal_now(next_wp)
+            self._publish_routing_state()
 
     def _cancel_current_goal(self) -> None:
         if self._goal_handle is not None:
             self._goal_handle.cancel_goal_async()
             self._goal_handle = None
+
+    # ── routing ───────────────────────────────────────────────────────
+    def _start_routing(self, tp_id: str) -> None:
+        if not _ZONE_ROUTER_AVAILABLE:
+            self.get_logger().error("ZoneRouter 미사용 — zone_router.py import 실패")
+            return
+        if self._router is None:
+            self.get_logger().warn(
+                "goto_tp: ZoneRouter 미초기화 (landmarks 미수신). sortie 전 landmarks 확인 필요.")
+            return
+        if self._pose is None:
+            self.get_logger().warn("goto_tp: odom 미수신 — 로봇 위치 불명")
+            return
+        waypoints = self._router.plan(self._pose[:2], tp_id)
+        if not waypoints:
+            self.get_logger().warn(
+                f"goto_tp: {tp_id} 경로 없음 (TP 미존재 또는 zone 그래프 단절)")
+            return
+        self._mode = MissionMode.ROUTING
+        self._route = waypoints
+        self._route_idx = 0
+        self._route_tp_id = tp_id
+        self._goal_arrived = False
+        self._cancel_current_goal()
+        self.get_logger().info(
+            f"ROUTING 시작: tp={tp_id} 총 {len(waypoints)}개 waypoint "
+            f"첫 목표=({waypoints[0][0]:.1f},{waypoints[0][1]:.1f})")
+        self._send_goal_now(self._route[0])
+        self._publish_routing_state()
+
+    def _publish_routing_state(self, completed: bool = False) -> None:
+        payload = {
+            "tp_id": self._route_tp_id,
+            "route": [{"x": p[0], "y": p[1]} for p in self._route],
+            "current_idx": self._route_idx,
+            "total": len(self._route),
+            "completed": completed,
+            "pose": (
+                {"x": self._pose[0], "y": self._pose[1], "yaw": self._pose[2]}
+                if self._pose else None
+            ),
+        }
+        msg = String()
+        msg.data = json.dumps(payload)
+        self._routing_state_pub.publish(msg)
 
     # ── stop publish ──────────────────────────────────────────────────
     def _publish_stop(self) -> None:
@@ -346,6 +462,12 @@ class Nav2PatrolController(Node):
                 {"x": self._pose[0], "y": self._pose[1], "yaw": self._pose[2]}
                 if self._pose else None),
             "landmarks_received": self._landmarks_received,
+            "routing": (
+                {"tp_id": self._route_tp_id,
+                 "idx": self._route_idx,
+                 "total": len(self._route)}
+                if self._mode == MissionMode.ROUTING else None
+            ),
         }
         msg = String()
         msg.data = json.dumps(payload)

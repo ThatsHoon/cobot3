@@ -110,6 +110,166 @@ log(f"Routing_Zones/StartingPoint → "
 log(f"Routing_Zones/Standard_Point → "
     f"{tuple(round(v,2) for v in _rz_std) if _rz_std else 'NOT FOUND'}")
 
+# Routing_Zones 전체 children → zone_router.ZoneRouter 용 목록.
+# 2026-05-24: ComputeLocalToWorldTransform 우선 + xformOp:translate fallback.
+# WHY: Xformable 가드(if not xf)가 일부 prim(GenericPrim 등)을 skip 해 19→16개로
+# 누락되던 문제. 모든 prim 에 대해 우선 변환 시도, 실패 시 xformOp:translate 폴백.
+def _zone_world_pos(prim):
+    """prim의 world 좌표 (x,y,z) 추출. ComputeLocalToWorldTransform → xformOp 폴백."""
+    try:
+        xf = UsdGeom.Xformable(prim)
+        m = xf.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        t = m.ExtractTranslation()
+        return float(t[0]), float(t[1]), float(t[2])
+    except Exception:
+        pass
+    # 폴백: xformOp:translate 속성 직접
+    t = prim.GetAttribute("xformOp:translate").Get()
+    if t is None:
+        return None
+    return float(t[0]), float(t[1]), float(t[2])
+
+def _read_all_routing_zones():
+    zones = []
+    parent = stage.GetPrimAtPath("/World/Routing_Zones")
+    if not (parent and parent.IsValid()):
+        return zones
+    for child in parent.GetChildren():
+        p = _zone_world_pos(child)
+        if p is not None:
+            x, y, z = p
+            zones.append({"name": child.GetName(), "x": x, "y": y, "z": z})
+    return zones
+
+def _read_all_tactical_points():
+    tps = {}
+    parent = stage.GetPrimAtPath("/World/Tactical_Points")
+    if not (parent and parent.IsValid()):
+        return tps
+    for child in parent.GetChildren():
+        p = _zone_world_pos(child)
+        if p is not None:
+            x, y, z = p
+            tps[child.GetName()] = {"x": x, "y": y, "z": z}
+    return tps
+
+_all_routing_zones = _read_all_routing_zones()
+_all_tactical_points = _read_all_tactical_points()
+log(f"Routing_Zones 전체 {len(_all_routing_zones)}개 로드: "
+    f"{[z['name'] for z in _all_routing_zones]}")
+log(f"Tactical_Points 로드: {list(_all_tactical_points.keys())}")
+
+
+def _make_all_edges(zones_list, max_edge_m=50.0):
+    """거리 기반 전체 엣지 목록 (PhysX 미사용 폴백)."""
+    import math as _math
+    names = [z["name"] for z in zones_list]
+    pos = {z["name"]: (z["x"], z["y"]) for z in zones_list}
+    edges = []
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            d = _math.hypot(pos[a][0] - pos[b][0], pos[a][1] - pos[b][1])
+            if d <= max_edge_m:
+                edges.append({"a": a, "b": b, "dist": d, "valid": True})
+    return edges
+
+
+def _validate_routing_edges(zones_list, max_edge_m=50.0,
+                              robot_width=0.5, safety_margin=0.6):
+    """Play 이후 PhysX raycast 으로 각 zone 간 엣지의 협로 통과 가능성 검증.
+
+    robot_width:   Go2 본체 폭 (다리 펼침 포함, 약 0.5m).
+    safety_margin: 좌우 각각 추가 여유 (0.6m → 최소 통과 폭 1.7m).
+    반환: [{"a": str, "b": str, "dist": float, "valid": bool}, ...]
+    """
+    import math as _math
+    try:
+        from omni.physx import get_physx_scene_query_interface as _gpsqi
+        _qi = _gpsqi()
+    except Exception as _e:
+        log(f"⚠ PhysX query 초기화 실패 ({_e!r}) → 거리 기반 폴백")
+        return _make_all_edges(zones_list, max_edge_m)
+
+    HALF_PASS   = robot_width / 2.0 + safety_margin  # 각 방향 최소 통과 폭(0.85m)
+    SAMPLE_STEP = 2.0    # m 단위 샘플 간격 (협로 폭 변화 감지 위해 촘촘히)
+    G_RAY_H     = 12.0   # 지면 레이캐스트 출발 높이 (zone z + 이 값)
+    G_MAX_D     = 30.0   # 지면 탐색 최대 거리
+    ROBOT_H     = 0.35   # 수평 레이 발사 높이 (지면 위, Go2 몸통 중심 ~0.3m)
+    LAT_MAX_D   = HALF_PASS + 0.2  # 측면 레이캐스트 최대 거리(1.05m)
+
+    names = [z["name"] for z in zones_list]
+    pos = {z["name"]: (z["x"], z["y"], z["z"]) for z in zones_list}
+    edges = []
+
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            ax, ay, az = pos[a]
+            bx, by, bz = pos[b]
+            dist_h = _math.hypot(ax - bx, ay - by)
+            if dist_h > max_edge_m:
+                continue
+
+            if dist_h < 0.01:
+                edges.append({"a": a, "b": b, "dist": dist_h, "valid": True})
+                continue
+
+            nx, ny = (bx - ax) / dist_h, (by - ay) / dist_h
+            lx, ly =  -ny,  nx   # 좌 수직
+            rx, ry =   ny, -nx   # 우 수직
+
+            n_samp = max(3, min(20, int(dist_h / SAMPLE_STEP) + 1))
+            valid = True
+            fail = ""
+
+            for step in range(n_samp + 1):
+                t = step / n_samp
+                px = ax + t * (bx - ax)
+                py = ay + t * (by - ay)
+                pz = az + t * (bz - az)
+
+                # 1) 지면 확인
+                try:
+                    hd = _qi.raycast_closest(
+                        (px, py, pz + G_RAY_H),
+                        (0.0, 0.0, -1.0),
+                        G_MAX_D,
+                    )
+                except Exception:
+                    break
+
+                if not (hd and hd.get("hit")):
+                    valid = False
+                    fail = f"no ground at ({px:.0f},{py:.0f})"
+                    break
+
+                gz = hd["position"][2]
+                rz = gz + ROBOT_H
+
+                # 2) 좌/우 측면 레이캐스트 (협로 감지)
+                try:
+                    hl = _qi.raycast_closest((px, py, rz), (lx, ly, 0.0), LAT_MAX_D)
+                    hr = _qi.raycast_closest((px, py, rz), (rx, ry, 0.0), LAT_MAX_D)
+                except Exception:
+                    break
+
+                l_hit = bool(hl and hl.get("hit") and hl["distance"] < HALF_PASS)
+                r_hit = bool(hr and hr.get("hit") and hr["distance"] < HALF_PASS)
+
+                if l_hit and r_hit:
+                    valid = False
+                    fail = (f"협로 t={t:.2f} "
+                            f"L={hl['distance']:.1f}m R={hr['distance']:.1f}m")
+                    break
+
+            if not valid:
+                log(f"엣지 {a}↔{b} 무효(협로): {fail}")
+            edges.append({"a": a, "b": b, "dist": dist_h, "valid": valid})
+
+    ok = sum(1 for e in edges if e["valid"])
+    log(f"라우팅 엣지 검증 완료: {ok}/{len(edges)}개 유효")
+    return edges
+
+
 # 1b) sublayer 보강 — gp_scene.usd 무수정 원칙 유지 (단일 소스).
 # WHY: collider/material binding/mass 등 보강만 별도 USDA 에 모음. 강한 opinion
 # 으로 prepend → 기존 gp_scene.usd 의 누락된 attribute 가 sublayer 값으로 채워짐.
@@ -239,6 +399,8 @@ try:
         "goal": {"x": float(_cone_xy[0]), "y": float(_cone_xy[1]),
                  "z": float(_GO2_GOAL_XYZ[2])},
         "arrive_box": 2.0,
+        "routing_zones": _all_routing_zones,
+        "tactical_points": _all_tactical_points,
     }
     with open("/tmp/cobot3_landmarks.json", "w") as _f:
         _json.dump(_lm, _f)
@@ -504,36 +666,155 @@ def _mk_cam(path, translate, quat, label):
     log(f"{label} 생성: {path} (시선 정방향, up=+Z, 16:9)")
 
 
+def _quat_camera_forward(forward):
+    """USD Camera local -Z axis points along world `forward`, with world +Z up."""
+    import math as _m
+    fx, fy, fz = float(forward[0]), float(forward[1]), float(forward[2])
+    fl = _m.sqrt(fx*fx + fy*fy + fz*fz)
+    if fl < 1e-6:
+        return _Q_FRONT
+    fx, fy, fz = fx/fl, fy/fl, fz/fl
+    zx, zy, zz = -fx, -fy, -fz
+    ux, uy, uz = 0.0, 0.0, 1.0
+    xx, xy, xz = uy*zz-uz*zy, uz*zx-ux*zz, ux*zy-uy*zx
+    xl = _m.sqrt(xx*xx + xy*xy + xz*xz)
+    if xl < 1e-6:
+        ux, uy, uz = 0.0, 1.0, 0.0
+        xx, xy, xz = uy*zz-uz*zy, uz*zx-ux*zz, ux*zy-uy*zx
+        xl = _m.sqrt(xx*xx + xy*xy + xz*xz)
+    xx, xy, xz = xx/xl, xy/xl, xz/xl
+    yx, yy, yz = zy*xz-zz*xy, zz*xx-zx*xz, zx*xy-zy*xx
+    m00, m01, m02 = xx, yx, zx
+    m10, m11, m12 = xy, yy, zy
+    m20, m21, m22 = xz, yz, zz
+    tr = m00 + m11 + m22
+    if tr > 0.0:
+        s = _m.sqrt(tr + 1.0) * 2.0
+        qw, qx = 0.25*s, (m21-m12)/s
+        qy, qz = (m02-m20)/s, (m10-m01)/s
+    elif m00 > m11 and m00 > m22:
+        s = _m.sqrt(1.0+m00-m11-m22) * 2.0
+        qw, qx = (m21-m12)/s, 0.25*s
+        qy, qz = (m01+m10)/s, (m02+m20)/s
+    elif m11 > m22:
+        s = _m.sqrt(1.0+m11-m00-m22) * 2.0
+        qw, qx = (m02-m20)/s, (m01+m10)/s
+        qy, qz = 0.25*s, (m12+m21)/s
+    else:
+        s = _m.sqrt(1.0+m22-m00-m11) * 2.0
+        qw, qx = (m10-m01)/s, (m02+m20)/s
+        qy, qz = (m12+m21)/s, 0.25*s
+    return Gf.Quatf(qw, Gf.Vec3f(qx, qy, qz))
+
+
 # 사용자 요청 (2026-05-20): front 카메라 삭제, inspect 는 base 전방 끝, rear 는
 # 후방 끝 으로 이동. Go2 base half-length ≈ 0.235m.
-_mk_cam(CAM_REAR_PATH, Gf.Vec3f(-0.235, 0.0, 0.10), _Q_REAR, "후방(real) 카메라")
+_mk_cam(CAM_REAR_PATH, Gf.Vec3f(-0.235, 0.0, 0.40), _Q_REAR, "후방(real) 카메라")
 
 # 검사 카메라(가상 짐벌) — base 전방 끝 mount. pan/tilt/zoom 은
 # /robot/inspect/command 수신 시 _apply_inspect_cmd 가 Xform·focalLength 갱신.
 CAM_INSPECT_PATH = "/World/Go2/base/camera_inspect"
-_mk_cam(CAM_INSPECT_PATH, Gf.Vec3f(0.235, 0.0, 0.10), _Q_FRONT, "검사 카메라(짐벌, 전방 끄트머리)")
+_mk_cam(CAM_INSPECT_PATH, Gf.Vec3f(0.235, 0.0, 0.40), _Q_FRONT, "검사 카메라(짐벌, 전방 끄트머리)")
 
 # 오버헤드(TACTICAL MAP 배경용) 카메라 — /World 직접 자식, 매 step Go2 base
 # xy 동기화 + z 고정 + orient identity (시선 −Z, up +Y) = North-up 고정.
 # WHY: base 자식이면 보행 oscillation (roll/pitch + z bob) 가 영상에 누설.
 # /World 자식 + 매 step xy 추적이면 robot 따라가지만 화면 위는 항상 world +Y.
 CAM_OVERHEAD_PATH = "/World/Overhead_Camera"
+# 고도 200m, HAP=VAP=20.955mm, focal=8mm → 지상 커버리지 ±262m (정방형).
+# WHY: 고도 100m+VAP=11.79mm(16:9)이면 수직 커버리지 74m로 정방형 캔버스와 불일치.
+#      VAP=HAP로 통일 + 고도 200m로 ±262m 확보해 TP_A~D(최대 ~136m) 전부 포함.
+OVERHEAD_ALTITUDE_M = 200.0
 _Q_DOWN = Gf.Quatf(1.0, Gf.Vec3f(0.0, 0.0, 0.0))   # identity
 if stage.GetPrimAtPath(CAM_OVERHEAD_PATH).IsValid():
     stage.RemovePrim(CAM_OVERHEAD_PATH)
 _cam_ov = UsdGeom.Camera.Define(stage, CAM_OVERHEAD_PATH)
 _xf_ov = UsdGeom.Xformable(_cam_ov.GetPrim())
 _xf_ov.ClearXformOpOrder()
-# 초기 spawn 위치 위에 두기 (StartingPoint + 100m)
 _xf_ov.AddTranslateOp().Set(Gf.Vec3f(
     float(_GO2_HOME_XYZ[0]), float(_GO2_HOME_XYZ[1]),
-    float(_GO2_HOME_XYZ[2]) + 100.0))
+    float(_GO2_HOME_XYZ[2]) + OVERHEAD_ALTITUDE_M))
 _xf_ov.AddOrientOp().Set(_Q_DOWN)
 _cam_ov.GetFocalLengthAttr().Set(8.0)
-_cam_ov.GetHorizontalApertureAttr().Set(_HAP)
-_cam_ov.GetVerticalApertureAttr().Set(_VAP)
-_cam_ov.GetClippingRangeAttr().Set(Gf.Vec2f(1.0, 1000.0))
-log(f"오버헤드 카메라(고도 100m, North-up 고정) 생성: {CAM_OVERHEAD_PATH}")
+_cam_ov.GetHorizontalApertureAttr().Set(_HAP)   # 20.955mm
+_cam_ov.GetVerticalApertureAttr().Set(_HAP)      # 정방형 (VAP=HAP)
+_cam_ov.GetClippingRangeAttr().Set(Gf.Vec2f(1.0, 2000.0))
+log(f"오버헤드 카메라(고도 {OVERHEAD_ALTITUDE_M:.0f}m, North-up 고정, ±262m) 생성: {CAM_OVERHEAD_PATH}")
+
+# --- Tactical Fixed Cameras (TP_A ~ TP_D) -----------------------------------
+TACTICAL_CAMERA_ROOT     = "/World/Tactical_Fixed_Cameras"
+TACTICAL_CAMERA_HEIGHT   = float(os.environ.get("GP_TACTICAL_CAMERA_HEIGHT", "8.0"))
+TACTICAL_CAMERA_FOCAL    = float(os.environ.get("GP_TACTICAL_CAMERA_FOCAL",  "6.0"))
+TACTICAL_TOWER_ASSET     = os.environ.get(
+    "GP_TACTICAL_TOWER_ASSET",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene",
+                 "assets", "props", "guard_tower", "Guard_Tower_Free_Asset.usdz"),
+)
+TACTICAL_TOWER_SCALE     = float(os.environ.get("GP_TACTICAL_TOWER_SCALE",     "0.01"))
+TACTICAL_TOWER_ROLL_DEG  = float(os.environ.get("GP_TACTICAL_TOWER_ROLL_DEG",  "90.0"))
+TACTICAL_TOWER_PITCH_DEG = float(os.environ.get("GP_TACTICAL_TOWER_PITCH_DEG", "0.0"))
+TACTICAL_TOWER_YAW_DEG   = float(os.environ.get("GP_TACTICAL_TOWER_YAW_DEG",   "0.0"))
+_TACTICAL_CAMERA_FORWARDS = {
+    "TP_A": (0.15,  1.0, -0.18),
+    "TP_B": (-0.22, 1.0, -0.18),
+    "TP_C": (0.0,   1.0, -0.28),
+    "TP_D": (-0.15, 1.0, -0.18),
+}
+_TACTICAL_CAMERA_HEIGHT_OFFSETS = {
+    "TP_A": 1.0, "TP_B": 0.7, "TP_C": 0.0, "TP_D": 0.0,
+}
+
+
+def _make_guard_tower(tp_name, tp_dict):
+    suffix = tp_name.lower()
+    path = f"{TACTICAL_CAMERA_ROOT}/{suffix}_guard_tower"
+    if stage.GetPrimAtPath(path).IsValid():
+        stage.RemovePrim(path)
+    prim = stage.DefinePrim(path, "Xform")
+    if os.path.isfile(TACTICAL_TOWER_ASSET):
+        prim.GetReferences().AddReference(TACTICAL_TOWER_ASSET)
+    else:
+        log(f"⚠ guard tower asset 없음: {TACTICAL_TOWER_ASSET}")
+    xf = UsdGeom.Xformable(prim)
+    xf.ClearXformOpOrder()
+    xf.AddTranslateOp().Set(Gf.Vec3f(
+        float(tp_dict["x"]), float(tp_dict["y"]), float(tp_dict["z"])))
+    xf.AddRotateXOp().Set(TACTICAL_TOWER_ROLL_DEG)
+    xf.AddRotateYOp().Set(TACTICAL_TOWER_PITCH_DEG)
+    xf.AddRotateZOp().Set(TACTICAL_TOWER_YAW_DEG)
+    xf.AddScaleOp().Set(Gf.Vec3f(
+        TACTICAL_TOWER_SCALE, TACTICAL_TOWER_SCALE, TACTICAL_TOWER_SCALE))
+    log(f"{tp_name} guard tower 생성: {path}")
+    return path
+
+
+if stage.GetPrimAtPath(TACTICAL_CAMERA_ROOT).IsValid():
+    stage.RemovePrim(TACTICAL_CAMERA_ROOT)
+stage.DefinePrim(TACTICAL_CAMERA_ROOT, "Xform")
+
+TACTICAL_CAMERAS = []
+TACTICAL_CAMERA_POSES = {}
+for _tp_name, _tp_dict in _all_tactical_points.items():
+    if not _tp_dict or _tp_name not in _TACTICAL_CAMERA_FORWARDS:
+        continue
+    _suffix  = _tp_name.lower()
+    _path    = f"{TACTICAL_CAMERA_ROOT}/{_suffix}_camera"
+    _tp_pos  = Gf.Vec3f(
+        float(_tp_dict["x"]), float(_tp_dict["y"]),
+        float(_tp_dict["z"]) + TACTICAL_CAMERA_HEIGHT + _TACTICAL_CAMERA_HEIGHT_OFFSETS[_tp_name])
+    _forward = _TACTICAL_CAMERA_FORWARDS[_tp_name]
+    _make_guard_tower(_tp_name, _tp_dict)
+    _quat_tp = _quat_camera_forward(_forward)
+    _mk_cam(_path, _tp_pos, _quat_tp, f"고정 감시카메라 {_tp_name}")
+    _cam_tp = UsdGeom.Camera(stage.GetPrimAtPath(_path))
+    _cam_tp.GetFocalLengthAttr().Set(TACTICAL_CAMERA_FOCAL)
+    _cam_tp.GetClippingRangeAttr().Set(Gf.Vec2f(0.2, 350.0))
+    TACTICAL_CAMERA_POSES[_tp_name] = (_tp_pos, _forward)
+    TACTICAL_CAMERAS.append((_tp_name, _path,
+                             f"/cam/tactical/{_suffix}/rgb",
+                             f"camera_{_suffix}"))
+log(f"고정 감시카메라 {len(TACTICAL_CAMERAS)}대 생성 "
+    f"(height={TACTICAL_CAMERA_HEIGHT:.1f}m, focal={TACTICAL_CAMERA_FOCAL:.1f}mm)")
 
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
@@ -588,6 +869,13 @@ _CN = [
     ("RPOverhead",  "isaacsim.core.nodes.IsaacCreateRenderProduct"),
     ("CamOverhead", "isaacsim.ros2.bridge.ROS2CameraHelper"),
 ]
+for _tp_name, _path, _topic, _frame in TACTICAL_CAMERAS:
+    _suffix = _tp_name.title().replace("_", "")
+    _CN += [
+        (f"RP{_suffix}",      "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+        (f"Cam{_suffix}",     "isaacsim.ros2.bridge.ROS2CameraHelper"),
+        (f"Cam{_suffix}Depth","isaacsim.ros2.bridge.ROS2CameraHelper"),
+    ]
 _SV = [
     ("Ctx.inputs:domain_id",        DOMAIN),
     ("RPRear.inputs:cameraPrim",    CAM_REAR_PATH),
@@ -612,6 +900,22 @@ _SV = [
     ("CamOverhead.inputs:type",       "rgb"),
     ("CamOverhead.inputs:qosProfile", _SENSOR_QOS),
 ]
+for _tp_name, _path, _topic, _frame in TACTICAL_CAMERAS:
+    _suffix = _tp_name.title().replace("_", "")
+    _base_topic = _topic.rsplit("/", 1)[0]
+    _SV += [
+        (f"RP{_suffix}.inputs:cameraPrim",          _path),
+        (f"RP{_suffix}.inputs:width",               640),
+        (f"RP{_suffix}.inputs:height",              360),
+        (f"Cam{_suffix}.inputs:topicName",          _topic),
+        (f"Cam{_suffix}.inputs:frameId",            _frame),
+        (f"Cam{_suffix}.inputs:type",               "rgb"),
+        (f"Cam{_suffix}.inputs:qosProfile",         _SENSOR_QOS),
+        (f"Cam{_suffix}Depth.inputs:topicName",     f"{_base_topic}/depth"),
+        (f"Cam{_suffix}Depth.inputs:frameId",       _frame),
+        (f"Cam{_suffix}Depth.inputs:type",          "depth"),
+        (f"Cam{_suffix}Depth.inputs:qosProfile",    _SENSOR_QOS),
+    ]
 _CC = [
     ("OnTick.outputs:tick",              "RPRear.inputs:execIn"),
     ("RPRear.outputs:execOut",           "CamRear.inputs:execIn"),
@@ -626,6 +930,17 @@ _CC = [
     ("RPInspect.outputs:renderProductPath", "CamInspect.inputs:renderProductPath"),
     ("Ctx.outputs:context",                "CamInspect.inputs:context"),
 ]
+for _tp_name, _path, _topic, _frame in TACTICAL_CAMERAS:
+    _suffix = _tp_name.title().replace("_", "")
+    _CC += [
+        ("OnTick.outputs:tick",                        f"RP{_suffix}.inputs:execIn"),
+        (f"RP{_suffix}.outputs:execOut",               f"Cam{_suffix}.inputs:execIn"),
+        (f"RP{_suffix}.outputs:renderProductPath",     f"Cam{_suffix}.inputs:renderProductPath"),
+        ("Ctx.outputs:context",                        f"Cam{_suffix}.inputs:context"),
+        (f"RP{_suffix}.outputs:execOut",               f"Cam{_suffix}Depth.inputs:execIn"),
+        (f"RP{_suffix}.outputs:renderProductPath",     f"Cam{_suffix}Depth.inputs:renderProductPath"),
+        ("Ctx.outputs:context",                        f"Cam{_suffix}Depth.inputs:context"),
+    ]
 if _TELEM:
     _CN += [
         ("SimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
@@ -700,7 +1015,10 @@ og.Controller.edit(
     {"graph_path": GRAPH, "evaluator_name": "execution"},
     {K.CREATE_NODES: _CN, K.SET_VALUES: _SV, K.CONNECT: _CC},
 )
-log(f"OG {GRAPH} fresh 생성 완료 → /cam/rear/rgb, /cam/inspect/rgb, /cam/overhead/rgb (domain {DOMAIN})")
+_tp_topics = ", ".join(f"{t}, {t.rsplit('/', 1)[0]}/depth"
+                       for _, _, t, _ in TACTICAL_CAMERAS)
+log(f"OG {GRAPH} fresh 생성 완료 → /cam/rear/rgb, /cam/inspect/rgb, /cam/overhead/rgb"
+    + (f", {_tp_topics}" if _tp_topics else "") + f" (domain {DOMAIN})")
 if _TELEM:
     log(f"OG 텔레메트리 발행: {LEG_TOPIC}, {ODOM_TOPIC}, /tf "
         f"(RELIABLE) — gps/state 는 telemetry_bridge_node 가 odom 에서 파생")
@@ -834,7 +1152,7 @@ _INSPECT_LIM = 70.0   # 사용자 사양 (2026-05-20): pan/tilt ±70°
 
 def _update_overhead_xform():
     """매 step 호출 — overhead 카메라 (/World 자식) 의 translate 를 Go2 base
-    xy 로 동기화. z 는 base.z + 100m. orient identity 유지 (North-up).
+    xy 로 동기화. z 는 base.z + OVERHEAD_ALTITUDE_M. orient identity 유지 (North-up).
     """
     try:
         _base = stage.GetPrimAtPath(BASE_PRIM)
@@ -849,7 +1167,7 @@ def _update_overhead_xform():
         for _op in _xf.GetOrderedXformOps():
             if _op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
                 _op.Set(Gf.Vec3f(float(_bt[0]), float(_bt[1]),
-                                 float(_bt[2]) + 100.0))
+                                 float(_bt[2]) + OVERHEAD_ALTITUDE_M))
                 break
     except Exception as _e:
         log(f"[overhead] xform 갱신 실패: {_e!r}")
@@ -889,12 +1207,18 @@ def _update_inspect_xform():
         def _qz(a):
             return Gf.Quatf(float(_math.cos(a*0.5)),
                             Gf.Vec3f(0.0, 0.0, float(_math.sin(a*0.5))))
-        # base frame 에서 pan = yaw(Z) · tilt = pitch(Y). carmera local axes 가
+        # base frame 에서 pan = yaw(Z) · tilt = pitch(Y). camera local axes 가
         # 아니라 base axes 기준으로 회전해야 "고개 좌우/상하" 가 됨 (사용자
         # 요청 2026-05-20: 좌우 이동이 시선축 roll 이 아닌 yaw 회전).
         # _Q_FRONT 가 base→camera-local 매핑이므로, q_user 를 _Q_FRONT 의 왼쪽에
         # 곱해 base frame 에 적용.
-        q_user_base = _qz(_inspect_state["pan"]) * _qy(_inspect_state["tilt"])
+        # 2026-05-24 부호 컨벤션 수정:
+        #   pan > 0 = 카메라 오른쪽(시계방향 from top) 회전,
+        #   tilt > 0 = 카메라 위쪽 회전.
+        #   웹 UI (▶ ▲ 버튼, look_at_pixel 픽셀우측·아래) 의 직관적 정의와
+        #   일치시키기 위해 _qz/_qy 인자에 부호 반전. _qz(+) 는 수학적으로
+        #   CCW(=왼쪽) 회전이므로 -pan 으로 전달.
+        q_user_base = _qz(-_inspect_state["pan"]) * _qy(-_inspect_state["tilt"])
         # base 자식 → local = inverse(base roll/pitch) * (q_user_base * Q_FRONT)
         q_stab = _qy(-_pitch_w) * _qx(-_roll_w)
         q_total = q_stab * q_user_base * _Q_FRONT
@@ -962,6 +1286,8 @@ def _apply_inspect_cmd():
                 max(8.0, min(90.0, _inspect_state["focal"] * float(cmd["zoom"]))))
         # look_at: base 좌표계 기준이 아닌 world 좌표 — robot pose 결합 없이는
         # 정확하지 않음. 1차 구현: world XY 만 사용해 robot 현재 pose 기준 yaw.
+        # 2026-05-24: pan>0 = 카메라 오른쪽 회전 컨벤션. atan2 결과가 CCW(+Y=왼쪽)
+        # 이므로 음수 처리해 직관 컨벤션과 정합.
         if "look_at" in cmd and isinstance(cmd["look_at"], (list, tuple)):
             try:
                 tx, ty = float(cmd["look_at"][0]), float(cmd["look_at"][1])
@@ -970,7 +1296,7 @@ def _apply_inspect_cmd():
                     _gt = UsdGeom.Xformable(_g).ComputeLocalToWorldTransform(
                         Usd.TimeCode.Default()).ExtractTranslation()
                     import math as _math
-                    _inspect_state["pan"] = _math.atan2(
+                    _inspect_state["pan"] = -_math.atan2(
                         ty - float(_gt[1]), tx - float(_gt[0]))
                     _inspect_state["tilt"] = 0.0
             except Exception:
@@ -1467,6 +1793,30 @@ def _step_fire(dt: float):
     # state file 1Hz 업데이트
     if int(elapsed * 4) != int((elapsed - dt) * 4):
         _write_weapon_state()
+
+
+# ── 지형 엣지 검증 + 랜드마크 재덤프 ─────────────────────────────────────
+# PhysX 는 play() + 몇 스텝 이후에 raycast 가 신뢰 가능.
+# landmarks_pub.py 가 mtime 변화를 2초 폴링으로 감지해 /scene/landmarks 재발행.
+log("라우팅 엣지 PhysX 검증 시작 (30-step 워밍업)...")
+for _ in range(30):
+    world.step(render=False)
+_routing_edges = _validate_routing_edges(_all_routing_zones)
+try:
+    _lm2 = {
+        "home":         {"x": float(_spawn[0]), "y": float(_spawn[1]), "z": float(_spawn[2])},
+        "goal":         {"x": float(_cone_xy[0]), "y": float(_cone_xy[1]), "z": float(_GO2_GOAL_XYZ[2])},
+        "arrive_box":   2.0,
+        "routing_zones":   _all_routing_zones,
+        "tactical_points": _all_tactical_points,
+        "routing_edges":   _routing_edges,
+    }
+    with open("/tmp/cobot3_landmarks.json", "w") as _f2:
+        _json.dump(_lm2, _f2)
+    _ok = sum(1 for e in _routing_edges if e["valid"])
+    log(f"랜드마크 재덤프 완료 (routing_edges {_ok}/{len(_routing_edges)}개 유효)")
+except Exception as _e:
+    log(f"⚠ 랜드마크 재덤프 실패: {_e!r}")
 
 
 n = 0

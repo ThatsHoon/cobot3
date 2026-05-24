@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS patrol_events (
 CREATE INDEX IF NOT EXISTS idx_pev_run_ts ON patrol_events (run_id, ts);
 
 -- gps_track  (신규) : sim-GPS 궤적 ------------------------------------
+-- 2026-05-24: yaw 컬럼 추가 (D4 합류 — /robot/odom yaw 를 함께 저장)
 CREATE TABLE IF NOT EXISTS gps_track (
     id        BIGSERIAL PRIMARY KEY,
     robot_id  TEXT NOT NULL REFERENCES robots(robot_id),
@@ -70,10 +71,35 @@ CREATE TABLE IF NOT EXISTS gps_track (
     lon       DOUBLE PRECISION NOT NULL,
     alt       REAL,
     x         REAL,                       -- sim 원점기준 로컬 ENU
-    y         REAL
+    y         REAL,
+    yaw       REAL                        -- odom yaw (rad)
 );
+ALTER TABLE gps_track ADD COLUMN IF NOT EXISTS yaw REAL;
 CREATE INDEX IF NOT EXISTS idx_gps_robot_ts_brin
     ON gps_track USING BRIN (robot_id, ts);
+
+-- detection_events (2026-05-24) : intruder_detections + intruder_states_log 통합
+-- kind='detection' = YOLO bbox 감지, kind='gt_state' = Isaac NPC ground-truth
+CREATE TABLE IF NOT EXISTS detection_events (
+    id           BIGSERIAL PRIMARY KEY,
+    ts           TIMESTAMPTZ NOT NULL,
+    robot_id     TEXT REFERENCES robots(robot_id),
+    source       TEXT NOT NULL,        -- camera_inspect|camera_tp_a..|ground_truth
+    kind         TEXT NOT NULL,        -- 'detection'|'gt_state'
+    class_name   TEXT,
+    confidence   REAL,
+    bbox_pixel   JSONB,                -- {x,y,w,h} | NULL
+    world_x      REAL,
+    world_y      REAL,
+    world_z      REAL,
+    beyond_fence BOOLEAN,
+    intruder_id  TEXT,                 -- gt_state 시만
+    ack          BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_detev_robot_ts ON detection_events (robot_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_detev_kind     ON detection_events (kind, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_detev_ack      ON detection_events (ack) WHERE ack = FALSE;
+CREATE INDEX IF NOT EXISTS idx_detev_ts_brin  ON detection_events USING BRIN (ts);
 
 -- fire_events  (신규) : 시뮬 사격 이벤트 ------------------------------
 CREATE TABLE IF NOT EXISTS fire_events (
@@ -207,10 +233,10 @@ BEGIN
     DELETE FROM gps_track             WHERE ts < now() - INTERVAL '14 days';
     DELETE FROM joint_snapshots       WHERE ts < now() - INTERVAL '14 days';
     DELETE FROM rosout_warn           WHERE ts < now() - INTERVAL '30 days';
-    DELETE FROM intruder_detections   WHERE ts < now() - INTERVAL '30 days';
+    -- 2026-05-24: detection_events 통합 (intruder_detections + intruder_states_log)
+    DELETE FROM detection_events      WHERE ts < now() - INTERVAL '30 days';
     DELETE FROM robot_state_log       WHERE ts < now() - INTERVAL '30 days';
     DELETE FROM patrol_state_log      WHERE ts < now() - INTERVAL '30 days';
-    DELETE FROM intruder_states_log   WHERE ts < now() - INTERVAL '14 days';
     DELETE FROM alerts                WHERE ts < now() - INTERVAL '60 days' AND ack = TRUE;
     -- patrol_runs / patrol_events / fire_events : 1년 보관 (삭제 안 함)
 END;

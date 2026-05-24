@@ -17,8 +17,11 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, CompressedImage
 import cv2
 
-IN_RGB  = os.environ.get("DEGRADE_IN",  "/cam/front/rgb")   # Isaac OG ROS2CameraHelper
-OUT_RGB = os.environ.get("DEGRADE_OUT", "/c2/front/compressed")  # → web_server
+IN_RGB  = os.environ.get("DEGRADE_IN",  "").strip()   # Isaac OG ROS2CameraHelper
+OUT_RGB = os.environ.get("DEGRADE_OUT", "").strip()   # → web_server
+if not IN_RGB or not OUT_RGB:
+    raise SystemExit("[video_degrade] DEGRADE_IN, DEGRADE_OUT env 필수 "
+                     "(run_degrade.sh 참조)")
 TARGET_FPS = 5.0
 OUT_W, OUT_H = 640, 360
 JPEG_Q = 50

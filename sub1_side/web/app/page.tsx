@@ -45,6 +45,8 @@ export default function Page() {
     useState<{ fire_id: string | null; target: string }[]>([]);
   const [routingState, setRoutingState] = useState<RoutingStatePayload | null>(null);
   const [previewRoute, setPreviewRoute] = useState<{ x: number; y: number }[] | null>(null);
+  const [tpDetections, setTpDetections] =
+    useState<{ ts: string; camera: string }[]>([]);
   const [eventStream, setEventStream] = useState<C2Event[]>([]);
   const [lastAlertTs, setLastAlertTs] = useState<number | null>(null);
 
@@ -98,6 +100,14 @@ export default function Page() {
       }
     } else if (e.type === "routing_state") {
       setRoutingState(e.data);
+    } else if (e.type === "detection") {
+      const items: { camera?: string }[] = e.items || [];
+      const ts = e.ts;
+      const entries = items
+        .filter((d) => d.camera && d.camera.startsWith("tp_"))
+        .map((d) => ({ ts, camera: d.camera as string }));
+      if (entries.length > 0)
+        setTpDetections((p) => [...p.slice(-199), ...entries]);
     }
     setEventStream((p) => [...p.slice(-99), e]);
   }, []);
@@ -137,7 +147,7 @@ export default function Page() {
         {/* ROW 1: CAMERA & MAP (Full Width 75% / 25%) */}
         <section className="grid grid-cols-1 xl:grid-cols-12 gap-3 p-3 pb-0" aria-label="cameras-map">
           <div className="xl:col-span-9 min-w-0 min-h-[320px]">
-            <DualCameraView liveAlerts={alertEvents} />
+            <DualCameraView liveAlerts={alertEvents} tpDetections={tpDetections} />
           </div>
           <div className="xl:col-span-3 min-w-0">
             <MapTrack track={track} cur={cur}

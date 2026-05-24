@@ -46,12 +46,15 @@
 | POST | `/robots/{rid}/cmd_vel` | `{linear: float, angular: float}` | `{ok}` |
 | POST | `/robots/{rid}/fire` | `{target: str, operator: str}` | `{ok, hit, distance_m}` |
 | POST | `/robots/{rid}/speaker` | `{preset: str}` or `{pcm_b64, rate}` | `{ok}` |
+| POST | `/robots/{rid}/goto_tp` (2026-05-23) | `{tp_id: "TP_A".."TP_D"}` | `{ok, tp_id}` |
+| POST | `/robots/{rid}/inspect` | `{pan?, tilt?, look_at?, look_at_pixel?, absolute?, reset?}` | `{ok}` |
+| GET | `/robots/{rid}/preview_route?tp_id=TP_*` (2026-05-23) | — | `{tp_id, route:[{x,y}…]}`. **2026-05-24: 로봇 현재 world 위치(StartingPoint+odom) 기반 경로 계산** |
 
 ### 영상
 | Method | Path | 설명 |
 |--------|------|------|
 | POST | `/c2/webrtc/offer` | SDP 교환 (aiortc) |
-| GET | `/c2/video/mjpeg?camera=rear\|inspect\|overhead` | multipart/x-mixed-replace 5fps JPEG 스트림 (기본: inspect, 3-카메라) |
+| GET | `/c2/video/mjpeg?camera=<id>` | multipart/x-mixed-replace 5fps JPEG. camera ∈ `{rear, inspect, overhead, tp_a~d, tp_grid}`. **2026-05-24: `tp_grid` 가상 카메라 추가** — tp_a/b/c/d 1×4 가로 mosaic (1280×180), 단일 MJPEG 연결로 4 채널 표시 (HTTP/1.1 origin 6-connection 제한 회피). |
 
 ### 진단
 | Method | Path | 설명 |
@@ -105,8 +108,10 @@
 | `/robot/odom` | Odometry | `_on_odom` | quaternion→yaw → latest["odom"]{x,y,z,yaw} |
 | `/robot/leg_joint_states` | JointState | `_on_leg` | positions → latest["leg_q"] + DB 10Hz |
 | `/c2/rear/compressed` | CompressedImage | `_on_video(…,"rear")` | OpenCV decode + frame cache |
-| `/c2/inspect/compressed` | CompressedImage | `_on_video(…,"inspect")` | OpenCV decode + **YOLO 추론** (dmz_sentry_best.pt) + frame cache |
+| `/c2/inspect/compressed` | CompressedImage | `_on_video(…,"inspect")` | OpenCV decode + **YOLO 추론** (config.YOLO_CAMERAS 가드, 기본 inspect+tp_a) + frame cache |
 | `/c2/overhead/compressed` | CompressedImage | `_on_video(…,"overhead")` | OpenCV decode + frame cache |
+| `/c2/tp_{a,b,c,d}/compressed` | CompressedImage | `_on_video(…,"tp_*")` | YOLO + 3D map projection (config.YOLO_CAMERAS 가드) |
+| `/c2/tp_{a,b,c,d}/depth_compressed` (2026-05-24) | CompressedImage (PNG 16UC1 320×180) | `_on_depth(…,"tp_*")` | PNG decode → meter float32 → bbox 중앙 거리 샘플 |
 | `/patrol_state` | String JSON | `_on_patrol_state` | mode/waypoint/route/pose latest 갱신 — PAUSED 가드 트리거 |
 | `/scene/landmarks` | String JSON | `_on_landmarks` | home/goal/fence latched 수신 |
 | `/intruder_states` | String JSON | `_on_intruders` | NPC 좌표 |
@@ -137,10 +142,14 @@
 
 ```python
 db.put("robot_state_log", (robot_id, ts, mode, gait, battery, waypoint, json.dumps(extra)))
-db.put("gps_track", (robot_id, ts, lat, lon, alt, None, None))
+# 2026-05-24: gps_track 에 yaw 합류 (D4)
+db.put("gps_track", (robot_id, ts, lat, lon, alt, x, y, yaw))
 db.put("joint_snapshots", (robot_id, ts, [], leg_q))
 db.put("rosout_warn", (ts, level, name, msg))
-db.put("intruder_detections", (robot_id, ts, class_name, conf, x, y, w, h, ...))
+# 2026-05-24: intruder_detections + intruder_states_log → detection_events 통합
+db.put("detection_events", (ts, robot_id, source, kind, class_name, conf,
+                            json.dumps({"x":x,"y":y,"w":w,"h":h}),
+                            world_x, world_y, world_z, beyond_fence, intruder_id))
 db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 ```
 
@@ -153,11 +162,12 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 | 테이블 | 키 컬럼 | 용도 |
 |--------|---------|------|
 | `robot_state_log` | robot_id, ts, mode, gait, battery, waypoint, extra | 상태 이력 |
-| `gps_track` | robot_id, ts, lat, lon, alt, x, y | GPS 궤적 |
+| `gps_track` | robot_id, ts, lat, lon, alt, x, y, **yaw** (2026-05-24) | GPS 궤적 + odom yaw |
 | `fire_events` | robot_id, ts, target_ref, hit, distance_m, operator | 사격 로그 |
 | `rosout_warn` | ts, level, node_name, msg | ROS 경고/오류 |
-| `intruder_detections` | robot_id, ts, class_name, confidence, bbox_*, camera_frame | YOLO 탐지 |
+| `detection_events` (2026-05-24) | ts, robot_id, source, **kind**='detection'\|'gt_state', class_name, confidence, bbox_pixel JSONB, world_xyz, beyond_fence, intruder_id, ack | YOLO + NPC ground-truth 통합 |
 | `joint_snapshots` | robot_id, ts, arm_q[], leg_q[] | 관절 스냅샷 (10Hz) |
+| `_deprecated_intruder_detections` / `_deprecated_intruder_states_log` | (구) | 1주 후 DROP 예정 — `detection_events` 로 이관됨 |
 
 ---
 
@@ -177,18 +187,19 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 |---------|-------|------|
 | `StatusHeader` | wsOk, landmarks | 헤더(robot id · zone · WS 상태 · 시간) |
 | `TelemetryStrip` | state, gps, odom, patrol | 1-row 텔레메트리(mode·gait·battery·waypoint·pose·gps) |
-| `DualCameraView` | — | 전방+검사 MJPEG 2-panel (`/c2/video/mjpeg?camera=front\|inspect`) |
-| `MapTrack` | track, cur, landmarks, intruders, patrolState, alertActive | 전술 지도 (Cube/Cone/DMZ 마커, fence 점선, intruder, alert overlay) |
+| `DualCameraView` | liveAlerts, tpDetections | inspect + rear + TP_A~D 표시. **2026-05-24: TP_A~D 가 단일 mosaic (`tp_grid` MJPEG, 1×4 가로 strip + quadrant overlay)** — HTTP/1.1 connection limit 회피. inspect 더블클릭=look_at_pixel (사격 조준). |
+| `MapTrack` | track, cur, landmarks, intruders, patrolState, alertActive, routingState, previewRoute | 전술 지도. **2026-05-24**: overhead 카메라 배경 (SSR-safe useEffect), TP 거리 기반 자동 extent, `OVERHEAD_GROUND_HALF=262m` 기준 동적 CSS scale, w2o() world→odom 변환, 라우팅 amber 점선 + 미리보기 회색 점선. |
 | `PatrolControls` | patrolState | sortie/home/stop/resume/idle 미션 버튼 + 상태 표시 |
 | `BaseMovementPanel` | — | 4족 8-방향 + WASD/QE/Space + 속도 슬라이더 (기본 표시) |
 | `TeleopPad` | — | (legacy 토글) D-패드 + 속도, Nav2 비활성 시 보조 |
 | `DualSenseStatus` | — | 게임패드 연결 상태 + 키매핑 표시 |
 | `NpcSpawnButton` | — | NPC 소환 (fwd/drop/count + 버튼) |
-| `InspectorCameraPanel` | — | 검사 카메라 pan/tilt/zoom/look_at REST |
+| `InspectorCameraPanel` | — | 검사 카메라 pan/tilt/zoom/look_at REST. **2026-05-24: PAN_STEP=TILT_STEP=2°/click (이전 8°/5°)** — 정밀 조준. ▶ 클릭=카메라 오른쪽 (백엔드 `_qz(-pan)` 부호 컨벤션과 정합). |
+| `TacticalPointsPanel` (2026-05-23) | routingState, onPreviewChange | TP_A~D 선택→`previewRoute`(미리보기) / "이동" → `goto_tp` 발행. 라우팅 진행률 표시 |
 | `AlertsLog` | liveEvents | person alert 누적 (최근 20, ACK 가능) |
 | `AnimalAlertsLog` | liveEvents | animal alert 누적 (label·conf·bbox) |
 | `EventLog` | events[] | 모든 C2Event 14줄 스크롤 |
-| `DiagnosticsStrip` | armQ, legQ | 관절 스파크차트 |
+| `DiagnosticsStrip` | legQ | **2026-05-24 재작성**: Go2 12-DOF 4-leg × 3-joint 그리드 (FL/FR/RL/RR × hip/thigh/calf), 관절명+bar(±π/2 비율)+rad값. 구 M0609 arm + ANYmal leg 표시 제거. armQ prop 제거. |
 
 **제거된 컴포넌트 (2026-05-20):** `VideoWall`(↔DualCameraView 중복), `ThreatBar`/`EngagementConsole`(사격 위협 — 실 데이터 무관), `ContactsPanel`(↔AlertsLog 중복), `ReadinessStrip`(↔TelemetryStrip 대체), `OpsLedger`(↔EventLog 중복).
 
@@ -199,7 +210,7 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 | 그리드 | 컴포넌트 | 토픽/구성 |
 |---|---|---|
 | row1 좌 (8col) | Lichtblick iframe | `http://host:8080/?ds=foxglove-websocket&ds.url=ws://host:8765` |
-| row1 우 (4col) | `ImmersiveCameraView` | Three.js SphereGeometry inside-out 에 rear/inspect/overhead VideoTexture 섹터 매핑 + Go2 silhouette |
+| row1 우 (4col) | `ImmersiveCameraView` | Three.js SphereGeometry inside-out 에 rear/inspect VideoTexture 섹터 매핑 + Go2 URDF 메시. **2026-05-24**: legQ prop 추가 (Go2Urdf 에서 12-DOF `setJointValue` 매 프레임 lerp 동기), sphere phi 정렬 `+π/2`→`+π` (+X=robot forward). 데이터: REST `/robots/{rid}/state` 5Hz 폴링으로 odom.yaw + leg_q[12] 동기. |
 | row2 좌 (5col) | `TopicHealthMonitor` | `/c2/sample` 1Hz 폴링 — rx 카운터·publishers·env·hint |
 | row2 중 (4col) | `RawJsonInspector` | latest 토픽 JSON 원문 |
 | row2 우 (3col) | `DualSenseStatus` | 게임패드 연결·키맵 |
@@ -276,11 +287,11 @@ native schema 채널로 변환 발행 → Lichtblick 가 ws://host:8767 별도 s
 
 ## DualSense worker (`server/dualsense_worker.py`, 2026-05-21 신규)
 
-PS5 컨트롤러 폴링(pygame.joystick, 50Hz). 매핑:
+PS5 컨트롤러 폴링(pygame.joystick, 30Hz). 매핑:
 
 | 입력 | 기능 |
 |---|---|
-| L-stick X/Y | inspect 카메라 pan/tilt (±70° clamp) |
+| L-stick X/Y | inspect 카메라 pan/tilt (±70° clamp). **2026-05-24: 속도 `INSPECT_RATE_RAD_PER_S=2°/s` (이전 45°/s, 정밀 조준)** |
 | L2 / R2 | inspect 카메라 zoom in / out |
 | D-pad ↑/↓/←/→ | base movement 전/후/좌/우 strafe |
 | R-stick X | yaw (좌우 회전) |

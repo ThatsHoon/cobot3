@@ -16,11 +16,8 @@ log = logging.getLogger("c2.db")
 
 # 테이블별 (컬럼 순서) — schema.sql 과 일치
 COLUMNS = {
-    "intruder_detections": ["robot_id", "ts", "class_name", "confidence",
-                            "bbox_x", "bbox_y", "bbox_w", "bbox_h",
-                            "world_x", "world_y", "world_z",
-                            "beyond_fence", "camera_frame"],
-    "gps_track":        ["robot_id", "ts", "lat", "lon", "alt", "x", "y"],
+    # 2026-05-24: gps_track 에 yaw 컬럼 추가 (D4 합류)
+    "gps_track":        ["robot_id", "ts", "lat", "lon", "alt", "x", "y", "yaw"],
     "fire_events":      ["robot_id", "ts", "target_ref", "hit",
                          "distance_m", "operator", "fire_id",
                          "target_alert_id"],
@@ -33,7 +30,11 @@ COLUMNS = {
                          "bbox_xyxy", "count", "ack"],
     "patrol_state_log": ["robot_id", "ts", "mode", "current_waypoint",
                          "pose_x", "pose_y", "pose_yaw"],
-    "intruder_states_log": ["ts", "intruder_id", "x", "y", "z", "label"],
+    # 2026-05-24: intruder_detections + intruder_states_log → detection_events 통합
+    "detection_events": ["ts", "robot_id", "source", "kind",
+                         "class_name", "confidence", "bbox_pixel",
+                         "world_x", "world_y", "world_z",
+                         "beyond_fence", "intruder_id"],
 }
 
 

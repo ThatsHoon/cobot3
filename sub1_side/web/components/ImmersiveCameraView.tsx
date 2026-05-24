@@ -15,7 +15,13 @@ const Inner = dynamic(() => import("./ImmersiveCameraViewClient"), {
   ),
 });
 
-export default function ImmersiveCameraView({ yaw = 0 }: { yaw?: number }) {
+export default function ImmersiveCameraView({
+  yaw = 0,
+  legQ = [],
+}: {
+  yaw?: number;
+  legQ?: number[];   // Go2 12-DOF leg joint positions (FL/FR/RL/RR × hip/thigh/calf)
+}) {
   return (
     <div className="panel h-full flex flex-col overflow-hidden">
       <div className="panel-hd">
@@ -23,7 +29,7 @@ export default function ImmersiveCameraView({ yaw = 0 }: { yaw?: number }) {
         <span className="text-[10px] text-dim">URDF · 2-CAM · NORTH-UP</span>
       </div>
       <div className="relative flex-1 min-h-0 bg-black">
-        <Inner yaw={yaw} />
+        <Inner yaw={yaw} legQ={legQ} />
       </div>
     </div>
   );

@@ -70,14 +70,16 @@ class CameraInfoPublisher(Node):
             pub = self.create_publisher(CameraInfo, topic, latched)
             ci = _build_info(frame, w, h, focal, ap)
             self._pubs.append((pub, ci, topic, frame, focal))
-        # 1Hz timer — latched 라 1회로 충분하지만 stamp 갱신 + 재발견 보호
-        self.create_timer(1.0, self._tick)
-        self._tick()   # 즉시 1회 발행
+        # 2026-05-24: 1Hz timer 제거. TRANSIENT_LOCAL durability 가 새 subscriber 매칭 시
+        # last sample 을 자동 재전송 (rmw_fastrtps_cpp 보장). 1회 발행만으로 충분.
+        # 안전망: 60초 주기 보호 발행 (RMW 가 TL 미지원하는 극단 케이스 대비).
+        self._publish_once()
+        self.create_timer(60.0, self._publish_once)
         info_list = ", ".join(
             f"{t}({f}, focal={fc}mm)" for _, _, t, f, fc in self._pubs)
-        self.get_logger().info(f"camera_info latched (1Hz refresh): {info_list}")
+        self.get_logger().info(f"camera_info latched (1회 + 60s 보호): {info_list}")
 
-    def _tick(self):
+    def _publish_once(self):
         stamp = self.get_clock().now().to_msg()
         for pub, ci, *_ in self._pubs:
             ci.header.stamp = stamp

@@ -4,9 +4,20 @@ ROS_DOMAIN_ID=130, RMW=rmw_fastrtps_cpp, FastDDS UDP-only
 
 ---
 
+## 실측 LAN 트래픽 (2026-05-24)
+
+| 측정 시점 | Main → C2 LAN TX | 비고 |
+|-----------|------------------|------|
+| 변경 전 | **17.9 MB/s** | depth raw 9MB/s + FastDDS multicast 누출 ~8MB/s |
+| 변경 후 | **0.57 MB/s** | depth 압축(`/c2/tp_*/depth_compressed`) + 구독 정리 |
+
+상세 분석: [communication-optimization.md](communication-optimization.md)
+
+---
+
 ## 토픽 목록
 
-### 다운링크 (Main PC → C2 PC, 2026-05-21 3-카메라 구성)
+### 다운링크 (Main PC → C2 PC, 2026-05-24 7-카메라 + 4 depth 압축 구성)
 
 | 토픽 | 타입 | QoS | Hz | 발행자 | 구독자 |
 |------|------|-----|----|-------|-------|
@@ -19,6 +30,9 @@ ROS_DOMAIN_ID=130, RMW=rmw_fastrtps_cpp, FastDDS UDP-only
 | `/c2/rear/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("rear") |
 | `/c2/inspect/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("inspect") **+ YOLO** |
 | `/c2/overhead/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | 5 | video_degrade_node | ros_bridge._on_video("overhead") |
+| `/c2/tp_{a,b,c,d}/compressed` | sensor_msgs/CompressedImage | BEST_EFFORT depth=5 | ~2 | video_degrade_node (TP) | ros_bridge._on_video("tp_*") **+ YOLO** (config.YOLO_CAMERAS 가드) |
+| `/cam/tactical/tp_{a,b,c,d}/depth` | sensor_msgs/Image (32FC1) | BEST_EFFORT depth=5 | 1-5 | OG CamTP*Depth | **로컬만** — `depth_degrade_node` (Main 내부) |
+| `/c2/tp_{a,b,c,d}/depth_compressed` (**2026-05-24 신규**) | sensor_msgs/CompressedImage (PNG 16UC1 320×180) | BEST_EFFORT depth=5 | ~2 | `depth_degrade_node` | ros_bridge._on_depth — 3D projection 거리 샘플. 압축률 ~2.4% (920KB→22KB) |
 | `/robot/odom` | nav_msgs/Odometry | RELIABLE depth=10 | ~63 | OG OdoPub (chassisFrameId=Go2) | telemetry_bridge, ros_bridge._on_odom |
 | `/robot/gps` | sensor_msgs/NavSatFix | RELIABLE depth=10 | 5 | telemetry_bridge_node | ros_bridge._on_gps |
 | `/robot/state` | std_msgs/String (JSON) | RELIABLE depth=10 | 5 | telemetry_bridge_node | ros_bridge._on_state |

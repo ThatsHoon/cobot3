@@ -203,6 +203,8 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `C2_YOLO_ALERT_COOLDOWN` | `3.0` | person alert cooldown(s) |
 | `C2_YOLO_ANIMAL_ALERT_CONF` | `0.50` | animal alert 최소 confidence |
 | `C2_YOLO_ANIMAL_ALERT_COOLDOWN` | `5.0` | animal alert cooldown(s) |
+| `C2_YOLO_CAMERAS` (2026-05-24) | `inspect,tp_a` | YOLO inference 활성 채널 set. CPU 부담 조절. 전체: `inspect,tp_a,tp_b,tp_c,tp_d` |
+| `C2_ZONE_MAX_EDGE_M` (2026-05-24) | `10.0` | ZoneRouter 그래프 빌드 시 zone 간 최대 거리 (m). 작을수록 가까운 zone 순차 경유, 단 너무 작으면 graph disconnect → Dijkstra start/end 직결 fallback |
 
 ### Main PC (Isaac Sim, 2026-05-21 Go2)
 | 변수 | 기본값 | 설명 |
@@ -218,8 +220,12 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `GP_GO2_GOAL_X` | `199.09` | 시동 시 Nav 목표 X (기본=Routing_Zones/Standard_Point, 2026-05-22) |
 | `GP_GO2_GOAL_Y` | `892.60` | 시동 시 Nav 목표 Y (기본=Routing_Zones/Standard_Point) |
 | `GP_GO2_GOAL_Z` | `4.52` | 시동 시 Nav 목표 Z (기본=Routing_Zones/Standard_Point) |
-| `DEGRADE_IN` | (인스턴스별) | `/cam/{rear,inspect,overhead}/rgb` 중 하나 |
-| `DEGRADE_OUT` | (인스턴스별) | `/c2/{rear,inspect,overhead}/compressed` 중 하나 |
+| `DEGRADE_IN` | **필수 (2026-05-24 변경)** | `/cam/{rear,inspect,overhead,tactical/tp_*}/rgb` 중 하나. env 없으면 SystemExit |
+| `DEGRADE_OUT` | **필수 (2026-05-24 변경)** | `/c2/{rear,inspect,overhead,tp_*}/compressed` 중 하나 |
+| `DEPTH_IN` (2026-05-24 신규) | (인스턴스별) | TP depth 입력 토픽, 예: `/cam/tactical/tp_a/depth` |
+| `DEPTH_OUT` (2026-05-24 신규) | (인스턴스별) | TP depth 압축 출력 토픽, 예: `/c2/tp_a/depth_compressed` |
+| `DEPTH_FPS` (2026-05-24 신규) | `2.0` | depth_degrade 출력 fps |
+| `DEPTH_W`, `DEPTH_H` (2026-05-24 신규) | `320, 180` | depth 다운샘플 해상도 |
 | `URDF_SERVER_PORT` | `8766` | Go2 URDF HTTP 서버 포트 |
 
 ### C2 PC (web_server, 2026-05-21)
@@ -271,6 +277,9 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 
 | 증상 | 원인 | 해결책 |
 |------|------|-------|
+| Main → C2 LAN 트래픽이 비정상 높음 (>5 MB/s) | (a) depth_degrade 미동작 → raw `/cam/tactical/*/depth` 가 C2로 직접 흐름, (b) FastDDS multicast가 `/cam/*/rgb`를 LAN으로 누출 | (a) `ps aux \| grep depth_degrade` 확인 후 `run_degrade.sh` 재시작, (b) `cat /sys/class/net/<iface>/statistics/tx_bytes` 차분 측정 → 정상 ≤2 MB/s. 상세: communication-optimization.md §8 |
+| `video_degrade` SystemExit "DEGRADE_IN env 필수" (2026-05-24) | 단독 실행 시 env 미설정 | `run_degrade.sh` 사용 또는 `DEGRADE_IN=... DEGRADE_OUT=... python3 video_degrade_node.py` |
+| `detection_events` row 미증가 (2026-05-24) | YOLO 채널 제한 (`C2_YOLO_CAMERAS=inspect,tp_a` 기본) | 전체 활성화: `export C2_YOLO_CAMERAS=inspect,tp_a,tp_b,tp_c,tp_d` 후 sub1side 재시작 |
 | `/robot/odom` publishers=0 | Isaac OG 미시작 or 도메인 불일치 | `ROS_DOMAIN_ID=130` 확인, Isaac 재시작 |
 | `ros2 topic list` 에 토픽 없음 | `ROS_LOCALHOST_ONLY=1` | `export ROS_LOCALHOST_ONLY=0` |
 | OG nodes 미실행 | `world.step(render=False)` | `world.step(render=True)` 필수 |
@@ -299,6 +308,8 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | Stop 버튼 눌러도 보행 지속 | velocity_smoother/dualsense/web teleop 의 multi-publisher 잔여 발행이 ros_bridge.pub_cmd_vel 을 통과 | `ros_bridge.pub_cmd_vel` 진입 시 `patrol_state.mode==PAUSED` 면 즉시 return (2026-05-21) |
 | FastDDS cross-PC discovery 실패 | `fastdds_web.xml` `__MAIN_PC_IP__` 미치환 + interfaceWhiteList 에 127.0.0.1 누락 | `~/.config/cobot3/fastdds_web.xml` 로 복사 후 sed 치환 + 127.0.0.1 추가 (2026-05-21) |
 | **자동 주행(Nav2) 이 teleop 대비 느리고 멈췄다 가는 현상** | ① `cmd_vel_safety_filter.py` 의 DRIVE/TURN 이진 분리: `|angular| ≥ 0.32 rad/s` 이면 TURN 모드 진입 → `linear.x = 0` 강제 → 로봇이 정지 후 제자리 회전 → 전진 반복. teleop 은 `/robot/cmd_vel` 직접 발행으로 필터 우회. ② DWB `max_vel_x = 0.6 m/s` (teleop 은 무제한). ③ `acc_lim_x = 0.5 m/s²` — 최고속 도달 1.2s. | (A) 빠른 완화: `nav2_params.yaml` `max_vel_x` 를 1.0으로 올리고 `acc_lim_x = 1.5`로 상향. (B) 근본 해결: `cmd_vel_safety_filter.py` DRIVE/TURN 분기 제거 — linear+angular 동시 통과 허용(사족 로봇은 실제로 곡선 주행 가능). (2026-05-22 분석) |
+| Isaac Sim 상단 메뉴에서 **Add → Animation Graph 옵션 없음** | `isaacsim.exp.full.kit` 에 `omni.anim.graph.*` / `omni.anim.retarget.*` / `omni.anim.people` 확장이 누락되어 Animation Graph UI 미등록. CLI `--enable` 플래그는 UI 확장에 불신뢰. | `isaacsim.exp.full.kit` `[dependencies]` 에 7개 확장 직접 추가 (2026-05-22): `omni.anim.graph.core`, `omni.anim.graph.bundle`, `omni.anim.graph.ui`, `omni.anim.retarget.core`, `omni.anim.retarget.bundle`, `omni.anim.retarget.ui`, `omni.anim.people`. Isaac Sim 재시작 시 영구 반영. |
+| **M_Medical_01 캐릭터 Play 해도 애니메이션 미재생** | (1) `skel:animationSource` 만 지정 시 Animation Graph 를 우회 → 직접 바인딩 — SkelAnimation 조인트(Root/Pelvis/…)와 Skeleton 조인트(RL_BoneRoot/…) 가 0개 매칭 → 무동작. (2) Animation Graph + ControlRig 의 `retargetTags` 레이어가 없으면 리타게팅 불가. | `Isaac/People/Characters/Biped_Setup.usd` 를 씬에 reference 로 추가 (USD prim `/World/BipedSetup`) → 내장 AnimationGraph(`/CharacterAnimation/AnimationGraph`)의 StateMachine(Idle/Walk/Sit/Talk) + ControlRig 리타게팅 자동 활성. 절차 → `main-side.md § M_Medical_01 캐릭터 애니메이션` 참조. (2026-05-22) |
 
 ---
 
@@ -307,7 +318,7 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | 로그 경로 | 내용 |
 |-----------|------|
 | `/tmp/cobot3_isaac_gui.console.log` | Isaac Sim stdout (스팸 필터 후) |
-| `/tmp/cobot3_degrade.log` | video_degrade_node (rear+inspect+overhead) |
+| `/tmp/cobot3_degrade.log` | video_degrade_node (rear+inspect+overhead+tp_a~d) + depth_degrade_node (tp_a~d, 2026-05-24) |
 | `/tmp/cobot3_telemetry_bridge.log` | telemetry_bridge_node |
 | `/tmp/cobot3_server.log` | FastAPI uvicorn |
 | `/tmp/cobot3_foxglove.log` | Foxglove Bridge (:8765) |

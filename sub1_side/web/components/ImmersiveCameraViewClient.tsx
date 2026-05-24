@@ -61,7 +61,11 @@ function CameraSector({ cam }: { cam: CamConfig }) {
     const yaw = (cam.yawDeg * Math.PI) / 180;
     const span = (cam.spanDeg * Math.PI) / 180;
     const spanV = (cam.spanVDeg * Math.PI) / 180;
-    const phiStart = yaw - span / 2 + Math.PI / 2;
+    // Three.js SphereGeometry phi convention: phi=0 → -X, phi=π/2 → +Z, phi=π → +X.
+    // URDF는 rotation=[-π/2,0,0] 으로 변환되어 robot forward = three.js +X.
+    // 따라서 yaw=0(inspect/front) 일 때 phi 중심이 π(=+X)가 되도록 +π 오프셋.
+    // (2026-05-24 수정: 기존 +π/2 는 +Z 정렬이라 robot 좌우에 표시되는 버그)
+    const phiStart = yaw - span / 2 + Math.PI;
     const phiLength = span;
     const thetaStart = Math.PI / 2 - spanV / 2;
     const thetaLength = spanV;
@@ -79,10 +83,22 @@ function CameraSector({ cam }: { cam: CamConfig }) {
   );
 }
 
-/** Go2 URDF 메시 비동기 로드. mesh resolution: package://go2_description → :8766. */
-function Go2Urdf({ url }: { url: string }) {
+// Go2 URDF leg joint names (12-DOF) — 순서는 /robot/leg_joint_states 와 일치.
+// Isaac SingleArticulation OG 가 발행하는 leg_q 인덱스: 0~11
+const GO2_JOINT_NAMES = [
+  "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+  "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+  "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+  "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+];
+
+/** Go2 URDF 메시 비동기 로드 + leg_q 12-DOF 실시간 관절 설정.
+ *  mesh resolution: package://go2_description → :8766. */
+function Go2Urdf({ url, legQ }: { url: string; legQ: number[] }) {
   const [robot, setRobot] = useState<URDFRobot | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // 매 프레임 타겟 각도 lerp 를 위한 ref (re-render 회피)
+  const targetQ = useRef<number[]>([]);
 
   useEffect(() => {
     if (!url) return;
@@ -129,7 +145,43 @@ function Go2Urdf({ url }: { url: string }) {
         }
       }
     });
+    // 진단: URDF 가 실제로 노출하는 관절 이름 콘솔 출력 (첫 로드 1회)
+    try {
+      const found = Object.keys((robot as any).joints || {});
+      // eslint-disable-next-line no-console
+      console.log("[ImmersiveURDF] joints loaded:", found.length,
+        "expected:", GO2_JOINT_NAMES.length,
+        "missing:", GO2_JOINT_NAMES.filter(n => !found.includes(n)));
+    } catch {}
   }, [robot]);
+
+  // 최신 legQ 를 ref 에 저장 (useFrame 에서 매 프레임 참조)
+  useEffect(() => {
+    if (Array.isArray(legQ) && legQ.length >= GO2_JOINT_NAMES.length) {
+      targetQ.current = legQ.slice(0, GO2_JOINT_NAMES.length);
+    }
+  }, [legQ]);
+
+  // useFrame: legQ 각도 → URDF joint 로 lerp 동기 (부드러운 보간)
+  useFrame((_, dt) => {
+    if (!robot || targetQ.current.length === 0) return;
+    const lerpAlpha = Math.min(1, dt * 12);   // ~12Hz cutoff smoothing
+    for (let i = 0; i < GO2_JOINT_NAMES.length; i++) {
+      const name = GO2_JOINT_NAMES[i];
+      const target = targetQ.current[i];
+      const joint = (robot as any).joints?.[name];
+      if (!joint || typeof target !== "number" || !isFinite(target)) continue;
+      const cur = Number(joint.angle) || 0;
+      const next = cur + (target - cur) * lerpAlpha;
+      try {
+        // URDFLoader API: setJointValue(name, value) 또는 joint.setJointValue(value)
+        (robot as any).setJointValue(name, next);
+      } catch {
+        // fallback
+        try { joint.setJointValue?.(next); } catch {}
+      }
+    }
+  });
 
   if (err) {
     return (
@@ -213,9 +265,12 @@ function YawGroup({ yaw, children }: {
 
 export default function ImmersiveCameraViewClient({
   yaw = 0,
+  legQ = [],
 }: {
   /** Go2 base 의 world yaw (rad). 0=world +X. page.tsx 에서 snap.odom.yaw. */
   yaw?: number;
+  /** Go2 12-DOF leg joint positions (FL/FR/RL/RR × hip/thigh/calf, rad). */
+  legQ?: number[];
 }) {
   const url = useMemo(() => defaultUrdfUrl(), []);
   return (
@@ -252,7 +307,7 @@ export default function ImmersiveCameraViewClient({
         <Environment preset="city" />
 
         <YawGroup yaw={yaw}>
-          <Go2Urdf url={url} />
+          <Go2Urdf url={url} legQ={legQ} />
           {CAMS.map((c) => <CameraSector key={c.id} cam={c} />)}
         </YawGroup>
 

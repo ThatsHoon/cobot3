@@ -5,6 +5,209 @@
 
 ---
 
+## 2026-05-24
+
+### 씬 확장 — gp_scene.usd 에 5 prim + 5 asset 디렉토리 이전
+**변경 파일:**
+- `main_side/scene/gp_scene.usd` (수정 — Sdf.CopySpec 으로 prim 이전)
+- `main_side/scene/assets/{Forest_Clearing_1_Top_Skybox, Stylized_Bush_V1, Crouched_Walking_Package, South_Korean_Road_Signs_39_road_signs_and_more}/` (신규 디렉토리)
+
+**WHY:** Downloads/final_scene 의 추가 환경 요소 (skybox/덤불/숨은 표적/도로 표지판/레이더) 를 운영 씬에 통합.
+
+**추가된 prim:**
+- `/World/scene_01` (Forest Clearing Skybox payload)
+- `/World/Extended_field` (Coast Road + Stylized Bush, 89 자손)
+- `/World/Crouched_Walking` (NPC animation, 16 자손)
+- `/World/traffic_sign` (한국 도로 표지판 39종, 1110 자손)
+- `/World/Go2/radar` 교체 (visuals + collisions)
+
+---
+
+### Go2 카메라 z 위치 +30cm (관측 시야 ↑)
+**변경 파일:** `main_side/camera_publisher.py`
+- `CAM_INSPECT_PATH` / `CAM_REAR_PATH` translate z: 0.10 → **0.40m** (base 기준)
+
+**WHY:** 단차/덤불에 가려진 전방 시야 확보. base roll/pitch 짐벌 안정화는 그대로.
+
+---
+
+### Go2 보행 정책 단차 통과 튜닝
+**변경 파일:** `main_side/go2_controller.py`
+- `_CMD_BASE` idx 3 (body_height): 0.0 → **0.05** (몸체 +5cm)
+- `_CMD_BASE` idx 4 (step_freq): 3.6 → **3.0**
+- `_CMD_BASE` idx 9 (footswing): 0.15 → **0.22** (발 들기 15→22cm)
+
+**WHY:** Nav2 명령 0.91 m/s 보내도 단차 모서리에 발 걸려 실제 이동 0.09 m/s. walk-these-ways 학습 분포 끝단 내 footswing 증가.
+
+---
+
+### 라우팅 정확도 개선 — odom↔world 좌표계 통일
+**변경 파일:**
+- `main_side/nav2_patrol.py` (수정 — `_sp_world` 캐시 + `_on_odom` 에서 odom→world 변환)
+- `sub1_side/server/app.py` (수정 — `preview_route` 가 StartingPoint 고정 대신 로봇 현재 world)
+- `sub1_side/server/zone_router.py` (수정 — `max_edge_m` 디폴트 50→10m, env `C2_ZONE_MAX_EDGE_M`)
+
+**WHY:** `/robot/odom` 은 IsaacComputeOdometry 누적 변위 (spawn=0,0 odom 좌표) 이지만 routing_zones / TPs / cube/cone 은 world 좌표. `self._pose[:2]` 를 router.plan() 에 그대로 전달해 nearest_zone 계산이 항상 부정확. `_sp_world = StartingPoint world` 캐시 + `wx = sp.x + odom.x` 변환으로 self._pose 를 world 로 통일. PATROL/HOME 도착 판정도 정상화. 사용자 요청대로 스캔 범위 10m.
+
+---
+
+### Inspect 카메라 부호 컨벤션 통일 (오른쪽 클릭 = 카메라 오른쪽 회전)
+**변경 파일:** `main_side/camera_publisher.py`
+- `_update_inspect_xform`: `q_user_base = _qz(-pan) * _qy(-tilt)` (이전 +pan/+tilt)
+- `look_at` world: `pan = -atan2(dy, dx)` (이전 +atan2)
+
+**WHY:** 웹 더블클릭/InspectorCameraPanel ▶▲ 버튼/DualSense 좌스틱이 모두 "직관적 컨벤션" (오른쪽=+pan, 위=+tilt) 으로 작성됐는데 백엔드 `_qz(pan)` 은 수학적 right-hand rule (pan>0 = CCW = 왼쪽 회전) 이라 부호 mismatch. 백엔드 부호만 반전해 모든 클라이언트와 정합.
+
+---
+
+### Inspect 시야 속도 통일 2°/s
+**변경 파일:**
+- `sub1_side/server/dualsense_worker.py` (`INSPECT_RATE_RAD_PER_S` 45°/s → **2°/s**)
+- `sub1_side/web/components/InspectorCameraPanel.tsx` (`PAN_STEP`/`TILT_STEP` 8°/5° → **2°/click**)
+
+**WHY:** 정밀 조준용 통일.
+
+---
+
+### Routing zone 좌표 추출 ComputeLocalToWorldTransform 통일
+**변경 파일:** `main_side/camera_publisher.py`
+- `_read_all_routing_zones`, `_read_all_tactical_points` 가 `xformOp:translate` 직접 읽기 → `ComputeLocalToWorldTransform` 사용 + 폴백
+- 헬퍼 `_zone_world_pos(prim)` 신규
+
+**WHY:** 부모 prim 변환·자식의 다른 xformOp 사용 시 라우팅 좌표 어긋남 방지. 같은 파일의 `_routing_zone_pos` 와 추출 방식 통일.
+
+---
+
+### 디버그 페이지 — Go2 12-DOF 관절 표시 + URDF 실시간 동기
+**변경 파일:**
+- `sub1_side/web/components/DiagnosticsStrip.tsx` (전면 재작성 — M0609 arm + ANYmal leg → Go2 4×3 그리드, 관절명/bar/rad값)
+- `sub1_side/web/components/ImmersiveCameraView.tsx`, `ImmersiveCameraViewClient.tsx` (legQ prop 추가 — Go2Urdf 에서 `setJointValue` 매 프레임 lerp, sphere phi 정렬 `+π/2` → `+π` (+X=robot forward))
+- `sub1_side/web/app/debug/page.tsx` (REST `/robots/{rid}/state` 5Hz 폴 → odom.yaw + leg_q[12], armQ 제거)
+
+**WHY:** 디버그 IMMERSIVE 가 URDF base 만 회전하고 다리는 정지. state WS event 에 odom/leg_q 미포함 → REST 폴로 우회. sphere 가 robot forward 와 90° 어긋난 것도 수정.
+
+---
+
+### DUAL CAMERA — TP_A~D 단일 mosaic (HTTP/1.1 연결 제한 회피)
+**변경 파일:**
+- `sub1_side/server/app.py` (`tp_grid` 가상 카메라 신규 — 1280×180 가로 1×4 mosaic JPEG)
+- `sub1_side/web/components/DualCameraView.tsx` (TacticalCamera 4 인스턴스 → `TacticalGrid` 단일 컴포넌트, mosaic 위 4 quadrant overlay)
+
+**WHY:** 4 TP 가 각자 MJPEG 연결을 열어 총 7 streams 가 origin 당 6 connection 제한 초과 → 새로고침마다 1 채널 누락. 백엔드에서 4개를 한 frame 으로 합쳐 단일 연결.
+
+---
+
+### TACTICAL MAP — TP/경로 좌표 정렬 + overhead 카메라 정합
+**변경 파일:**
+- `main_side/camera_publisher.py` (overhead 카메라 고도 100→**200m**, VAP=`_HAP`=20.955mm 정방형, ±262m 커버)
+- `sub1_side/web/components/MapTrack.tsx` (overhead `src` SSR-safe useEffect, TP 거리 기반 자동 extent, CSS scale `OVERHEAD_GROUND_HALF/view.extent` 동적, w2o() world→odom 변환)
+
+**WHY:** overhead VAP 16:9 인데 640×640 정방형 출력 → 수직 74m 수평 131m 비대칭. 200m 고도+VAP=HAP 로 ±262m 정방형. canvas extent 가 TP 거리(최대 ~136m)를 포함하도록 자동 확장 + 이미지 scale 동기.
+
+---
+
+### ROS2 통신 효율화 + DB 스키마 단순화 (Tier 1+2+3)
+**변경 파일:**
+- `main_side/depth_degrade_node.py` (신규) — TP depth 320×180 PNG 16UC1 압축 노드
+- `main_side/run_degrade.sh` (수정) — depth_degrade 4 인스턴스 추가
+- `main_side/video_degrade_node.py` (수정) — `DEGRADE_IN`/`DEGRADE_OUT` env 필수화 (front 잔재 제거)
+- `main_side/camera_info_publisher.py` (수정) — 1Hz timer 제거 → 1회 + 60s 보호 발행
+- `sub1_side/server/config.py` (수정) — `C2_YOLO_CAMERAS` env 추가 (기본 `inspect,tp_a`), depth 토픽을 `/c2/tp_*/depth_compressed` 로 매핑
+- `sub1_side/server/ros_bridge.py` (수정) — depth `CompressedImage` 구독, `_decode_depth` PNG 디코드 추가, YOLO 채널 가드 (config.YOLO_CAMERAS), 3개 INSERT 호출을 `detection_events` 통합, `gps_track` 에 yaw 합류
+- `sub1_side/server/db_writer.py` (수정) — `COLUMNS["detection_events"]` 추가, `intruder_*` 큐 제거, `gps_track`에 yaw 추가
+- `sub1_side/db/schema.sql` (수정) — `detection_events` 테이블 + `gps_track.yaw` 컬럼, `cleanup_old_data()` 갱신
+- `sub1_side/db/migrations/2026-05-24_detection_unify.sql` (신규) — 통합 마이그레이션 (`intruder_*` → `detection_events`, deprecated rename, gps_track ALTER)
+- `dev-docs/communication-optimization.md` (신규) — 측정 베이스라인/결정 매트릭스/QoS 결정/잔여 작업
+- `dev-docs/{ros2-interface, architecture, design-ros2-bridge, ops, main-side, sub1-side}.md` (수정) — 변경 반영
+
+**WHY:**
+- 실측 결과 Main→C2 LAN TX = **17.9 MB/s**. 이 중 9.1 MB/s는 raw 32FC1 depth (`/cam/tactical/tp_*/depth`, 920KB × 1~5.6Hz × 4ch)가 정당하게 LAN을 통과하던 것, ~8 MB/s는 FastDDS multicast가 RAW `/cam/*/rgb` 를 로컬 구독자(`video_degrade_node`) 외에도 LAN 인터페이스로 누출한 것.
+- `depth_degrade_node`(신규)가 PNG 16UC1 320×180으로 압축 → 920KB → ~22KB (97.6% 감소). C2 `ros_bridge`는 `_decode_depth`에서 PNG/raw 양 포맷 호환.
+- `camera_info`는 TRANSIENT_LOCAL durability로 1회 발행이면 늦은 join도 자동 수신. 1Hz timer는 불필요한 CPU wakeup.
+- YOLO 5채널(inspect + tp_a~d) 동시 inference 부담 → env로 채널 선택 (기본 2채널, 전체 활성화 시 5채널 유지).
+- `intruder_detections`(픽셀 bbox) + `intruder_states_log`(GT world) → `detection_events` 통합. kind 컬럼으로 구분, bbox는 JSONB. 구 테이블은 `_deprecated_` prefix 1주 보존 후 DROP 예정.
+
+**측정 (전 → 후):**
+- Main→C2 LAN TX: **17.9 MB/s → 0.57 MB/s** (97% 절감)
+- depth msg 크기 평균: 920 KB → 22 KB (한 채널 평균)
+- `camera_info` Hz: 1.0 × 3 → 0 (60s 보호 발행)
+- DB 테이블: `intruder_detections` + `intruder_states_log` → `detection_events` 단일
+- 마이그레이션 결과: 87 row 이관 (kind='detection')
+
+**잔여 작업 (P2):** FastDDS multicast 차단 옵션 (Isaac 재시작 시 자연 적용). 상세: communication-optimization.md §8
+
+---
+
+## 2026-05-23
+
+### 전술 고정 감시카메라(TP_A~D) + Guard Tower + YOLO 3D 투영 통합
+**변경 파일:**
+- `main_side/camera_publisher.py` (수정) — `_quat_camera_forward()`, `_make_guard_tower()`, TP_A~D 카메라 4대 + OG RenderProduct/CameraHelper (RGB+depth) 노드 추가
+- `main_side/run_degrade.sh` (수정) — TP_A~D 4개 degraded 스트림 추가, Python 자동 감지 개선
+- `sub1_side/server/config.py` (수정) — `video_tp_*` / `depth_tp_*` 토픽, 투영 상수 (`TACTICAL_CAMERA_FORWARDS` 등) 추가
+- `sub1_side/server/ros_bridge.py` (수정) — `_video_tp_*` / `_depth_tp_*` 버퍼, depth 구독, `_decode_depth()`, `_on_depth()`, `_sample_depth()`, `_project_detection_to_map()` 추가; TP 카메라에서 YOLO 3D 위치 투영
+- `sub1_side/server/app.py` (수정) — MJPEG 엔드포인트에 `tp_a/b/c/d` 허용 카메라 추가
+
+**내용:**
+- cobot3_scanning_ver (new_hi 브랜치) 의 전술 감시카메라 기능을 cobot3에 통합
+- `/World/Tactical_Points/TP_*` USD 위치에 guard tower USD ref 배치 + 8m 고도 카메라 생성
+- ROS2 토픽: `/cam/tactical/tp_a/rgb`, `/cam/tactical/tp_a/depth` × 4 카메라
+- C2 degraded 스트림: `/c2/tp_a/compressed` → MJPEG `/c2/video/mjpeg?camera=tp_a`
+- YOLO 탐지 시 depth median 샘플 → 핀홀 역투영으로 월드 XY 추정 → detection 이벤트에 `map` 키 추가
+- cobot3 고유 기능(`zone_router.py`, `preview_route`, `goto_tp`, `routing_edges`)은 유지
+
+---
+
+## 2026-05-22
+
+### Zone 기반 라우팅 + Tactical Point 이동 명령 시스템 도입
+**변경 파일:**
+- `main_side/zone_router.py` (신규) — ZoneRouter: 17개 Routing_Zones 그래프 + Dijkstra 경로 계획
+- `main_side/nav2_patrol.py` (수정) — ROUTING 모드, goto_tp: 명령, /routing_state 발행
+- `main_side/camera_publisher.py` (수정) — Routing_Zones 전체 + Tactical_Points → landmarks JSON 포함
+- `sub1_side/server/config.py` (수정) — /routing_state 토픽 추가
+- `sub1_side/server/app.py` (수정) — POST /robots/{rid}/goto_tp 엔드포인트
+- `sub1_side/server/ros_bridge.py` (수정) — /routing_state 구독 + WS emit
+- `sub1_side/web/lib/api.ts` (수정) — RoutingStatePayload 타입, gotoTacticalPoint(), LandmarksPayload 확장
+- `sub1_side/web/components/TacticalPointsPanel.tsx` (신규) — TP 선택 + 이동 명령 UI + 진행 표시
+- `sub1_side/web/components/MapTrack.tsx` (수정) — TP 마커(역삼각형) + 라우팅 경로 점선 오버레이
+- `sub1_side/web/app/page.tsx` (수정) — TacticalPointsPanel 통합, routing_state 이벤트 처리
+
+**내용:**
+- `/World/Routing_Zones` 17개 Xform 웨이포인트를 50m 반경 인접 그래프로 연결
+- `/World/Tactical_Points` TP_A/B/C/D를 이동 목적지로 등록
+- C2 웹에서 TP 선택 → 이동 명령 → ZoneRouter Dijkstra 최단경로 → Nav2 순차 경유
+- 경유 도착 허용 오차 ±3m, TP 도달 후 IDLE 정지
+- WebSocket routing_state 이벤트로 실시간 진행 피드백 (현재 zone 인덱스, 진행 바)
+
+---
+
+## 2026-05-22 (F)
+
+### Isaac Sim Animation 확장 영구 활성 + M_Medical_01 캐릭터 애니메이션 설정 절차
+
+**변경 파일:** `isaacsim.exp.full.kit` (수정),
+`dev-docs/ops.md` (수정), `dev-docs/main-side.md` (수정)
+
+**isaacsim.exp.full.kit:**
+- `[dependencies]` 에 `omni.anim.graph.core/bundle/ui`, `omni.anim.retarget.core/bundle/ui`,
+  `omni.anim.people` 7개 확장 추가 (Isaac Sim 시작 시 항상 로드).
+- 근본 원인: CLI `--enable` 플래그는 UI 확장에 불신뢰 → `.kit` 파일 직접 등록이 유일한
+  영구 해결책.
+
+**분석 — M_Medical_01 애니메이션 미재생:**
+- SkelAnimation 조인트 이름(`Root/Pelvis/…`) 과 Skeleton 조인트 이름(`RL_BoneRoot/…`) 이
+  0개 매칭 → `skel:animationSource` 직접 연결 방식 무동작.
+- ControlRig + retargetTags + Animation Graph 3-레이어 파이프라인 필수.
+- 해결: `Isaac/People/Characters/Biped_Setup.usd` USD reference 로 씬에 추가 →
+  AnimationGraph (Idle/Walk/Sit/Talk StateMachine) 자동 포함.
+
+**문서:**
+- `ops.md § 트러블슈팅` — "Add→Animation 메뉴 없음" / "M_Medical_01 미재생" 두 항목 추가.
+- `main-side.md § M_Medical_01 캐릭터 애니메이션` 신규 섹션 (파이프라인 구조·절차·확장 목록).
+
+---
+
 ## 2026-05-22 (E)
 
 ### Go2 물리폭발·맵탈출 시 StartingPoint 자동 복귀

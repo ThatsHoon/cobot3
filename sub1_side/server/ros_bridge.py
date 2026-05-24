@@ -64,6 +64,16 @@ class RosBridge:
         self._video_rear:     np.ndarray | None = None  # BGR 후방(real) 카메라
         self._video_inspect:  np.ndarray | None = None  # BGR 검사 카메라(짐벌)
         self._video_overhead: np.ndarray | None = None  # BGR 오버헤드 카메라
+        # Tactical fixed cameras (TP_A ~ TP_D)
+        self._video_tp_a: np.ndarray | None = None
+        self._video_tp_b: np.ndarray | None = None
+        self._video_tp_c: np.ndarray | None = None
+        self._video_tp_d: np.ndarray | None = None
+        self._depth_lock = threading.Lock()
+        self._depth_tp_a: np.ndarray | None = None
+        self._depth_tp_b: np.ndarray | None = None
+        self._depth_tp_c: np.ndarray | None = None
+        self._depth_tp_d: np.ndarray | None = None
         self._loop = None
         self._db = None
         self._ev_cb = None           # asyncio: 이벤트 브로드캐스트 콜백
@@ -132,6 +142,14 @@ class RosBridge:
                 frame = self._video_inspect
             elif camera == "overhead":
                 frame = self._video_overhead
+            elif camera == "tp_a":
+                frame = self._video_tp_a
+            elif camera == "tp_b":
+                frame = self._video_tp_b
+            elif camera == "tp_c":
+                frame = self._video_tp_c
+            elif camera == "tp_d":
+                frame = self._video_tp_d
             else:
                 frame = self._video_rear
             return None if frame is None else frame.copy()
@@ -142,8 +160,26 @@ class RosBridge:
                 self._video_inspect = bgr
             elif camera == "overhead":
                 self._video_overhead = bgr
+            elif camera == "tp_a":
+                self._video_tp_a = bgr
+            elif camera == "tp_b":
+                self._video_tp_b = bgr
+            elif camera == "tp_c":
+                self._video_tp_c = bgr
+            elif camera == "tp_d":
+                self._video_tp_d = bgr
             else:
                 self._video_rear = bgr
+
+    def _get_depth_frame(self, camera: str):
+        with self._depth_lock:
+            return getattr(self, f"_depth_{camera}", None)
+
+    def _set_depth_frame(self, camera: str, arr: np.ndarray):
+        with self._depth_lock:
+            attr = f"_depth_{camera}"
+            if hasattr(self, attr):
+                setattr(self, attr, arr)
 
     # ---- 업링크 (C2 → 로봇) ------------------------------------------
     def pub_cmd_vel(self, lin: float, ang: float, vy: float = 0.0):
@@ -240,6 +276,17 @@ if RCLPY_OK:
                                      lambda m: self._on_video(m, "inspect"), sensor_qos)
             self.create_subscription(CompressedImage, T["video_overhead"],
                                      lambda m: self._on_video(m, "overhead"), sensor_qos)
+            # ---- Tactical Fixed Cameras TP_A ~ TP_D ----
+            # depth 는 2026-05-24 부터 PNG 압축본 (CompressedImage 16UC1 320×180) 사용.
+            if "video_tp_a" in T:
+                for _tp in ("tp_a", "tp_b", "tp_c", "tp_d"):
+                    _tp_local = _tp
+                    self.create_subscription(
+                        CompressedImage, T[f"video_{_tp_local}"],
+                        lambda m, cam=_tp_local: self._on_video(m, cam), sensor_qos)
+                    self.create_subscription(
+                        CompressedImage, T[f"depth_{_tp_local}"],
+                        lambda m, cam=_tp_local: self._on_depth(m, cam), sensor_qos)
             self.create_subscription(Log, T["rosout"], self._on_rosout, rel_qos)
             # ---- DMZ Sentry M5/M7 신규 다운링크 ----
             self.create_subscription(String, T["intruders"],
@@ -278,6 +325,10 @@ if RCLPY_OK:
             # ---- 진단 카운터 + 주기 헬스 ----
             self._rx = {"state": 0, "gps": 0,
                         "video_rear": 0, "video_inspect": 0, "video_overhead": 0,
+                        "video_tp_a": 0, "video_tp_b": 0,
+                        "video_tp_c": 0, "video_tp_d": 0,
+                        "depth_tp_a": 0, "depth_tp_b": 0,
+                        "depth_tp_c": 0, "depth_tp_d": 0,
                         "leg": 0, "rosout": 0,
                         "intruders": 0, "patrol_state": 0, "landmarks": 0,
                         "fall_alert": 0, "fall_state": 0,
@@ -330,9 +381,12 @@ if RCLPY_OK:
             d = {"lat": msg.latitude, "lon": msg.longitude, "alt": msg.altitude}
             self.br.latest["gps"] = d
             ts = _now_iso()
+            # 2026-05-24: gps_track 에 yaw 합류 (D4 — odom 캐시에서 가져옴)
+            _odom = self.br.latest.get("odom") or {}
             self.br._db and self.br._db.put("gps_track", (
                 config.ROBOT_ID, ts, msg.latitude, msg.longitude,
-                float(msg.altitude), None, None))
+                float(msg.altitude), _odom.get("x"), _odom.get("y"),
+                _odom.get("yaw")))
             self.br._emit({"type": "gps", "ts": ts, "data": d})
 
         def _on_odom(self, msg):
@@ -375,7 +429,7 @@ if RCLPY_OK:
             bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if bgr is None:
                 return
-            if self.br._yolo is not None and camera == "inspect":
+            if self.br._yolo is not None and camera == "inspect" and "inspect" in config.YOLO_CAMERAS:
                 dets, alert, animal_alert = self.br._yolo.infer_with_alerts(bgr)
                 if dets:
                     ts = _now_iso()
@@ -386,9 +440,12 @@ if RCLPY_OK:
                         cv2.putText(bgr, f'{d["class_name"]} {d["conf"]:.2f}',
                                     (int(x), int(y) - 5),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                        self.br._db and self.br._db.put("intruder_detections", (
-                            config.ROBOT_ID, ts, d["class_name"], d["conf"],
-                            x, y, w, h, None, None, None, None, "camera_inspect"))
+                        # 2026-05-24: detection_events 통합 (kind='detection')
+                        self.br._db and self.br._db.put("detection_events", (
+                            ts, config.ROBOT_ID, "camera_inspect", "detection",
+                            d["class_name"], d["conf"],
+                            json.dumps({"x": x, "y": y, "w": w, "h": h}),
+                            None, None, None, None, None))
                     self.br._emit({"type": "detection", "ts": ts, "items": dets})
                     det_msg = String()
                     det_msg.data = json.dumps({
@@ -426,7 +483,173 @@ if RCLPY_OK:
                     self.get_logger().warn(
                         f"ANIMAL_ALERT {animal_alert['label']} "
                         f"conf={animal_alert['confidence']:.2f} → /animal_alerts")
+            # TP cameras: run YOLO + 3D projection (config.YOLO_CAMERAS 로 채널 제한)
+            _tp_cameras = {"tp_a", "tp_b", "tp_c", "tp_d"}
+            if (self.br._yolo is not None and camera in _tp_cameras
+                    and camera in config.YOLO_CAMERAS):
+                dets, alert, animal_alert = self.br._yolo.infer_with_alerts(bgr)
+                if dets:
+                    ts = _now_iso()
+                    frame_id = f"camera_{camera}"
+                    for d in dets:
+                        d["camera"] = camera
+                        d["frame_id"] = frame_id
+                        d["risk"] = "danger" if d.get("class_name", "").lower() in ("person", "soldier") else "caution"
+                        map_pos = self._project_detection_to_map(camera, d, bgr.shape)
+                        if map_pos is not None:
+                            d["map"] = map_pos
+                        x, y, w, h = d["bbox"]
+                        cv2.rectangle(bgr, (int(x), int(y)),
+                                      (int(x+w), int(y+h)), (0, 0, 255), 2)
+                        label = f'{d["class_name"]} {d["conf"]:.2f}'
+                        if "map" in d and d["map"].get("range_m") is not None:
+                            label += f' {d["map"]["range_m"]:.1f}m'
+                        cv2.putText(bgr, label, (int(x), int(y)-5),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                        # 2026-05-24: detection_events 통합 + world 좌표 포함
+                        _map = d.get("map") or {}
+                        self.br._db and self.br._db.put("detection_events", (
+                            ts, config.ROBOT_ID, frame_id, "detection",
+                            d["class_name"], d["conf"],
+                            json.dumps({"x": x, "y": y, "w": w, "h": h}),
+                            _map.get("x"), _map.get("y"), _map.get("z"),
+                            None, None))
+                    self.br._emit({"type": "detection", "ts": ts, "items": dets})
+                    det_msg = String()
+                    det_msg.data = json.dumps({"stamp": ts, "frame_id": frame_id,
+                                               "detections": dets})
+                    self._det_pub.publish(det_msg)
             self.br._set_video_frame(bgr, camera)
+
+        def _decode_depth(self, msg):
+            """2026-05-24: CompressedImage(PNG 16UC1 mm) 디코드 →
+            meter 단위 float32 ndarray. 구 raw Image 도 호환 (격리 전환기).
+            """
+            # NEW: CompressedImage 경로 (Main 측 depth_degrade_node 가 보내는 PNG)
+            fmt = getattr(msg, "format", "")
+            if fmt:
+                buf = np.frombuffer(bytes(msg.data), dtype=np.uint8)
+                # cv2.imdecode IMREAD_UNCHANGED 로 16UC1 PNG 보존
+                arr = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+                if arr is None:
+                    return None
+                if arr.dtype == np.uint16:
+                    return (arr.astype(np.float32) / 1000.0)
+                return arr.astype(np.float32, copy=False)
+
+            # LEGACY: 구 sensor_msgs/Image raw 경로 (이미 unsubscribe 예정)
+            h, w = int(msg.height), int(msg.width)
+            enc = (msg.encoding or "").lower()
+            raw = bytes(msg.data)
+            if enc in ("32fc1", "float32"):
+                arr = np.frombuffer(raw, dtype=np.float32).reshape(h, -1)[:, :w]
+            elif enc in ("16uc1", "mono16"):
+                arr = (np.frombuffer(raw, dtype=np.uint16).reshape(h, -1)[:, :w]
+                       .astype(np.float32) / 1000.0)
+            elif enc in ("8uc1", "mono8"):
+                arr = np.frombuffer(raw, dtype=np.uint8).reshape(h, -1)[:, :w].astype(np.float32)
+            else:
+                return None
+            return arr.astype(np.float32, copy=False)
+
+        def _on_depth(self, msg, camera: str):
+            key = f"depth_{camera}"
+            self._rx[key] = self._rx.get(key, 0) + 1
+            arr = self._decode_depth(msg)
+            if arr is None:
+                if self._rx[key] == 1:
+                    self.get_logger().warn(
+                        f"{camera} depth encoding 미지원: {msg.encoding}")
+                return
+            self.br._set_depth_frame(camera, arr)
+
+        def _sample_depth(self, camera: str, det: dict,
+                          image_shape: tuple):
+            depth = self.br._get_depth_frame(camera)
+            if depth is None:
+                return None
+            ih, iw = image_shape[:2]
+            dh, dw = depth.shape[:2]
+            x, y, w, h = det["bbox"]
+            label = str(det.get("class_name", "")).lower()
+            if label in ("person", "soldier"):
+                cx, cy = x + w*0.5, y + h*0.30
+                rw, rh = max(4.0, w*0.18), max(4.0, h*0.18)
+            else:
+                cx, cy = x + w*0.5, y + h*0.5
+                rw, rh = max(4.0, w*0.25), max(4.0, h*0.25)
+            sx, sy = dw/max(float(iw), 1.0), dh/max(float(ih), 1.0)
+            x0 = max(0, int((cx-rw)*sx));  x1 = min(dw, int((cx+rw)*sx)+1)
+            y0 = max(0, int((cy-rh)*sy));  y1 = min(dh, int((cy+rh)*sy)+1)
+            if x1 <= x0 or y1 <= y0:
+                return None
+            roi = depth[y0:y1, x0:x1]
+            vals = roi[np.isfinite(roi)]
+            vals = vals[(vals > 0.2) & (vals < 350.0)]
+            if vals.size == 0:
+                return None
+            return {"depth_m": float(np.median(vals)), "u": float(cx), "v": float(cy)}
+
+        @staticmethod
+        def _norm3(v):
+            n = math.sqrt(float(v[0])**2 + float(v[1])**2 + float(v[2])**2)
+            if n < 1e-6:
+                return (0.0, 1.0, 0.0)
+            return (float(v[0])/n, float(v[1])/n, float(v[2])/n)
+
+        def _project_detection_to_map(self, camera: str, det: dict,
+                                      image_shape: tuple):
+            if camera not in config.TACTICAL_CAMERA_FORWARDS:
+                return None
+            lm = self.br.latest.get("landmarks") or {}
+            if not lm.get("tactical_points"):
+                try:
+                    with open("/tmp/cobot3_landmarks.json", "r") as f:
+                        lm = json.load(f)
+                    self.br.latest["landmarks"] = lm
+                    self.br._emit({"type": "landmarks", "ts": _now_iso(), "data": lm})
+                except Exception:
+                    pass
+            tps = lm.get("tactical_points") or {}
+            tp = tps.get(camera.upper())
+            if not tp:
+                return None
+            ih, iw = image_shape[:2]
+            depth_sample = self._sample_depth(camera, det, image_shape)
+            source = "depth" if depth_sample is not None else "ray_guess"
+            if depth_sample is None:
+                depth_m = config.TACTICAL_DEFAULT_RANGE_M
+                x, y, w, h = det["bbox"]
+                sample_u, sample_v = x + w*0.5, y + h*0.30
+            else:
+                depth_m = float(depth_sample["depth_m"])
+                sample_u, sample_v = float(depth_sample["u"]), float(depth_sample["v"])
+
+            fwd = self._norm3(config.TACTICAL_CAMERA_FORWARDS[camera])
+            rx, ry = fwd[1], -fwd[0]
+            rn = math.sqrt(rx*rx + ry*ry)
+            if rn > 1e-6:
+                rx, ry = rx/rn, ry/rn
+            fx_px = (float(iw) / config.TACTICAL_CAMERA_APERTURE * config.TACTICAL_CAMERA_FOCAL)
+            x_norm = (sample_u - iw*0.5) / max(fx_px, 1.0)
+            y_norm = (sample_v - ih*0.5) / max(fx_px, 1.0)
+            ux = ry * fwd[2];  uy = -rx * fwd[2]
+            cam_z = (float(tp.get("z", 0.0)) + config.TACTICAL_CAMERA_HEIGHT
+                     + config.TACTICAL_CAMERA_HEIGHT_OFFSETS.get(camera, 0.0))
+            world_x = float(tp["x"]) + depth_m*(fwd[0] + rx*x_norm - ux*y_norm)
+            world_y = float(tp["y"]) + depth_m*(fwd[1] + ry*x_norm - uy*y_norm)
+            world_z = cam_z + depth_m*(fwd[2] - (rx*fwd[1]-ry*fwd[0])*y_norm)
+            home = lm.get("home") or {}
+            origin_x = float(home.get("x", 0.0))
+            origin_y = float(home.get("y", 0.0))
+            origin_z = float(home.get("z", 0.0))
+            ground_range_m = math.hypot(world_x - float(tp["x"]), world_y - float(tp["y"]))
+            return {
+                "x": world_x - origin_x, "y": world_y - origin_y, "z": world_z - origin_z,
+                "world_x": world_x, "world_y": world_y, "world_z": world_z,
+                "range_m": depth_m, "ground_range_m": ground_range_m,
+                "depth_camera": camera, "source": source,
+            }
 
         def _on_intruders(self, msg):
             self._rx["intruders"] += 1
@@ -444,12 +667,17 @@ if RCLPY_OK:
                 self.br._intr_last_log = now
                 items = d if isinstance(d, list) else d.get("items", [])
                 for it in items:
-                    self.br._db and self.br._db.put("intruder_states_log", (
-                        ts, str(it.get("id", "?")),
+                    # 2026-05-24: detection_events 통합 (kind='gt_state')
+                    self.br._db and self.br._db.put("detection_events", (
+                        ts, config.ROBOT_ID, "ground_truth", "gt_state",
+                        str(it.get("label", "")) or None,
+                        None,    # confidence (GT는 None)
+                        None,    # bbox_pixel
                         float(it.get("x", 0.0)),
                         float(it.get("y", 0.0)),
                         float(it.get("z", 0.0)),
-                        str(it.get("label", ""))))
+                        None,    # beyond_fence
+                        str(it.get("id", "?"))))
 
         def _on_patrol_state(self, msg):
             self._rx["patrol_state"] += 1

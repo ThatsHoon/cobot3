@@ -13,12 +13,14 @@
 | `go2_wtw_mcp.py` | walk-these-ways MCP 제어 보조 (개발용) |
 | `import_go2_unitree.py` | Unitree go2.usd 임포트 헬퍼 (1회 사용) |
 | `telemetry_bridge_node.py` | /robot/odom → /robot/gps + /robot/state 파생 (5Hz) |
-| `video_degrade_node.py` | 카메라 영상 5fps JPEG q50 압축 (rear/inspect/overhead 3 인스턴스) |
-| `camera_info_publisher.py` | **(신규)** 3-카메라 CameraInfo 1Hz latched(TRANSIENT_LOCAL) — Lichtblick 3D 카메라 frustum/투영 |
+| `video_degrade_node.py` | 카메라 영상 5fps JPEG q50 압축 (rear/inspect/overhead + TP_A~D = 7 인스턴스). 2026-05-24: `DEGRADE_IN` env 필수 (front 카메라 잔재 default 제거) |
+| `depth_degrade_node.py` (2026-05-24 신규) | TP depth 320×180 PNG 16UC1 압축 4 인스턴스. LAN depth 트래픽 9MB/s → ~0.4MB/s |
+| `camera_info_publisher.py` | 3-카메라 CameraInfo TRANSIENT_LOCAL latched. 2026-05-24: 1Hz timer 제거 → 1회 발행 + 60s 보호 |
 | `mission_echo.py` | **(신규)** `/mission_command` rclpy 사이드카 — Isaac console.log echo (디버깅) |
 | `npc_relay.py` | **(신규)** `/npc/*` 명령 릴레이 (NPC 스폰/제거) |
 | `world_odom_tf_pub.py` | world→odom + **Go2→base** 2개 static TF 발행 (URDF 루트 매칭 fix) |
 | `landmarks_pub.py` | `/scene/landmarks` JSON latched 발행 |
+| `nav2_patrol.py` | PATROL/HOME/ROUTING FSM, ZoneRouter 라우팅 액션 클라이언트. 2026-05-24: `_sp_world` 캐시 + `_on_odom` 에서 odom→world 변환 (self._pose 일관) |
 | `inspect_relay.py` | `/robot/inspect/command` 사이드카 — `/tmp/cobot3_inspect_cmd.json` dump (Isaac 5.1 OG String sub 미등록 우회) |
 | `publish_robot_description.py` | /robot_description URDF 토픽 발행 (Foxglove 3D) |
 | `run_urdf_server.sh` | URDF HTTP 서버 :8766 (CORS, Lichtblick urdf URL 소스) |
@@ -91,9 +93,15 @@ Odo (IsaacComputeOdometry) — chassisPrim=/World/Go2/base, chassisFrameId=Go2
   pitch 를 보정 (`q_stab = qy(-pitch)*qx(-roll)`). pan/tilt 명령은 base
   frame 의 yaw/pitch 로 적용: `q_total = q_stab * q_user_base * _Q_FRONT`.
   pan/tilt 각각 ±70° clamp.
+  - **2026-05-24 부호 컨벤션**: `q_user_base = _qz(-pan) * _qy(-tilt)` 로 변경.
+    웹/DualSense 의 "오른쪽=+pan, 위=+tilt" 직관과 정합 (수학적 right-hand rule
+    역방향 보정). `look_at` 절대 좌표는 `pan = -atan2(dy, dx)` 로 호환.
 - **overhead 카메라**: world 직속(`/World/Overhead_Camera`) 으로 분리.
   매 step `_update_overhead_xform()` 가 Go2 base.xy 만 따라가고 yaw/roll/
   pitch 는 고정(North-up) — 들썩임 제거.
+  - **2026-05-24 확장**: 고도 100→**200m**, VAP=`_HAP`=20.955mm (정방형
+    640×640 ↔ 지상 ±262m 정합). TACTICAL MAP 배경으로 사용. 이전 VAP=11.79mm
+    (16:9) 라 수직 74m·수평 131m 비대칭 + 캔버스 ±60m 미흡 문제 해결.
 
 **단일 빌드 원칙:** 모든 OG 노드를 하나의 `og.Controller.edit()` 호출로 생성.
 증분 edit 시 OmniGraphError 발생 → 금지.
@@ -116,11 +124,12 @@ _SENSOR_QOS = '{"history":"keepLast","depth":5,"reliability":"bestEffort",\
 
 ### 카메라 배치 (2026-05-21, 3-카메라)
 
-| 카메라 | prim 경로 | 위치 (xyz) | 회전 (rotateXYZ) | 초점거리 | 비고 |
-|--------|-----------|-----------|----------------|---------|------|
-| 후방 (real) | `/World/Go2/base/camera_rear` | (-0.22, 0.0, 0.06) | (0.0, 90.0, 0.0) | 10.5mm | rear MJPEG, 실시간 영상 |
-| 검사 (inspect) | `/World/Go2/base/camera_inspect` | (+0.22, 0.0, 0.10) | stabilization | 10.5mm | 짐벌 pan/tilt ±70°, YOLO 입력 |
-| 오버헤드 (overhead) | `/World/Overhead_Camera` | base.xy + (0,0,Δz) | North-up 고정 | (광각) | world 직속, Go2 child 아님 |
+| 카메라 | prim 경로 | 위치 (xyz, base 기준) | 회전 | 초점거리 | 비고 |
+|--------|-----------|---------------------|----|---------|------|
+| 후방 (real) | `/World/Go2/base/camera_rear` | (-0.235, 0.0, **0.40**) (2026-05-24 z +30cm) | `_Q_REAR` (시선 -X, up +Z) | 10.5mm | rear MJPEG |
+| 검사 (inspect) | `/World/Go2/base/camera_inspect` | (+0.235, 0.0, **0.40**) (2026-05-24 z +30cm) | `_Q_FRONT` + stabilization | 10.5mm | 짐벌 pan/tilt ±70°, YOLO 입력 |
+| 오버헤드 (overhead) | `/World/Overhead_Camera` | base.xy + (0,0,**200**) (2026-05-24 100→200m) | North-up 고정, identity quat | focal=8mm, HAP=VAP=20.955mm | world 직속, ±262m 지상 정방형 |
+| TP_A~D 전술 (2026-05-23) | `/World/Tactical_Fixed_Cameras/TP_*_Cam` | Tactical_Points + (0,0,8) | `_quat_camera_forward` | 6mm | 고정 관측, RGB+depth |
 
 > 카메라 내부파라미터 D455 (focalLength 10.5mm + horizontalAperture 20.955
 > → ~90° FOV). 구 front 카메라는 제거 — inspect 가 YOLO 입력 역할 인수.
@@ -182,6 +191,18 @@ if len(list(_pre_art.dof_names)) >= 12:
 - obs=42, history_len=15 → MLP body 입력 630-dim
 - action_scale=0.25, hip ×0.5
 - 경사면 보행 가능 (D2 clamp 없음)
+
+**`_CMD_BASE` 튜닝 (2026-05-24 단차 통과 사양):**
+| idx | 이름 | 값 | 효과 |
+|-----|------|-----|------|
+| 3 | body_height | **0.05** (← 0.0) | 몸체 +5cm, 발 클리어런스 ↑ |
+| 4 | step_freq | **3.0** (← 3.6) | 스텝 주기 ↓ → 발 들기 시간 ↑ |
+| 5 | gait phase | 0.5 | trot (대각쌍 교대) |
+| 9 | footswing | **0.22** (← 0.15) | 발 들기 15→22cm. 22cm 단차까지 통과 |
+| 12 | stance_w | 0.33 | 좌우 다리 간격 |
+| 13 | stance_l | 0.45 | 앞뒤 다리 간격 (base 중심 회전) |
+
+WHY: Nav2 명령 0.91 m/s 보내도 도로 단차 모서리에 발 걸려 실제 이동 0.09 m/s (90% 손실). 모두 walk-these-ways 학습 분포 끝단 내. 평탄지형 속도 ≈10% ↓ trade-off.
 
 **중재 로직 + standstill clamp (2026-05-21):**
 ```
@@ -265,14 +286,21 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 │                      길이 5.9~11.9m, 높이 5.2m, Fence_Waypoints 궤적 추종
 │                      xformOpOrder: [translate:world, rotateZ, scale, rotateX, translate:inner]
 │                      GATE_THRESH=55m (Xform_50→Xform 162m 자연 장벽 스킵)
-├── Routing_Zones   ← 경로 구역 Xform
+├── Routing_Zones   ← 경로 구역 Xform (총 16개, 2026-05-24 ComputeLocalToWorldTransform 추출)
 │   ├── StartingPoint  @ (194.56, 837.70, 5.02) — Go2 spawn 기본값
 │   └── Standard_Point @ (199.09, 892.60, 4.52) — 시동 시 Nav 목표 (arrive_box=2.0m)
+├── Tactical_Points (2026-05-23) ← TP_A~D 4개 (전술 고정 카메라 위치)
 ├── Go2             ← go2.usd (로컬 main_side/scene/go2_unitree/go2.usd ref) @ spawn = StartingPoint
-│   └── base
-│       ├── camera_rear      (UsdGeom.Camera, 후방)
-│       └── camera_inspect   (UsdGeom.Camera, 짐벌 stabilization)
-├── Overhead_Camera (UsdGeom.Camera, world 직속 — Go2 child 아님)
+│   ├── base
+│   │   ├── camera_rear      (UsdGeom.Camera, 후방, z=0.40 from 2026-05-24)
+│   │   └── camera_inspect   (UsdGeom.Camera, 짐벌 stabilization, z=0.40)
+│   └── radar (2026-05-24 추가)  ← visuals + collisions
+├── Overhead_Camera (UsdGeom.Camera, world 직속 — Go2 child 아님, 200m + ±262m 정방형)
+├── Tactical_Fixed_Cameras (2026-05-23) ← TP_A_Cam ~ TP_D_Cam (8m guard tower 상부)
+├── scene_01 (2026-05-24 추가)         ← Forest Clearing Top Skybox (payload)
+├── Extended_field (2026-05-24 추가)   ← Coast Road + Stylized Bush (89 자손)
+├── Crouched_Walking (2026-05-24 추가) ← NPC 애니메이션 (16 자손)
+├── traffic_sign (2026-05-24 추가)     ← 한국 도로 표지판 39종 (1110 자손)
 └── Graphs
     └── sensor_bridge  (OmniGraph — Clock 50Hz, OdoPub, LegJS, TF [BASE_PRIM])
 ```
@@ -322,3 +350,71 @@ TRANSIENT_LOCAL). Lichtblick 3D `cameraInfoTopic` 으로 frustum 렌더.
 - `inspect_relay.py` — `/robot/inspect/command` String JSON 구독, mtime poll
   형식으로 `/tmp/cobot3_inspect_cmd.json` 에 dump → camera_publisher 가 매
   step 폴 (Isaac 5.1 OG ROS2SubscribeString 미등록 우회).
+
+---
+
+## M_Medical_01 캐릭터 애니메이션 (2026-05-22)
+
+### 파이프라인 구조
+
+NVIDIA Isaac Sim 의 SkelAnimation-based 캐릭터는 3개 레이어가 모두 있어야 동작한다:
+
+```
+SkelAnimation (Root/Pelvis/Spine_01/… 81 joints)
+      ↓  Animation Graph 경유 (StateMachine: Idle/Walk/Sit/Talk)
+ControlRig  (controlRig:retargetTags  — 소스→타깃 조인트 이름 매핑)
+      ↓  리타게팅
+Skeleton    (RL_BoneRoot/RL_Hip_L/… 101 joints)
+```
+
+`skel:animationSource` 에 SkelAnimation 을 직접 연결하면 Animation Graph 를 우회하므로
+SkelAnimation 조인트(Root/Pelvis) 와 Skeleton 조인트(RL_BoneRoot) 가 0개 매칭 → 무동작.
+
+### Biped_Setup.usd 레퍼런스 방식 (권장)
+
+NVIDIA 공식 레퍼런스 캐릭터(`Isaac/People/Characters/Biped_Setup.usd`)를 현재 씬에
+USD reference 로 추가하면 AnimationGraph + ControlRig + Skeleton 이 일체형으로 로드된다.
+
+```python
+# MCP execute_script 또는 Isaac Script Editor
+import omni.usd
+from pxr import Sdf, UsdGeom
+
+stage = omni.usd.get_context().get_stage()
+prim = stage.DefinePrim("/World/BipedSetup", "Xform")
+prim.GetReferences().AddReference(
+    "omniverse://localhost/NVIDIA/Assets/Isaac/4.5/Isaac/People/Characters/Biped_Setup.usd")
+UsdGeom.XformCommonAPI(prim).SetTranslate((194.5, 837.7, 5.0))
+```
+
+USD reference 해석 규칙:
+- 참조 USD 의 `defaultPrim = "World"` 이므로 `/World/CharacterAnimation/AnimationGraph` 가
+  `/World/BipedSetup/CharacterAnimation/AnimationGraph` 로 마운트됨.
+
+### Animation Graph 연결 (UI)
+
+1. Stage 트리에서 M_Medical_01 (또는 BipedSetup) 의 **SkelRoot prim** 선택.
+2. 상단 메뉴 **Add → Animation Graph** (omni.anim.graph.ui 확장 필요 — 없으면 아래 참조).
+3. 다이얼로그에서 `/World/BipedSetup/CharacterAnimation/AnimationGraph` 선택.
+4. 재생(Play) → 캐릭터가 Idle 자세 유지 → Walk 클립으로 전환 가능.
+
+> **Add → Animation Graph 메뉴가 없으면:** `isaacsim.exp.full.kit` 에 omni.anim.* 7개
+> 확장이 누락된 것 (ops.md 트러블슈팅 참조). Isaac Sim 재시작 필요.
+
+### 확장 요구사항 (`isaacsim.exp.full.kit`)
+
+Animation Graph UI·리타게팅이 동작하려면 아래 7개가 `.kit` 파일에 있어야 한다
+(CLI `--enable` 플래그는 UI 확장에 불신뢰):
+
+```toml
+"omni.anim.graph.core" = {}
+"omni.anim.graph.bundle" = {}
+"omni.anim.graph.ui" = {}
+"omni.anim.retarget.core" = {}
+"omni.anim.retarget.bundle" = {}
+"omni.anim.retarget.ui" = {}
+"omni.anim.people" = {}
+```
+
+`~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release/apps/isaacsim.exp.full.kit` 에
+2026-05-22 기준 추가 완료.

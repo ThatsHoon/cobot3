@@ -51,7 +51,8 @@ WZ_MAX = 1.0   # rad/s
 # inspect 짐벌 — L-stick 매핑 (사용자 사양 2026-05-20)
 import math as _math
 INSPECT_LIM_RAD = _math.radians(70.0)   # 정면 ±70°
-INSPECT_RATE_RAD_PER_S = _math.radians(45.0)   # full-stick 45°/s
+# 2026-05-24: 정밀 조준용 2°/s 로 통일 (웹 UI / look_at_pixel / DS 컨트롤러 공통).
+INSPECT_RATE_RAD_PER_S = _math.radians(2.0)    # full-stick 2°/s
 
 
 class DualSenseService:

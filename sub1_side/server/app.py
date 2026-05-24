@@ -18,6 +18,7 @@ def _now_iso():
 
 import asyncpg
 import cv2
+import numpy as np
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from fastapi import (Depends, FastAPI, Header, HTTPException, Request,
                      WebSocket, WebSocketDisconnect)
@@ -211,13 +212,43 @@ async def webrtc_offer(req: Request):
 
 
 # ---- 영상: MJPEG 폴백 (저대역) ------------------------------------------
+# 2026-05-24: 'tp_grid' 가상 카메라 — tp_a/b/c/d 4개를 단일 MJPEG 으로 합쳐
+# 브라우저 HTTP/1.1 connection limit(origin당 6) 회피.
+# 레이아웃: 1×4 horizontal strip (tp_a | tp_b | tp_c | tp_d)
+_MJPEG_ALLOWED = {"rear", "inspect", "overhead",
+                  "tp_a", "tp_b", "tp_c", "tp_d", "tp_grid"}
+_TP_CELL_W, _TP_CELL_H = 320, 180       # 각 셀 → 전체 1280×180 (4:1 strip)
+_TP_GRID_ORDER = ("tp_a", "tp_b", "tp_c", "tp_d")
+
+
+def _build_tp_grid_frame():
+    """tp_a..d 캐시 frame 을 가로 1×4 strip 으로 합친 BGR ndarray 반환.
+    없는 채널은 검정으로 채움. 셀 크기는 _TP_CELL_W × _TP_CELL_H 로 통일.
+    전체 출력 해상도: (_TP_CELL_W × 4) × _TP_CELL_H = 1280 × 180
+    """
+    cells = []
+    for cam in _TP_GRID_ORDER:
+        f = ros.get_video_frame(cam)
+        if f is None:
+            cells.append(np.zeros((_TP_CELL_H, _TP_CELL_W, 3), dtype=np.uint8))
+        else:
+            h, w = f.shape[:2]
+            if (w, h) != (_TP_CELL_W, _TP_CELL_H):
+                f = cv2.resize(f, (_TP_CELL_W, _TP_CELL_H),
+                               interpolation=cv2.INTER_AREA)
+            cells.append(f)
+    return cv2.hconcat(cells)
+
+
 @app.get("/c2/video/mjpeg")
 async def mjpeg(camera: str = "rear"):
-    # 2026-05-20: front 제거. rear/inspect/overhead 세 카메라 노출
-    cam = camera if camera in ("rear", "inspect", "overhead") else "rear"
+    cam = camera if camera in _MJPEG_ALLOWED else "rear"
     async def gen():
         while True:
-            f = ros.get_video_frame(cam)
+            if cam == "tp_grid":
+                f = _build_tp_grid_frame()
+            else:
+                f = ros.get_video_frame(cam)
             if f is not None:
                 ok, jpg = cv2.imencode(".jpg", f,
                                        [cv2.IMWRITE_JPEG_QUALITY, 50])
@@ -357,9 +388,16 @@ async def preview_route(rid: str, tp_id: str):
     from zone_router import ZoneRouter
     edges = lm.get("routing_edges") or None
     router = ZoneRouter(zones, tps, routing_edges=edges)
-    # 시작점: StartingPoint zone (C2 측에 world-frame pose 없음 — 미리보기 전용)
-    start = next((z for z in zones if z["name"] == "StartingPoint"), zones[0])
-    waypoints = router.plan((start["x"], start["y"]), tp_id)
+    # 2026-05-24 라우팅 정확도 개선: 로봇 현재 world 위치 기반.
+    # /robot/odom 은 spawn(=StartingPoint) 누적 변위 (odom 좌표).
+    # world = StartingPoint + odom xy. odom 미수신 시 StartingPoint 폴백.
+    sp = next((z for z in zones if z["name"] == "StartingPoint"), zones[0])
+    odom = ros.latest.get("odom") or {}
+    if isinstance(odom, dict) and "x" in odom and "y" in odom:
+        robot_world = (sp["x"] + float(odom["x"]), sp["y"] + float(odom["y"]))
+    else:
+        robot_world = (sp["x"], sp["y"])
+    waypoints = router.plan(robot_world, tp_id)
     return {"tp_id": tp_id, "route": [{"x": p[0], "y": p[1]} for p in waypoints]}
 
 

@@ -6,14 +6,33 @@ import { useWeaponSafety } from "./WeaponSafetyContext";
 const INSPECT_W = 1280;
 const INSPECT_H = 720;
 
+type CameraId = "inspect" | "rear" | "tp_a" | "tp_b" | "tp_c" | "tp_d" | "tp_grid";
+
+// 2026-05-24: TP_A~D 는 서버 mosaic(tp_grid)로 단일 MJPEG 사용. 브라우저 HTTP/1.1
+// origin당 6 connection 제한 회피 (inspect+rear+overhead+tp_grid = 4 streams).
+// 백엔드 _build_tp_grid_frame() 의 셀 순서와 동기 (TL, TR, BL, BR).
+const TP_CAMERAS: { id: "tp_a" | "tp_b" | "tp_c" | "tp_d"; label: string; sub: string }[] = [
+  { id: "tp_a", label: "TP-A", sub: "01 · WATCH-ALPHA" },
+  { id: "tp_b", label: "TP-B", sub: "02 · WATCH-BRAVO" },
+  { id: "tp_c", label: "TP-C", sub: "03 · WATCH-CHARLIE" },
+  { id: "tp_d", label: "TP-D", sub: "04 · WATCH-DELTA" },
+];
+
 export default function DualCameraView({
   liveAlerts,
+  tpDetections,
 }: {
   liveAlerts?: { ts: string; data: AlertPayload }[];
+  tpDetections?: { ts: string; camera: string }[];
 }) {
   const now = Date.now();
   const recent = (liveAlerts || []).filter(e =>
     now - new Date(e.ts).getTime() < 5000);
+
+  // TP 카메라별 최근 5초 감지 수
+  const tpCounts: Record<string, number> = {};
+  (tpDetections || []).filter(d => now - new Date(d.ts).getTime() < 5000)
+    .forEach(d => { tpCounts[d.camera] = (tpCounts[d.camera] ?? 0) + 1; });
 
   return (
     <div className="panel h-full flex flex-col">
@@ -25,16 +44,55 @@ export default function DualCameraView({
           </span>
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-1.5 p-1.5 flex-1 min-h-0">
+      {/* --- 기존 inspect + rear --- */}
+      <div className="grid grid-cols-2 gap-1.5 p-1.5 pb-0">
         <InspectCamera alerts={recent} />
         <RearCamera />
+      </div>
+      {/* --- 전술 고정 관측소 카메라 TP_A~D --- */}
+      <div className="flex items-center gap-2 px-1.5 pt-1.5 pb-0">
+        <span className="text-[8px] font-display tracking-[0.22em] text-dim">
+          TACTICAL CAMS · FIXED OBS
+        </span>
+        <span className="flex-1 h-px bg-line" />
+      </div>
+      <TacticalGrid tpCounts={tpCounts} />
+    </div>
+  );
+}
+
+/** TP_A~D 4채널을 단일 MJPEG(tp_grid) + 가로 1×4 셀 오버레이로 렌더.
+ *  서버 mosaic 1280×180 strip 사용 → MJPEG 연결 1개로 4채널 표시
+ *  (browser HTTP/1.1 connection limit 회피). */
+function TacticalGrid({ tpCounts }: { tpCounts: Record<string, number> }) {
+  const src = useMjpegSrc("tp_grid");
+  return (
+    <div className="p-1.5 flex-1 min-h-0">
+      {/* aspect 1280:180 ≈ 64:9 (4셀 가로 strip) */}
+      <div className="relative bg-black w-full codecorner"
+           style={{ aspectRatio: "64 / 9" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {src && <img src={src} alt="TP_GRID"
+                     className="absolute inset-0 w-full h-full object-cover" />}
+        {/* 4 셀 오버레이 (가로 grid-cols-4) */}
+        <div className="absolute inset-0 grid grid-cols-4 pointer-events-none">
+          {TP_CAMERAS.map(({ id, label, sub }) => (
+            <div key={id} className="relative">
+              <CamBadge label={label} side="left" tone="amber" sub={sub} />
+              {(tpCounts[id] ?? 0) > 0 && (
+                <CamBadge label={`DET ${String(tpCounts[id]).padStart(2, "0")}`}
+                          side="right" tone="alert" pulse />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
 /** 마운트 전엔 src 비워서 SSR/CSR hydration mismatch 회피. */
-function useMjpegSrc(camera: "inspect" | "rear") {
+function useMjpegSrc(camera: CameraId) {
   const [src, setSrc] = useState<string>("");
   useEffect(() => {
     setSrc(`${getApiBase()}/c2/video/mjpeg?camera=${camera}`);

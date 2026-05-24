@@ -14,6 +14,9 @@ type Pt = { x: number; y: number; yaw?: number };
  * overlay 통합. cube 좌표 기준 자동 센터링 (gp_scene world ≈ (-714,952)).
  */
 const DEFAULT_EXTENT = 60; // ±60 m 표시 범위 (landmarks 없으면)
+// 오버헤드 카메라 실제 지상 커버리지 (camera_publisher.py 와 동기):
+// 고도 200m, HAP=VAP=20.955mm, focal=8mm → 지상 반반경 ≈ 262m
+const OVERHEAD_GROUND_HALF = 200 * Math.tan(Math.atan(20.955 / 2 / 8)); // ≈ 262 m
 
 export default function MapTrack({
   track,
@@ -37,6 +40,7 @@ export default function MapTrack({
   const cv = useRef<HTMLCanvasElement>(null);
   const [pending, setPending] = useState<Pt | null>(null);
   const [msg, setMsg] = useState("");
+  const [overheadSrc, setOverheadSrc] = useState("");
 
   // landmarks 기준 자동 센터링·EXTENT (zone="dmz" 면 DMZ home/cone 우선)
   const view = useMemo(() => {
@@ -52,9 +56,34 @@ export default function MapTrack({
       return { cx, cy, extent: Math.max(60, half) };
     }
     if (home) return { cx: home.x, cy: home.y, extent: DEFAULT_EXTENT };
+
+    // TP 좌표로 자동 extent 계산 (cube/cone 없을 때).
+    // w2o: world → odom 변환 (StartingPoint 빼기). cur(robot) 기준으로 extent 결정.
+    const sp = landmarks?.routing_zones?.find(z => z.name === "StartingPoint");
+    const w2oLocal = (pt: { x: number; y: number }) =>
+      sp ? { x: pt.x - sp.x, y: pt.y - sp.y } : pt;
+    const tps = landmarks?.tactical_points;
+    if (tps && cur) {
+      const tpOdom = Object.values(tps as Record<string, { x: number; y: number }>)
+        .map(w2oLocal);
+      const cx = cur.x;
+      const cy = cur.y;
+      const maxOff = Math.max(
+        DEFAULT_EXTENT,
+        ...tpOdom.map(p => Math.max(Math.abs(p.x - cx), Math.abs(p.y - cy))),
+      );
+      // 10m 단위 올림 + 10m 여유 (과도한 확장 방지)
+      const autoExtent = Math.ceil((maxOff + 10) / 10) * 10;
+      return { cx, cy, extent: autoExtent };
+    }
+
     if (cur) return { cx: cur.x, cy: cur.y, extent: DEFAULT_EXTENT };
     return { cx: 0, cy: 0, extent: DEFAULT_EXTENT };
   }, [landmarks, cur]);
+
+  useEffect(() => {
+    setOverheadSrc(`${getApiBase()}/c2/video/mjpeg?camera=overhead`);
+  }, []);
 
   useEffect(() => {
     const c = cv.current;
@@ -411,12 +440,21 @@ export default function MapTrack({
         </span>
       </div>
       <div className="relative aspect-square w-full max-w-sm mx-auto bg-black">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={`${getApiBase()}/c2/video/mjpeg?camera=overhead`}
-          alt="overhead"
-          className="absolute inset-0 w-full h-full object-cover opacity-55 pointer-events-none"
-        />
+        {/* 오버헤드 이미지: CSS scale로 카메라 FOV ↔ 캔버스 extent 정렬.
+            OVERHEAD_GROUND_HALF(≈262m) / view.extent 비율로 zoom in/out.
+            overflow-hidden wrapper가 캔버스 밖으로 나가는 부분을 clip함. */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={overheadSrc}
+            alt="overhead"
+            className="w-full h-full object-cover opacity-55"
+            style={{
+              transform: `scale(${(OVERHEAD_GROUND_HALF / view.extent).toFixed(4)})`,
+              transformOrigin: "center center",
+            }}
+          />
+        </div>
         <canvas
           ref={cv}
           onClick={(e) => e.shiftKey ? onShiftClick(e) : onClick(e)}

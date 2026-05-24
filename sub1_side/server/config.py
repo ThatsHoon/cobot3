@@ -35,6 +35,15 @@ TOPICS = {
     "video_rear":     "/c2/rear/compressed",     # sensor_msgs/CompressedImage (후방/real)
     "video_inspect":  "/c2/inspect/compressed",  # sensor_msgs/CompressedImage (검사 짐벌)
     "video_overhead": "/c2/overhead/compressed", # CompressedImage (TACTICAL MAP 배경)
+    "video_tp_a":    "/c2/tp_a/compressed",     # TP_A 고정 감시카메라
+    "video_tp_b":    "/c2/tp_b/compressed",     # TP_B 고정 감시카메라
+    "video_tp_c":    "/c2/tp_c/compressed",     # TP_C 고정 감시카메라
+    "video_tp_d":    "/c2/tp_d/compressed",     # TP_D 고정 감시카메라
+    # Depth: 2026-05-24 PNG 압축본 사용 (LAN 9MB/s → 0.4MB/s 절감, depth_degrade_node 가 재발행)
+    "depth_tp_a":    "/c2/tp_a/depth_compressed", # CompressedImage 16UC1 PNG 320×180
+    "depth_tp_b":    "/c2/tp_b/depth_compressed",
+    "depth_tp_c":    "/c2/tp_c/depth_compressed",
+    "depth_tp_d":    "/c2/tp_d/depth_compressed",
     "depth":         "/c2/depth/compressed",    # sensor_msgs/CompressedImage
     # 업링크 (C2 → 로봇)
     "nav_goal":  "/robot/nav/goal",         # geometry_msgs/PoseStamped
@@ -111,9 +120,32 @@ YOLO_CLASSES = {
 # animal 그룹 (alert 정책용) — COCO 14-23
 YOLO_ANIMAL_CLASS_IDS = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
 
+# YOLO 인퍼런스 채널 선택 (2026-05-24). CPU 부하 조절용.
+# 기본: inspect + tp_a (1차 정찰 카메라 2채널). 전부 켜려면
+# C2_YOLO_CAMERAS=inspect,tp_a,tp_b,tp_c,tp_d 로 override.
+YOLO_CAMERAS: set[str] = {
+    c.strip() for c in os.environ.get("C2_YOLO_CAMERAS", "inspect,tp_a").split(",")
+    if c.strip()
+}
+
 # YOLO 사용자 사양 #8 (2026-05-20): conf 0.7 단일 임계. bbox 표시 + alert 동일.
 YOLO_ALERT_CONF = float(os.environ.get("C2_YOLO_ALERT_CONF", "0.7"))
 YOLO_ALERT_COOLDOWN = float(os.environ.get("C2_YOLO_ALERT_COOLDOWN", "3.0"))
 # P3 신규: 동물 alert 정책 (독립 cooldown)
 YOLO_ANIMAL_ALERT_CONF = float(os.environ.get("C2_YOLO_ANIMAL_ALERT_CONF", "0.50"))
 YOLO_ANIMAL_ALERT_COOLDOWN = float(os.environ.get("C2_YOLO_ANIMAL_ALERT_COOLDOWN", "5.0"))
+
+# TP fixed-camera projection — must match main_side/camera_publisher.py.
+TACTICAL_CAMERA_HEIGHT = float(os.environ.get("GP_TACTICAL_CAMERA_HEIGHT", "8.0"))
+TACTICAL_CAMERA_FOCAL  = float(os.environ.get("GP_TACTICAL_CAMERA_FOCAL",  "6.0"))
+TACTICAL_CAMERA_APERTURE = 20.955
+TACTICAL_CAMERA_FORWARDS = {
+    "tp_a": (0.15,  1.0, -0.18),
+    "tp_b": (-0.22, 1.0, -0.18),
+    "tp_c": (0.0,   1.0, -0.28),
+    "tp_d": (-0.15, 1.0, -0.18),
+}
+TACTICAL_CAMERA_HEIGHT_OFFSETS = {
+    "tp_a": 1.0, "tp_b": 0.7, "tp_c": 0.0, "tp_d": 0.0,
+}
+TACTICAL_DEFAULT_RANGE_M = float(os.environ.get("C2_TACTICAL_DEFAULT_RANGE_M", "35.0"))

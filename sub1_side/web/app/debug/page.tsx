@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import TopicHealthMonitor from "@/components/TopicHealthMonitor";
 import ImmersiveCameraView from "@/components/ImmersiveCameraView";
 import RawJsonInspector from "@/components/RawJsonInspector";
 import EventLog from "@/components/EventLog";
 import DiagnosticsStrip from "@/components/DiagnosticsStrip";
 import DualSenseStatus from "@/components/DualSenseStatus";
-import { C2Event, useEvents } from "@/lib/api";
+import { C2Event, useEvents, getApiBase, ROBOT_ID } from "@/lib/api";
 
 /** 디버그 페이지 — Immersive(URDF+sphere) + Topic Health + RawJSON + DualSense.
  *
@@ -24,20 +24,34 @@ import { C2Event, useEvents } from "@/lib/api";
 export default function DebugPage() {
   const [eventStream, setEventStream] = useState<C2Event[]>([]);
   const [legQ, setLegQ] = useState<number[]>([]);
-  const [armQ] = useState<number[]>([]);
   const [yaw, setYaw] = useState(0);
 
   const onEvent = useCallback((e: C2Event) => {
     setEventStream((p) => [...p.slice(-149), e]);
-    if (e.type === "state") {
-      const d: any = e.data;
-      const od = d?.leg_q || d?.legs;
-      if (Array.isArray(od)) setLegQ(od);
-      const y = d?.odom?.yaw;
-      if (typeof y === "number") setYaw(y);
-    }
   }, []);
   useEvents(onEvent);
+
+  // 2026-05-24: REST /robots/{rid}/state 폴 → odom.yaw + leg_q 동기.
+  // WS state event 페이로드는 mode/gait/battery/waypoint 만 → odom/leg_q 미포함.
+  // 5Hz 폴링: ImmersiveCameraView 의 yaw 회전 + URDF 관절 애니메이션 데이터 소스.
+  useEffect(() => {
+    let aborted = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${getApiBase()}/robots/${ROBOT_ID}/state`,
+                              { cache: "no-store" });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (aborted) return;
+        if (Array.isArray(d?.leg_q)) setLegQ(d.leg_q);
+        const y = d?.odom?.yaw;
+        if (typeof y === "number" && isFinite(y)) setYaw(y);
+      } catch {}
+    };
+    tick();
+    const iv = setInterval(tick, 200);   // 5 Hz
+    return () => { aborted = true; clearInterval(iv); };
+  }, []);
 
   return (
     <main className="relative z-10 flex flex-col"
@@ -61,7 +75,7 @@ export default function DebugPage() {
            style={{ gridTemplateRows: "minmax(0,2.25fr) minmax(0,1fr) auto" }}>
         {/* row1: ImmersiveCameraView & EventLog 5:5 분할 배치 */}
         <div className="col-span-6 min-h-0 h-full">
-          <ImmersiveCameraView yaw={yaw} />
+          <ImmersiveCameraView yaw={yaw} legQ={legQ} />
         </div>
         <div className="col-span-6 min-h-0 h-full">
           <EventLog events={eventStream} />
@@ -82,9 +96,9 @@ export default function DebugPage() {
           <DualSenseStatus />
         </div>
 
-        {/* row3: 관절 메트릭 (DiagnosticsStrip) */}
+        {/* row3: Go2 12-DOF 관절 메트릭 (DiagnosticsStrip) */}
         <div className="col-span-12">
-          <DiagnosticsStrip armQ={armQ} legQ={legQ} />
+          <DiagnosticsStrip legQ={legQ} />
         </div>
       </div>
     </main>

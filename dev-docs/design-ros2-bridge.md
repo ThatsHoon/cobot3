@@ -122,3 +122,17 @@ teleop (0.5s 타임아웃) > nav_goal P-제어 > idle (zeros)
 | spot_with_arm arm stow 값 | 근사값 사용 | 실제 기동 후 미세 조정 필요 |
 | nav_goal OG Subscribe | 미구현 | PoseStamped OG 노드 없음; API 호출로 대체 가능 |
 | physics_dt 변경(1/500) 효과 | 재측정 필요 | 기존 1/120에서 변경 → 카메라 Hz 재확인 |
+| FastDDS multicast 누출 (`/cam/*/rgb`) | P2 | Isaac 재시작 시 fastdds_no_shm.xml 에 multicast 차단 옵션 추가 권장. 상세: communication-optimization.md §8 |
+
+---
+
+## 8. 통신 효율화 결정 기록 (2026-05-24)
+
+실측 분석 + Tier 1+2+3 효율화 적용 결과:
+- Main → C2 LAN 트래픽: **17.9 MB/s → 0.57 MB/s** (97% 절감)
+- 핵심: `depth_degrade_node.py` 신규 (TP depth 920KB → 22KB PNG 16UC1)
+- 부수: `camera_info` 1회 latched, YOLO 채널 env 화, DB `detection_events` 통합
+
+설계 결정/측정 데이터/롤백 절차 → [communication-optimization.md](communication-optimization.md)
+
+QoS 매트릭스, FastDDS multicast 차단(P2), 향후 모니터링 지표도 같은 문서에 포함.
