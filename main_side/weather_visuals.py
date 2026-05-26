@@ -124,8 +124,28 @@ class WeatherVisuals:
                 rot_op = op; break
         if rot_op is None:
             rot_op = xf.AddRotateXYZOp()
+        # Light pass-through: skybox sphere(/World/scene_01) 가 sun ray 를
+        # 막아 내부 ground 가 어두워지는 증상 해결. shadowLink Collection 으로
+        # sphere 를 제외 → sun/dome 의 illumination 이 sphere 표면 통과.
+        # 2026-05-26 사용자 보고: scene_01 추가 후 시간대 빛 변화 미반영.
+        self._apply_light_pass_through(sun.GetPrim(), ["/World/scene_01"])
+        self._apply_light_pass_through(dome.GetPrim(), ["/World/scene_01"])
         return {"sun_int": sun_int, "sun_col": sun_col, "sun_rot": rot_op,
                 "dome_int": dome_int, "dome_col": dome_col}
+
+    @staticmethod
+    def _apply_light_pass_through(light_prim, exclude_paths: list) -> None:
+        """이 light 의 shadowLink Collection 으로 exclude_paths 제외 →
+        해당 prim 들이 light ray 를 막지 않음 (skybox 등). USD 표준 API."""
+        try:
+            from pxr import Usd
+            coll = Usd.CollectionAPI.Apply(light_prim, "shadowLink")
+            coll.CreateIncludesRel().SetTargets([Sdf.Path("/")])
+            coll.CreateExcludesRel().SetTargets(
+                [Sdf.Path(p) for p in exclude_paths]
+            )
+        except Exception:
+            pass  # 구버전 USD 또는 미지원 환경 — silent fallback
 
     def _build_effects(self) -> dict:
         stage = self._stage

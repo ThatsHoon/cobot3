@@ -7,6 +7,20 @@
 
 ## 2026-05-26
 
+### Weapon M16 USDZ + Light pass-through (skybox sphere)
+**변경 파일:**
+- `main_side/camera_publisher.py` (수정 — _build_weapon_visual: procedural→USDZ ref)
+- `main_side/weather_visuals.py` (수정 — _apply_light_pass_through: shadowLink Collection)
+- `main_side/scene/assets/Low-Poly_M16.usdz` (신규 — 404KB, .gitignore)
+- `.gitignore` (수정 — M16 추가)
+
+**왜:** (1) Go2 등판 procedural rifle(cylinder+cube) 을 Low-Poly M16 USDZ
+asset 으로 교체. GP_WEAPON_SCALE/YAW/PITCH/ROLL/OFFSET_X/Y/Z/MUZZLE_X 환경
+변수로 시각 조정 가능. muzzle 위치는 유지(fire impulse origin).
+(2) `/World/scene_01` skybox sphere 가 sun/dome light 의 ray 를 막아 시간대
+변화가 sphere 내부 ground 에 미반영. shadowLink USD Collection 으로
+scene_01 를 excludes 처리 → light pass-through.
+
 ### Adaptive Gait Mode — 평탄/경사 자동 전환
 **변경 파일:**
 - `main_side/go2_controller.py` (수정 — _CMD_BASE_FLAT/SLOPE 두 set + _tick_adaptive_gait)
