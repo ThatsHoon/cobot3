@@ -837,7 +837,7 @@ _TACTICAL_POINTS = {
 }
 
 APPROACH_OBJECT_ROOT = "/World/Approach_Objects"
-_APPROACH_ENABLED = os.environ.get("GP_APPROACH_OBJECTS", "1") == "1"
+_APPROACH_ENABLED = os.environ.get("GP_APPROACH_OBJECTS", "0") == "1"
 _APPROACH_SPEED = float(os.environ.get("GP_APPROACH_OBJECT_SPEED", "1.10"))
 _APPROACH_START_OFFSET = float(os.environ.get("GP_APPROACH_START_OFFSET", "52.0"))
 _APPROACH_TARGET_OFFSET = float(os.environ.get("GP_APPROACH_TARGET_OFFSET", "26.0"))
