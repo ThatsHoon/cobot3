@@ -2118,16 +2118,113 @@ def _write_weapon_state():
     except Exception:
         pass
 
-def _write_fire_result(ok: bool, state: str):
+def _write_fire_result(ok: bool, state: str, hit: dict | None = None):
     import json as _json
     try:
         payload = {"fire_id": _fire["fire_id"], "ok": ok, "state": state,
                    "ts": time.time()}
+        if hit is not None:
+            payload["hit"] = hit  # {target, point:[x,y,z], range_m}
         with open(_FIRE_RESULT_FILE + ".tmp", "w") as _f:
             _json.dump(payload, _f)
         os.replace(_FIRE_RESULT_FILE + ".tmp", _FIRE_RESULT_FILE)
     except Exception:
         pass
+
+
+# Weapon hit-scan FX (2026-05-26): raycast 결과를 tracer line + muzzle flash 로
+# 시각화. 매 fire 마다 prim 재사용 (visibility toggle), HOLD 종료 시 숨김.
+_WEAPON_FX_ROOT  = "/World/Effects"
+_WEAPON_TRACER   = f"{_WEAPON_FX_ROOT}/WeaponTracer"
+_WEAPON_FLASH    = f"{_WEAPON_FX_ROOT}/MuzzleFlash"
+_WEAPON_HITMARK  = f"{_WEAPON_FX_ROOT}/WeaponHitMark"
+_WEAPON_RANGE_M  = float(os.environ.get("GP_WEAPON_RANGE_M", "500.0"))
+_WEAPON_HIT_IMPULSE_N = float(os.environ.get("GP_WEAPON_HIT_IMPULSE_N", "200.0"))
+_fire["last_hit"] = None  # 마지막 raycast 결과 (HOLD/RAMP_UP 동안 노출)
+
+
+def _weapon_hit_scan(muz_pos, dir_unit):
+    """muz_pos → dir_unit 방향 raycast (_WEAPON_RANGE_M m). hit 시 target 에
+    impulse 가산. 반환: {target, point:[x,y,z], range_m} 또는 None."""
+    try:
+        from omni.physx import get_physx_scene_query_interface as _gpsqi
+        qi = _gpsqi()
+    except Exception:
+        return None
+    try:
+        h = qi.raycast_closest(
+            (float(muz_pos[0]), float(muz_pos[1]), float(muz_pos[2])),
+            (float(dir_unit[0]), float(dir_unit[1]), float(dir_unit[2])),
+            _WEAPON_RANGE_M)
+    except Exception:
+        return None
+    if not (h and h.get("hit")):
+        return None
+    rng = float(h.get("distance", 0.0))
+    pt = h.get("position", (0.0, 0.0, 0.0))
+    target = h.get("rigidBody") or h.get("collision") or ""
+    # 본인(Go2/weapon) 자신 hit 은 무시
+    if "/World/Go2" in str(target) or "weapon_mount" in str(target):
+        return None
+    # hit target 에 impulse — Go2 가 NPC 등 명중 시 약한 반응
+    try:
+        from pxr import PhysxSchema as _PS
+        prim = stage.GetPrimAtPath(str(target))
+        if prim and prim.IsValid() and prim.HasAPI(_PS.PhysxRigidBodyAPI):
+            api = _PS.PhysxRigidBodyAPI(prim)
+            # NOTE: USD API 로는 직접 impulse 불가 — articulation_view 등 필요.
+            # 여기선 단순히 hit 결과 emit 만 — damage 처리는 C2 로직 영역.
+            pass
+    except Exception:
+        pass
+    return {"target": str(target),
+            "point": [float(pt[0]), float(pt[1]), float(pt[2])],
+            "range_m": rng}
+
+
+def _weapon_fx_show(muz_pos, end_pt):
+    """tracer line(muz→end_pt) + muzzle flash(small Sphere) visible."""
+    try:
+        # Effects root 보장
+        if not stage.GetPrimAtPath(_WEAPON_FX_ROOT).IsValid():
+            UsdGeom.Xform.Define(stage, Sdf.Path(_WEAPON_FX_ROOT))
+        # Tracer: BasisCurves (red-orange thick line)
+        tp = stage.GetPrimAtPath(_WEAPON_TRACER)
+        if not tp.IsValid():
+            tr = UsdGeom.BasisCurves.Define(stage, Sdf.Path(_WEAPON_TRACER))
+            tr.CreateTypeAttr().Set("linear")
+            tr.CreateCurveVertexCountsAttr().Set([2])
+            tr.CreateWidthsAttr().Set([0.04, 0.04])
+            tr.CreateDisplayColorAttr().Set([Gf.Vec3f(1.0, 0.55, 0.10)])
+        tr = UsdGeom.BasisCurves(stage.GetPrimAtPath(_WEAPON_TRACER))
+        tr.CreatePointsAttr().Set([
+            Gf.Vec3f(float(muz_pos[0]), float(muz_pos[1]), float(muz_pos[2])),
+            Gf.Vec3f(float(end_pt[0]), float(end_pt[1]), float(end_pt[2])),
+        ])
+        UsdGeom.Imageable(tr.GetPrim()).MakeVisible()
+        # Muzzle flash: 작은 yellow Sphere
+        fp = stage.GetPrimAtPath(_WEAPON_FLASH)
+        if not fp.IsValid():
+            sp = UsdGeom.Sphere.Define(stage, Sdf.Path(_WEAPON_FLASH))
+            sp.CreateRadiusAttr().Set(0.08)
+            sp.CreateDisplayColorAttr().Set([Gf.Vec3f(1.0, 0.95, 0.40)])
+        fxf = UsdGeom.Xformable(stage.GetPrimAtPath(_WEAPON_FLASH))
+        # 기존 ops 제거 후 새로 설정 (재사용)
+        fxf.ClearXformOpOrder()
+        fxf.AddTranslateOp().Set(Gf.Vec3f(*[float(v) for v in muz_pos]))
+        UsdGeom.Imageable(stage.GetPrimAtPath(_WEAPON_FLASH)).MakeVisible()
+    except Exception as _e:
+        log(f"[weapon] fx show 실패: {_e!r}")
+
+
+def _weapon_fx_hide():
+    for p in (_WEAPON_TRACER, _WEAPON_FLASH):
+        try:
+            prim = stage.GetPrimAtPath(p)
+            if prim and prim.IsValid():
+                UsdGeom.Imageable(prim).MakeInvisible()
+        except Exception:
+            pass
 
 def _poll_fire_cmd():
     try:
@@ -2210,13 +2307,32 @@ def _step_fire(dt: float):
                 _muz_pos)
             log(f"[weapon] impulse F=({_Fx_world:.0f},{_Fy_world:.0f},"
                 f"{_Fz_world:.0f}) @ muzzle yaw={_math.degrees(_fyaw):.1f}°")
+            # Hit-scan: muzzle 전방(반동 반대방향 = +cos/sin/-sin) raycast
+            _dx_world = -_Fx_world / max(_FIRE_IMPULSE_N, 1e-6)
+            _dy_world = -_Fy_world / max(_FIRE_IMPULSE_N, 1e-6)
+            _dz_world = -_math.sin(_fpitch)
+            _dir = (_dx_world, _dy_world, _dz_world)
+            _hit = _weapon_hit_scan(_muz_pos, _dir)
+            if _hit:
+                _end = _hit["point"]
+                log(f"[weapon] HIT target={_hit['target']} "
+                    f"range={_hit['range_m']:.1f}m pt={_end}")
+            else:
+                _end = (_muz_pos[0] + _dx_world * _WEAPON_RANGE_M,
+                        _muz_pos[1] + _dy_world * _WEAPON_RANGE_M,
+                        _muz_pos[2] + _dz_world * _WEAPON_RANGE_M)
+                log(f"[weapon] MISS (range>{_WEAPON_RANGE_M:.0f}m)")
+            _fire["last_hit"] = _hit
+            _weapon_fx_show(_muz_pos, _end)
         except Exception as _e:
             log(f"[weapon] impulse 실패: {_e!r}")
+            _fire["last_hit"] = None
         _fire["state"] = "HOLD"
         _fire["t_state"] = time.time()
     elif st == "HOLD":
         # stance 유지 0.5s — 반동 시각효과 + 안정화
         if elapsed >= 0.5:
+            _weapon_fx_hide()
             _fire["state"] = "RAMP_UP"
             _fire["t_state"] = time.time()
     elif st == "RAMP_UP":
@@ -2228,7 +2344,8 @@ def _step_fire(dt: float):
             _fire["t_state"] = time.time()
             _fire["cooldown_until"] = time.time() + 2.0
             log(f"[weapon] 사격 완료 id={_fire['fire_id']} → cooldown 2s")
-            _write_fire_result(True, "completed")
+            _write_fire_result(True, "completed", hit=_fire.get("last_hit"))
+            _fire["last_hit"] = None
             _write_weapon_state()
     elif st == "COOLDOWN":
         if elapsed >= 2.0:
