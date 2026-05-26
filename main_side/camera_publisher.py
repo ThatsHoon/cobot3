@@ -739,7 +739,7 @@ _xf_ov.AddOrientOp().Set(_Q_DOWN)
 _cam_ov.GetFocalLengthAttr().Set(8.0)
 _cam_ov.GetHorizontalApertureAttr().Set(_HAP)   # 20.955mm
 _cam_ov.GetVerticalApertureAttr().Set(_HAP)      # 정방형 (VAP=HAP)
-_cam_ov.GetClippingRangeAttr().Set(Gf.Vec2f(1.0, 2000.0))
+_cam_ov.GetClippingRangeAttr().Set(Gf.Vec2f(1.0, 100000.0))  # 2026-05-26: 배경 skybox 구체(~50,000) 포함
 log(f"오버헤드 카메라(고도 {OVERHEAD_ALTITUDE_M:.0f}m, North-up 고정, ±262m) 생성: {CAM_OVERHEAD_PATH}")
 
 # --- Tactical Fixed Cameras (TP_A ~ TP_D) -----------------------------------
@@ -809,7 +809,7 @@ for _tp_name, _tp_dict in _all_tactical_points.items():
     _mk_cam(_path, _tp_pos, _quat_tp, f"고정 감시카메라 {_tp_name}")
     _cam_tp = UsdGeom.Camera(stage.GetPrimAtPath(_path))
     _cam_tp.GetFocalLengthAttr().Set(TACTICAL_CAMERA_FOCAL)
-    _cam_tp.GetClippingRangeAttr().Set(Gf.Vec2f(0.2, 350.0))
+    _cam_tp.GetClippingRangeAttr().Set(Gf.Vec2f(0.2, 100000.0))  # 2026-05-26: 배경 skybox 구체(~50,000) 포함
     TACTICAL_CAMERA_POSES[_tp_name] = (_tp_pos, _forward)
     TACTICAL_CAMERAS.append((_tp_name, _path,
                              f"/cam/tactical/{_suffix}/rgb",

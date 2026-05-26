@@ -7,6 +7,17 @@
 
 ## 2026-05-26
 
+### TP/Overhead 카메라 far clip 100,000 확장 (배경 skybox 표시)
+**변경 파일:**
+- `main_side/camera_publisher.py` (수정 — TP 350→100,000, Overhead 2,000→100,000)
+- `common/site.env`, `common/site.sh` (수정 — C2_YOLO_CAMERAS=inspect,tp_a,tp_b,tp_c,tp_d)
+- `sub1_side/server/config.py` (참조 — YOLO_CAMERAS env override)
+
+**왜:** TP/Overhead 카메라 뷰에서 배경 skybox 구체(~scale 50,000)가 far clip
+보다 멀어 흰 배경만 보이는 증상. far clip을 100,000으로 확장하여 perspective
+와 동일하게 skybox 가시화. 동시에 YOLO 인퍼런스를 inspect + TP 전 4채널로
+확장하여 모든 감시카메라에서 bbox 표시.
+
 ### 접근 오브젝트 애니메이션 통합 (cobot3-new_hi → cobot3)
 **변경 파일:**
 - `main_side/camera_publisher.py` (수정 — 약 380줄 추가: 상수 + 7 함수)
