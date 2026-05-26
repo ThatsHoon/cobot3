@@ -18,7 +18,7 @@ cobot3_site_load() {           # site.env 의 KEY=VALUE 만 순수 bash 로 추�
         k="${line%%=*}"; v="${line#*=}"
         k="${k//[[:space:]]/}"; v="${v//[[:space:]]/}"
         case "$k" in
-            MAIN_SIDE_IP|SUB1_SIDE_IP|PUBLIC_HOST) [ -n "$v" ] && export "$k=$v" ;;
+            MAIN_SIDE_IP|SUB1_SIDE_IP|PUBLIC_HOST|C2_YOLO_CAMERAS) [ -n "$v" ] && export "$k=$v" ;;
         esac
     done < "$f"
     # 성공 기준은 IP 2종만(PUBLIC_HOST 는 선택 — 미사용 배포 허용).
