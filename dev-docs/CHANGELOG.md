@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-05-26
+
+### 접근 오브젝트 애니메이션 통합 (cobot3-new_hi → cobot3)
+**변경 파일:**
+- `main_side/camera_publisher.py` (수정 — 약 380줄 추가: 상수 + 7 함수)
+- `main_side/scene/assets/objects/` (신규 — 6 USDZ 에셋, 48MB, .gitignore)
+- `.gitignore` (수정 — objects/ 디렉토리 추가)
+
+**기능:**
+TP_A/TP_B 카메라 시야 깊이로 NPC 6마리가 천천히 접근하는 시뮬. `/World/Approach_Objects/` 아래에 (boar, wolf, deer, person, soldier, drone) 배치. 매 physics tick 마다 Y 축으로 `_APPROACH_SPEED` (기본 1.10 m/s) 이동.
+
+**핵심 구현:**
+- `_force_skel_animation_binding()`: USDZ 안 Skeleton + SkelAnimation 을 mesh/SkelRoot 에 강제 binding (binding 누락 케이스에서 다리 애니메이션 재생)
+- `_repeat_skel_animation_samples()`: 걷다 멈추는 짧은 클립을 cycle 만큼 반복 샘플 작성. 대상: `boar, wolf` (env `GP_APPROACH_ANIM_REPEAT_LABELS`)
+- `_APPROACH_ASSET_FIX_ROT_X` / `_APPROACH_ASSET_YAW_DEG`: 축/정면 보정
+- `_APPROACH_ASSET_HIDE_NAME_TOKENS`: helper Plane/Cube 비활성 (wolf 의 바닥 helper)
+- `_TACTICAL_POINTS` alias: `_all_tactical_points` dict 형식을 tuple (x,y,z) 형식으로 변환 (cobot3-new_hi 코드 호환)
+
+**환경변수 (기본값 그대로 정상):**
+- `GP_APPROACH_OBJECTS` (1) — 활성/비활성
+- `GP_APPROACH_OBJECT_SPEED` (1.10) — 접근 속도 m/s
+- `GP_APPROACH_START_Y` (945.0), `GP_APPROACH_TARGET_Y` (920.0)
+- `GP_APPROACH_GROUND_Z` (4.45)
+- `GP_APPROACH_ANIM_REPEAT_LABELS` (boar,wolf), `GP_APPROACH_ANIM_REPEAT_CYCLES` (300)
+- `GP_APPROACH_DEER_ANIM_SPEED`, `GP_APPROACH_WOLF_ANIM_SPEED`, `GP_APPROACH_DRONE_ANIM_SPEED` (각 1.0)
+
+**WHY:** YOLO 인퍼런스 + 3D projection + 알림 트리거 시연용 동적 NPC. 기존 NpcSpawnButton 은 인간형 1체만 → 다양한 동물/드론으로 다중 시나리오 가능.
+
+**참조:** cobot3-new_hi/README.md §접근 오브젝트 애니메이션
+
+---
+
 ## 2026-05-24
 
 ### 씬 확장 — gp_scene.usd 에 5 prim + 5 asset 디렉토리 이전

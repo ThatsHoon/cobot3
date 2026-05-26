@@ -15,6 +15,7 @@
 | `telemetry_bridge_node.py` | /robot/odom → /robot/gps + /robot/state 파생 (5Hz) |
 | `video_degrade_node.py` | 카메라 영상 5fps JPEG q50 압축 (rear/inspect/overhead + TP_A~D = 7 인스턴스). 2026-05-24: `DEGRADE_IN` env 필수 (front 카메라 잔재 default 제거) |
 | `depth_degrade_node.py` (2026-05-24 신규) | TP depth 320×180 PNG 16UC1 압축 4 인스턴스. LAN depth 트래픽 9MB/s → ~0.4MB/s |
+| `scene/assets/objects/` (2026-05-26 신규) | 접근 오브젝트 USDZ 6개 (boar_walk, wolf_animated, deer_low_poly_animated, drone, person, soldier). `.gitignore` 대상, `scene_pack.sh` 공유 |
 | `camera_info_publisher.py` | 3-카메라 CameraInfo TRANSIENT_LOCAL latched. 2026-05-24: 1Hz timer 제거 → 1회 발행 + 60s 보호 |
 | `mission_echo.py` | **(신규)** `/mission_command` rclpy 사이드카 — Isaac console.log echo (디버깅) |
 | `npc_relay.py` | **(신규)** `/npc/*` 명령 릴레이 (NPC 스폰/제거) |

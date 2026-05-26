@@ -226,6 +226,13 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `DEPTH_OUT` (2026-05-24 신규) | (인스턴스별) | TP depth 압축 출력 토픽, 예: `/c2/tp_a/depth_compressed` |
 | `DEPTH_FPS` (2026-05-24 신규) | `2.0` | depth_degrade 출력 fps |
 | `DEPTH_W`, `DEPTH_H` (2026-05-24 신규) | `320, 180` | depth 다운샘플 해상도 |
+| `GP_APPROACH_OBJECTS` (2026-05-26 신규) | `1` | 접근 오브젝트 활성 (0=비활성) |
+| `GP_APPROACH_OBJECT_SPEED` | `1.10` | NPC 접근 속도 (m/s) |
+| `GP_APPROACH_START_Y` / `_TARGET_Y` / `_GROUND_Z` | `945.0 / 920.0 / 4.45` | NPC 출발/도착 Y 좌표 + 지면 Z |
+| `GP_APPROACH_ANIM_REPEAT_LABELS` | `boar,wolf` | skel animation 반복 샘플 확장 대상 label (drone 제외 — 타겟 수 ↑) |
+| `GP_APPROACH_ANIM_REPEAT_CYCLES` | `300` | 기본 반복 cycle 수 |
+| `GP_APPROACH_DEER_ANIM_SPEED` / `_WOLF_ / _DRONE_` | `1.0` | label 별 애니메이션 속도 |
+| `GP_APPROACH_ANIM_SOURCE_START_TC` / `_END_TC` | `4.0 / 44.0` | source clip TC 범위 |
 | `URDF_SERVER_PORT` | `8766` | Go2 URDF HTTP 서버 포트 |
 
 ### C2 PC (web_server, 2026-05-21)

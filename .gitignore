@@ -74,6 +74,8 @@ main_side/scene/assets/Mangatainoka_Cemetery_-_28_Oct_2022/
 main_side/scene/assets/Mangatainoka_Cemetery_-_28_Oct_2022.usdz
 main_side/scene/assets/Coast_Road_-_31_Mar_2022/
 main_side/scene/assets/Coast_Road_-_31_Mar_2022.usdz
+# 2026-05-26 접근 오브젝트 애니메이션 에셋 (cobot3-new_hi 통합, scene_pack.sh 공유)
+main_side/scene/assets/objects/
 
 # Nav2 베이크 산출물 (bake_gp_static_map.py 로 재생성)
 main_side/scene/maps/*.pgm
