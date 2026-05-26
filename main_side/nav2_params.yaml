@@ -28,7 +28,7 @@ controller_server:
     general_goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 1.0
+      xy_goal_tolerance: 2.0
       yaw_goal_tolerance: 3.14
 
     FollowPath:
@@ -58,7 +58,7 @@ controller_server:
       linear_granularity: 0.10
       angular_granularity: 0.06
       transform_tolerance: 0.3
-      xy_goal_tolerance: 1.0
+      xy_goal_tolerance: 2.0
       trans_stopped_velocity: 0.08
       short_circuit_trajectory_evaluation: true
       stateful: true
