@@ -202,11 +202,30 @@ class Nav2PatrolController(Node):
         y = float(msg.pose.position.y)
         self.get_logger().info(
             f"manual nav goal: ({x:.1f}, {y:.1f}) → PATROL")
+        # ROUTING 중이었다면 stale route 잔여로 _advance_routing 오작동 방지.
+        # paused_goal 도 무효화 — 이전 ROUTING waypoint 로 잘못 복귀 차단.
+        self._enter_active_mode_cleanup()
         self._mode = MissionMode.PATROL
         self._goal = (x, y)
         self._cancel_current_goal()
         self._goal_arrived = False
         self._send_goal_now(self._goal)
+
+    def _enter_active_mode_cleanup(self) -> None:
+        """새 active 명령(sortie/home/goto_tp/nav_goal/resume) 진입 시 공통 정리.
+        - stop_burst 잔여 Twist(0) 발행 즉시 중단 (cmd_vel 충돌 해결)
+        - stale ROUTING 상태(route/idx/tp_id) 클리어 — _on_goal_result 의
+          _advance_routing 분기에서 엉뚱한 인덱스 점프 방지
+        - paused 보존값 무효화 — resume 으로 잘못된 stale goal 복귀 차단
+        resume 자체는 본인이 직접 paused_goal/from_mode 사용하므로,
+        이 함수 호출 전에 캐쉬해야 함.
+        """
+        self._stop_burst_until = 0.0
+        self._route = []
+        self._route_idx = 0
+        self._route_tp_id = ""
+        self._paused_from_mode = MissionMode.IDLE
+        self._paused_goal = None
 
     # ── odom ───────────────────────────────────────────────────────────
     def _on_odom(self, msg: Odometry) -> None:
@@ -242,11 +261,13 @@ class Nav2PatrolController(Node):
     def _on_mission(self, msg: String) -> None:
         command = msg.data.strip().lower()
         if command in ("start", "start_patrol", "launch", "sortie"):
+            self._enter_active_mode_cleanup()
             self._mode = MissionMode.PATROL
             self._goal_arrived = False
             self._send_goal_now(self._goal)
             self.get_logger().info(f"mission: sortie → goal={self._goal}")
         elif command in ("home", "go_home", "return_home", "rtb"):
+            self._enter_active_mode_cleanup()
             self._mode = MissionMode.HOME
             self._goal_arrived = False
             self._send_goal_now(self._home)
@@ -268,11 +289,15 @@ class Nav2PatrolController(Node):
                 f"goal={self._paused_goal}, stop_burst {self._stop_burst_seconds}s)")
         elif command in ("resume", "continue"):
             if self._mode == MissionMode.PAUSED and self._paused_goal:
-                self._mode = self._paused_from_mode
+                # 캐쉬 후 cleanup — cleanup 이 paused_* 를 비우기 때문.
+                _resume_mode = self._paused_from_mode
+                _resume_goal = self._paused_goal
+                self._enter_active_mode_cleanup()
+                self._mode = _resume_mode
                 self._goal_arrived = False
-                self._send_goal_now(self._paused_goal)
+                self._send_goal_now(_resume_goal)
                 self.get_logger().info(
-                    f"mission: resume → {self._mode.value} goal={self._paused_goal}")
+                    f"mission: resume → {self._mode.value} goal={_resume_goal}")
             else:
                 self.get_logger().info("resume 무시 (PAUSED 아님)")
         elif command in ("idle", "standby"):
@@ -396,6 +421,7 @@ class Nav2PatrolController(Node):
             self.get_logger().warn(
                 f"goto_tp: {tp_id} 경로 없음 (TP 미존재 또는 zone 그래프 단절)")
             return
+        self._enter_active_mode_cleanup()
         self._mode = MissionMode.ROUTING
         self._route = waypoints
         self._route_idx = 0
