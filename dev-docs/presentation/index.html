@@ -1,0 +1,1754 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>cobot3 — GP 경계 자율 순찰 시스템 (45 슬라이드)</title>
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/base.css">
+<link rel="stylesheet" href="assets/animations/animations.css">
+<link rel="stylesheet" id="theme-link" href="assets/themes/terminal-green.css">
+<link rel="stylesheet" href="assets/cobot3-tactical.css">
+<style>
+  /* cobot3 슬라이드 특수 보강 */
+  .tpl-hermes-cyber-terminal .hc-h1{font-size:64px}
+  .tpl-hermes-cyber-terminal .hc-h2{font-size:38px}
+  .tpl-hermes-cyber-terminal .slide{padding:48px 72px}
+  .tpl-hermes-cyber-terminal .hc-lede{font-size:16px;max-width:920px}
+  .tpl-hermes-cyber-terminal .hc-card{padding:14px 18px}
+  .tpl-hermes-cyber-terminal .hc-card .val{font-size:20px}
+  .tpl-hermes-cyber-terminal .hc-card .desc{font-size:12px;margin-top:6px}
+  .tpl-hermes-cyber-terminal .hc-grid-3{gap:12px;margin-top:16px}
+  .tpl-hermes-cyber-terminal .hc-grid-2{gap:14px;margin-top:16px}
+  .tpl-hermes-cyber-terminal .hc-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+  .tpl-hermes-cyber-terminal .hc-grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:14px}
+  /* 두괄식 결론 박스 */
+  .lead-conclusion{display:block;background:rgba(126,211,164,.08);border-left:3px solid var(--hc-green);padding:12px 18px;margin:12px 0 18px;font-size:18px;font-weight:600;color:var(--hc-green);font-family:'JetBrains Mono',monospace}
+  /* placeholder 박스 */
+  .ph{border:2px dashed rgba(233,197,138,.5);background:rgba(233,197,138,.03);padding:24px;border-radius:8px;color:var(--hc-amber);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7;text-align:center;margin:14px 0;min-height:200px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px}
+  .ph .ph-title{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--hc-amber);opacity:.8}
+  .ph .ph-desc{color:var(--hc-ink2);font-family:'Inter',sans-serif;font-size:13px;line-height:1.6}
+  /* 다이어그램 SVG */
+  .diagram{background:#020617;border:1px solid var(--hc-border);border-radius:8px;padding:8px;margin:14px 0;display:block;width:100%}
+  .diagram svg{display:block;width:100%;height:auto;font-family:'JetBrains Mono',monospace}
+  /* 인용 라벨 */
+  .src{font-size:10px;color:var(--hc-ink2);font-style:italic;margin-top:6px;letter-spacing:.06em}
+  /* 테이블 */
+  .tbl{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px;font-family:'JetBrains Mono',monospace}
+  .tbl th{background:rgba(126,211,164,.06);color:var(--hc-green);padding:6px 10px;text-align:left;border-bottom:1px solid var(--hc-border);font-weight:600;font-size:11px;letter-spacing:.06em}
+  .tbl td{padding:6px 10px;border-bottom:1px solid rgba(126,211,164,.08);color:var(--hc-ink);font-size:12px}
+  .tbl tr:hover td{background:rgba(126,211,164,.03)}
+  /* KPI 큰 숫자 */
+  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}
+  .kpi-row .hc-card .val{font-size:30px}
+  .kpi-row .hc-card .lbl{font-size:9px}
+  /* 두 col 본문 */
+  .col2{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;margin-top:14px}
+  /* 작은 텍스트 */
+  .small{font-size:12px;color:var(--hc-ink2);font-family:'Inter',sans-serif;line-height:1.6}
+</style>
+</head>
+<body class="tpl-hermes-cyber-terminal" data-themes="terminal-green,tokyo-night,cyberpunk-neon,dracula">
+<div class="deck">
+
+<!-- ============================================================
+     SECTION A — Lead (1~3)
+     ============================================================ -->
+
+<!-- 1. TITLE -->
+<section class="slide is-active">
+  <div class="hc-grid"></div><div class="hc-vignette"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>~/cobot3 · main · 2026-05-24</div></div>
+  <div style="margin:auto 0">
+    <p class="hc-prompt">whoami --gp-cobot3</p>
+    <h1 class="hc-h1">COBOT3 / GP<br>SENTRY-ROBOT v0.9<span class="hc-cursor"></span></h1>
+    <p class="hc-lede">DMZ 경계초소 4족 자율 순찰 — Isaac Sim 물리 시뮬 위에 Unitree Go2 + ROS 2 + FastAPI 통합 스택. <span style="color:var(--hc-amber)">전 시뮬레이션, 전 토픽, 전 UI 실측 검증 완료.</span></p>
+    <div style="margin-top:22px">
+      <span class="hc-tag">isaac-sim-5.1</span>
+      <span class="hc-tag">unitree-go2</span>
+      <span class="hc-tag">ros2-humble</span>
+      <span class="hc-tag amber">walk-these-ways</span>
+      <span class="hc-tag amber">fastapi+next.js</span>
+      <span class="hc-tag red">2-pc-lan</span>
+    </div>
+  </div>
+  <div class="hc-footer"><span>cobot3 · github.com/ThatsHoon/cobot3</span><span>01 / 45</span></div>
+</section>
+
+<!-- 2. EXECUTIVE SUMMARY -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>summary · headline-metrics</div></div>
+  <p class="hc-prompt">cat EXECUTIVE_SUMMARY.md</p>
+  <h2 class="hc-h2">한 줄 요약 — 통신 97%↓, 7카메라, 16존, 실시간 UI</h2>
+  <div class="lead-conclusion">P0 환경 → P1 보행 → P2 센서/다운링크 검증 완료, P3 진행 중</div>
+  <div class="kpi-row">
+    <div class="hc-card"><div class="lbl">Main → C2 LAN</div><div class="val">0.57 MB/s</div><div class="desc">17.9 → 0.57 (97% ↓), depth 압축 + camera_info latched</div></div>
+    <div class="hc-card"><div class="lbl">카메라 채널</div><div class="val">7 + depth 4</div><div class="desc">rear / inspect / overhead + TP_A~D RGB+depth</div></div>
+    <div class="hc-card"><div class="lbl">Routing zones</div><div class="val">16 zones</div><div class="desc">+ 4 TPs, ZoneRouter Dijkstra, max_edge 10m</div></div>
+    <div class="hc-card"><div class="lbl">/robot/odom</div><div class="val">63 Hz</div><div class="desc">physics_dt 1/500, IsaacComputeOdometry</div></div>
+  </div>
+  <div class="hc-grid-3" style="margin-top:18px">
+    <div class="hc-card"><div class="lbl">// 달성 +</div><div class="val" style="font-size:14px;color:var(--hc-green)">보행 · 라우팅 · YOLO · UI</div><div class="desc">walk-these-ways RL, Nav2 BT, 5fps mosaic, MapTrack overhead</div></div>
+    <div class="hc-card"><div class="lbl">// 진행 ~</div><div class="val" style="font-size:14px;color:var(--hc-amber)">사격 HITL · 음성 · DB</div><div class="desc">raycast + FireEvent, WS PCM, detection_events 통합</div></div>
+    <div class="hc-card"><div class="lbl">// 계획 →</div><div class="val" style="font-size:14px;color:var(--hc-cyan)">sim2real · multi-robot</div><div class="desc">rough-terrain RL, 열화상, 다중 로봇 namespace</div></div>
+  </div>
+  <div class="hc-footer"><span>cobot3 · executive summary</span><span>02 / 45</span></div>
+</section>
+
+<!-- 3. ARCH AT A GLANCE -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>architecture · 2-pc topology</div></div>
+  <p class="hc-prompt">tree -L 1 architecture/</p>
+  <h2 class="hc-h2">2-PC LAN — Main(Isaac) ↔ C2(Web+Nav2+DB), DOMAIN=130</h2>
+  <div class="lead-conclusion">Main: Isaac+Go2+OG · C2: FastAPI+Nav2+Postgres · ROS2 DDS UDP-only</div>
+  <div class="diagram">
+    <svg viewBox="0 0 980 360">
+      <defs>
+        <pattern id="grid1" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        <marker id="ah1" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#7ed3a4"/></marker>
+      </defs>
+      <rect width="980" height="360" fill="#020617"/><rect width="980" height="360" fill="url(#grid1)"/>
+      <!-- Main PC -->
+      <rect x="40" y="60" width="380" height="240" rx="10" fill="#020617" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="230" y="84" fill="#22d3ee" font-size="13" font-weight="700" text-anchor="middle">MAIN PC — 192.168.10.94</text>
+      <text x="230" y="100" fill="#94a3b8" font-size="9" text-anchor="middle">Isaac Sim 5.1 + Go2 + OmniGraph</text>
+      <rect x="60" y="116" width="160" height="40" rx="5" fill="rgba(126,211,164,.12)" stroke="#7ed3a4" stroke-width="1.2"/>
+      <text x="140" y="132" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">camera_publisher</text>
+      <text x="140" y="146" fill="#94a3b8" font-size="8" text-anchor="middle">OG sensor_bridge · 7 cams</text>
+      <rect x="230" y="116" width="170" height="40" rx="5" fill="rgba(126,211,164,.12)" stroke="#7ed3a4" stroke-width="1.2"/>
+      <text x="315" y="132" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">go2_controller</text>
+      <text x="315" y="146" fill="#94a3b8" font-size="8" text-anchor="middle">walk-these-ways 12-DOF RL</text>
+      <rect x="60" y="168" width="160" height="36" rx="5" fill="rgba(233,197,138,.10)" stroke="#e9c58a" stroke-width="1.2"/>
+      <text x="140" y="190" fill="#fff" font-size="10" text-anchor="middle">video/depth degrade ×11</text>
+      <rect x="230" y="168" width="170" height="36" rx="5" fill="rgba(233,197,138,.10)" stroke="#e9c58a" stroke-width="1.2"/>
+      <text x="315" y="190" fill="#fff" font-size="10" text-anchor="middle">telemetry_bridge / relays</text>
+      <rect x="60" y="216" width="340" height="32" rx="5" fill="rgba(251,113,133,.10)" stroke="#fb7185" stroke-width="1.2"/>
+      <text x="230" y="236" fill="#fff" font-size="10" text-anchor="middle">nav2_patrol FSM · landmarks_pub · URDF :8766</text>
+      <rect x="60" y="258" width="340" height="32" rx="5" fill="rgba(100,223,223,.10)" stroke="#64dfdf" stroke-width="1.2"/>
+      <text x="230" y="278" fill="#fff" font-size="10" text-anchor="middle">FastDDS UDP-only · fastdds_no_shm.xml</text>
+      <!-- LAN arrow -->
+      <text x="490" y="170" fill="#7ed3a4" font-size="11" text-anchor="middle" font-weight="600">LAN</text>
+      <text x="490" y="186" fill="#94a3b8" font-size="9" text-anchor="middle">DOMAIN=130</text>
+      <line x1="430" y1="200" x2="555" y2="200" stroke="#7ed3a4" stroke-width="1.8" stroke-dasharray="6,3" marker-end="url(#ah1)"/>
+      <line x1="555" y1="220" x2="430" y2="220" stroke="#e9c58a" stroke-width="1.8" stroke-dasharray="6,3" marker-end="url(#ah1)"/>
+      <!-- C2 PC -->
+      <rect x="560" y="60" width="380" height="240" rx="10" fill="#020617" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="750" y="84" fill="#a78bfa" font-size="13" font-weight="700" text-anchor="middle">C2 PC — 192.168.10.105</text>
+      <text x="750" y="100" fill="#94a3b8" font-size="9" text-anchor="middle">FastAPI + Next.js + Nav2 + PostgreSQL</text>
+      <rect x="580" y="116" width="160" height="40" rx="5" fill="rgba(167,139,250,.15)" stroke="#a78bfa" stroke-width="1.2"/>
+      <text x="660" y="132" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">FastAPI :8000</text>
+      <text x="660" y="146" fill="#94a3b8" font-size="8" text-anchor="middle">REST + WS /events + MJPEG</text>
+      <rect x="750" y="116" width="170" height="40" rx="5" fill="rgba(100,223,223,.15)" stroke="#64dfdf" stroke-width="1.2"/>
+      <text x="835" y="132" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Next.js :3000</text>
+      <text x="835" y="146" fill="#94a3b8" font-size="8" text-anchor="middle">전술 콘솔 + MapTrack + DualCam</text>
+      <rect x="580" y="168" width="160" height="36" rx="5" fill="rgba(233,197,138,.10)" stroke="#e9c58a" stroke-width="1.2"/>
+      <text x="660" y="190" fill="#fff" font-size="10" text-anchor="middle">ros_bridge (rclpy MT)</text>
+      <rect x="750" y="168" width="170" height="36" rx="5" fill="rgba(233,197,138,.10)" stroke="#e9c58a" stroke-width="1.2"/>
+      <text x="835" y="190" fill="#fff" font-size="10" text-anchor="middle">Nav2 stack + safety filter</text>
+      <rect x="580" y="216" width="340" height="32" rx="5" fill="rgba(126,211,164,.10)" stroke="#7ed3a4" stroke-width="1.2"/>
+      <text x="750" y="236" fill="#fff" font-size="10" text-anchor="middle">PostgreSQL :5432 · asyncpg batch · detection_events</text>
+      <rect x="580" y="258" width="340" height="32" rx="5" fill="rgba(251,146,60,.10)" stroke="#fb923c" stroke-width="1.2"/>
+      <text x="750" y="278" fill="#fff" font-size="10" text-anchor="middle">Foxglove :8765 · :8767 SDK · Lichtblick :8080</text>
+      <!-- Legend -->
+      <text x="40" y="335" fill="#94a3b8" font-size="9">image · /c2/*/compressed (5fps) · depth · /c2/tp_*/depth_compressed (PNG) · telemetry · /robot/{state,odom,gps}</text>
+    </svg>
+  </div>
+  <div class="src">참조: architecture.md §1, dev-docs/README.md</div>
+  <div class="hc-footer"><span>cobot3 · architecture at a glance</span><span>03 / 45</span></div>
+</section>
+
+<!-- ============================================================
+     SECTION B — 문제 정의 (4~5)
+     ============================================================ -->
+
+<!-- 4. PROBLEM -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 01/08 · problem</div></div>
+  <p class="hc-prompt">cat why_we_build_this.md</p>
+  <h2 class="hc-h2">DMZ 경계근무 자동화 — 인력 위험 + 24h 공백</h2>
+  <div class="lead-conclusion">시뮬 검증 → 실 배포(sim2real) 경로로 안보 공백 해소</div>
+  <div class="col2">
+    <div>
+      <div class="hc-card" style="margin-bottom:10px"><div class="lbl">// 위험</div><div class="desc">철조망·지뢰밭·소음 환경. 인원 투입 시 사고 가능성 상존. <span style="color:var(--hc-amber)">최전선 GP 야간 순찰 = 평균 4시간/회</span></div></div>
+      <div class="hc-card" style="margin-bottom:10px"><div class="lbl">// 공백</div><div class="desc">24시간 연속 감시 인력 부족 → <span style="color:var(--hc-amber)">탐지 지연 평균 30~120초</span>. 자율 순찰 + YOLO 자동 탐지로 보완.</div></div>
+      <div class="hc-card"><div class="lbl">// 환경</div><div class="desc">산악 지형 + 철조망 + 가변 기상. 4족 로봇이 휠 로봇 대비 지형 적응 ↑</div></div>
+    </div>
+    <div>
+      <div class="hc-card" style="margin-bottom:10px"><div class="lbl">// 시뮬 우선 전략</div><div class="desc">실 DMZ 접근 불가능 → Isaac Sim 5.1 + 절차적 산악 지형으로 정책 검증. P4: 실 DEM + sim2real 배포</div></div>
+      <div class="hc-card"><div class="lbl">// 범위</div><div class="desc">단일 로봇 우선(현재). 향후 다중 로봇 namespace(/r0, /r1) 확장 대비</div></div>
+    </div>
+  </div>
+  <div class="src">참조: gp-quadruped-system-design.md §1, project_requirments.md</div>
+  <div class="hc-footer"><span>cobot3 · problem statement</span><span>04 / 45</span></div>
+</section>
+
+<!-- 5. PROJECT KPI -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>kpi · success-criteria</div></div>
+  <p class="hc-prompt">cat KPI.json | jq .</p>
+  <h2 class="hc-h2">5 지표 — 보행 · 경로 · 영상 · YOLO · 통신</h2>
+  <div class="lead-conclusion">키프레임 0, 도달오차 &lt;0.5m, 5fps, 2-class, 0.57 MB/s — 모두 충족</div>
+  <table class="tbl">
+    <thead><tr><th>영역</th><th>지표</th><th>목표</th><th>현황</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td>보행</td><td>physics 키프레임/sleep</td><td>0</td><td><span style="color:var(--hc-green)">0 ✓</span></td><td>walk-these-ways JIT 순수 RL</td></tr>
+      <tr><td>경로</td><td>waypoint 도달 오차</td><td>&lt;0.5m</td><td><span style="color:var(--hc-green)">~0.3m ✓</span></td><td>Nav2 DWB controller + safety filter</td></tr>
+      <tr><td>영상</td><td>RGB 5fps + WebRTC 지연</td><td>&lt;300ms</td><td><span style="color:var(--hc-green)">~200ms ✓</span></td><td>JPEG q50, aiortc 적응 비트레이트</td></tr>
+      <tr><td>YOLO</td><td>person/animal 2-class</td><td>conf ≥0.7</td><td><span style="color:var(--hc-green)">dmz_sentry_best.pt ✓</span></td><td>inspect+tp_a 2채널 inference</td></tr>
+      <tr><td>통신</td><td>Main→C2 LAN TX</td><td>&lt;2 MB/s</td><td><span style="color:var(--hc-green)">0.57 MB/s ✓</span></td><td>97% 절감 (depth 압축 + camera_info latched)</td></tr>
+    </tbody>
+  </table>
+  <div class="src">참조: gp-quadruped-system-design.md §2, communication-optimization.md §7</div>
+  <div class="hc-footer"><span>cobot3 · kpi dashboard</span><span>05 / 45</span></div>
+</section>
+
+<!-- ============================================================
+     SECTION C — 솔루션 아키텍처 (6~13)
+     ============================================================ -->
+
+<!-- 6. 2-PC TOPOLOGY DETAIL -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 02/08 · architecture</div></div>
+  <p class="hc-prompt">cat /etc/hosts; ros2 topic list | wc -l</p>
+  <h2 class="hc-h2">2-PC LAN 상세 — 86 토픽, DOMAIN=130, FastDDS UDP</h2>
+  <div class="lead-conclusion">common/site.env 단일소스 IP + 양측 fastdds_*.xml 자동 치환</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3">Main PC (Isaac Sim)</h3>
+      <table class="tbl">
+        <tr><td>IP</td><td><span style="color:var(--hc-green)">192.168.10.94</span></td></tr>
+        <tr><td>Isaac</td><td>5.1 GUI (kit-app + python.sh)</td></tr>
+        <tr><td>역할</td><td>물리 시뮬 + OG 센서 + ROS2 발행</td></tr>
+        <tr><td>주요 노드</td><td>camera_publisher / video·depth_degrade ×11 / telemetry_bridge / landmarks_pub / nav2_patrol / weapon_relay / wind_publisher</td></tr>
+        <tr><td>RMW</td><td>rmw_fastrtps_cpp, SHM 비활성</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="hc-h3">C2 PC (지휘통제실)</h3>
+      <table class="tbl">
+        <tr><td>IP</td><td><span style="color:var(--hc-cyan)">192.168.10.105</span></td></tr>
+        <tr><td>스택</td><td>FastAPI + Next.js + ros_bridge + Nav2 + PostgreSQL</td></tr>
+        <tr><td>역할</td><td>UI + 명령 + 텔레메트리 저장 + YOLO inference + Nav2 planning</td></tr>
+        <tr><td>주요 서비스</td><td>uvicorn :8000 / next :3000 / foxglove_bridge :8765 / foxglove_sdk :8767 / Lichtblick :8080</td></tr>
+        <tr><td>DB</td><td>asyncpg batch 1s flush · detection_events / gps_track / fire_events / alerts</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="src">참조: architecture.md §1~2, common/site.env</div>
+  <div class="hc-footer"><span>cobot3 · 2-pc topology</span><span>06 / 45</span></div>
+</section>
+
+<!-- 7. PORT MAP & SERVICE LAYER -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>port-map · 5-layer stack</div></div>
+  <p class="hc-prompt">ss -tlnp | grep -E ':(3000|8000|5432|8765|8080)'</p>
+  <h2 class="hc-h2">5 계층 스택 — Presentation → API → ROS2 → Physics → DB</h2>
+  <div class="lead-conclusion">L5 Next :3000 / L4 FastAPI :8000 / L3 ros_bridge / L2 Isaac OG / L0 Postgres :5432</div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 320">
+      <defs><pattern id="grid7" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+      <rect width="960" height="320" fill="#020617"/><rect width="960" height="320" fill="url(#grid7)"/>
+      <!-- 5 layers -->
+      <rect x="80" y="30" width="800" height="44" rx="6" fill="rgba(100,223,223,.12)" stroke="#64dfdf" stroke-width="1.5"/>
+      <text x="100" y="50" fill="#64dfdf" font-size="11" font-weight="700">L5 PRESENTATION</text>
+      <text x="100" y="65" fill="#fff" font-size="10">Next.js :3000 (전술 콘솔 dashboard) · Lichtblick :8080 (Foxglove 3D viz)</text>
+      <text x="860" y="58" fill="#64dfdf" font-size="9" text-anchor="end">browser / electron</text>
+      <rect x="80" y="84" width="800" height="44" rx="6" fill="rgba(167,139,250,.12)" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="100" y="104" fill="#a78bfa" font-size="11" font-weight="700">L4 API GATEWAY</text>
+      <text x="100" y="119" fill="#fff" font-size="10">FastAPI :8000 (REST 명령 · WS /events · WebRTC offer · MJPEG stream)</text>
+      <text x="860" y="112" fill="#a78bfa" font-size="9" text-anchor="end">uvicorn + aiortc</text>
+      <rect x="80" y="138" width="800" height="44" rx="6" fill="rgba(233,197,138,.12)" stroke="#e9c58a" stroke-width="1.5"/>
+      <text x="100" y="158" fill="#e9c58a" font-size="11" font-weight="700">L3 ROS2 BRIDGE</text>
+      <text x="100" y="173" fill="#fff" font-size="10">ros_bridge.py (MultiThreadedExecutor · PAUSED 가드 · YOLO inference · WS emit)</text>
+      <text x="860" y="166" fill="#e9c58a" font-size="9" text-anchor="end">rclpy + ultralytics</text>
+      <rect x="80" y="192" width="800" height="44" rx="6" fill="rgba(126,211,164,.12)" stroke="#7ed3a4" stroke-width="1.5"/>
+      <text x="100" y="212" fill="#7ed3a4" font-size="11" font-weight="700">L2 PHYSICS + OG</text>
+      <text x="100" y="227" fill="#fff" font-size="10">camera_publisher (Isaac standalone) · go2_controller (walk-these-ways JIT)</text>
+      <text x="860" y="220" fill="#7ed3a4" font-size="9" text-anchor="end">python.sh + JIT</text>
+      <rect x="80" y="246" width="800" height="44" rx="6" fill="rgba(251,146,60,.12)" stroke="#fb923c" stroke-width="1.5"/>
+      <text x="100" y="266" fill="#fb923c" font-size="11" font-weight="700">L0 PERSISTENCE</text>
+      <text x="100" y="281" fill="#fff" font-size="10">PostgreSQL :5432 · asyncpg batch (1s flush, 10Hz collect) · detection_events / gps_track</text>
+      <text x="860" y="274" fill="#fb923c" font-size="9" text-anchor="end">systemd unit</text>
+    </svg>
+  </div>
+  <div class="src">참조: architecture.md §2~3 (포트맵, 서비스 레이어)</div>
+  <div class="hc-footer"><span>cobot3 · port-map / service-layer</span><span>07 / 45</span></div>
+</section>
+
+<!-- 8. ROS2 정공 양방향 -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>ros2-comm · isaac-bridge</div></div>
+  <p class="hc-prompt">echo $ROS_DOMAIN_ID; printenv FASTRTPS_DEFAULT_PROFILES_FILE</p>
+  <h2 class="hc-h2">ROS2 정공 — render=True + UDP-only + 8-key QoS JSON</h2>
+  <div class="lead-conclusion">Isaac OG ↔ 시스템 ROS2 Humble 양방향 (3 조건 모두 만족 시 동작)</div>
+  <div class="hc-grid-3">
+    <div class="hc-card"><div class="lbl">조건 1: RENDER=TRUE</div><div class="val" style="font-size:14px;color:var(--hc-green)">world.step(render=True)</div><div class="desc">OnPlaybackTick 펄스 발생 → OG ROS2 노드 실행. render=False면 토픽 0 Hz.</div></div>
+    <div class="hc-card"><div class="lbl">조건 2: FASTDDS UDP-ONLY</div><div class="val" style="font-size:14px;color:var(--hc-green)">fastdds_no_shm.xml</div><div class="desc">Isaac 번들 ↔ 시스템 FastDDS SHM 불일치 → UDP 전용으로 wire format 호환.</div></div>
+    <div class="hc-card"><div class="lbl">조건 3: 8-KEY QOS</div><div class="val" style="font-size:14px;color:var(--hc-green)">history+depth+reliab+...</div><div class="desc">history/depth/reliability/durability/deadline/lifespan/liveliness/leaseDuration 8키 전부 필수.</div></div>
+  </div>
+  <div class="hc-grid-2" style="margin-top:14px">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">DOWNLINK (Main → C2)</h3>
+      <table class="tbl">
+        <tr><td>/cam/{rear,inspect,overhead}/rgb</td><td>BEST_EFFORT 5</td></tr>
+        <tr><td>/c2/*/compressed (JPEG 5fps)</td><td>BEST_EFFORT 5</td></tr>
+        <tr><td>/robot/{odom,gps,state,leg_joint_states}</td><td>RELIABLE 10</td></tr>
+        <tr><td>/scene/landmarks · /robot/weapon/state</td><td>RELIABLE TRANSIENT_LOCAL 1</td></tr>
+        <tr><td>/tf · /tf_static</td><td>RELIABLE (Nav2 호환)</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">UPLINK (C2 → Main)</h3>
+      <table class="tbl">
+        <tr><td>/robot/cmd_vel (Twist)</td><td>RELIABLE 10</td></tr>
+        <tr><td>/robot/nav/goal (PoseStamped)</td><td>RELIABLE 10</td></tr>
+        <tr><td>/robot/inspect/command (JSON pan/tilt)</td><td>RELIABLE 10</td></tr>
+        <tr><td>/mission_command (sortie/home/goto_tp)</td><td>RELIABLE 10</td></tr>
+        <tr><td>/weather/command · /robot/npc/spawn</td><td>RELIABLE 10</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="src">참조: design-ros2-bridge.md, ros2-interface.md §1~3</div>
+  <div class="hc-footer"><span>cobot3 · ros2 정공 통신</span><span>08 / 45</span></div>
+</section>
+
+<!-- 9. ISAAC SIM 씬 -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>scene · gp_scene.usd</div></div>
+  <p class="hc-prompt">ls -la scene/gp_scene.usd; du -sh scene/assets/</p>
+  <h2 class="hc-h2">gp_scene.usd — 산악 + 철조망 + Go2 + 7 cam + TP×4</h2>
+  <div class="lead-conclusion">/World 자식 20+ prim, ComputeLocalToWorldTransform 추출 (16 zones + 4 TPs)</div>
+  <div class="col2">
+    <div>
+      <table class="tbl">
+        <tr><td>지형</td><td>Hill_terrain1/2 (절차적, CollisionAPI 100%)</td></tr>
+        <tr><td>장벽</td><td>Fence_Line 19 세그먼트 (barbed_wire_fence.usdz)</td></tr>
+        <tr><td>로봇</td><td>/World/Go2 + base(12-DOF) + radar(2026-05-24)</td></tr>
+        <tr><td>카메라</td><td>rear/inspect(z=0.40m, 짐벌) + overhead(world 직속, 200m)</td></tr>
+        <tr><td>전술</td><td>Tactical_Fixed_Cameras (TP_A~D, 고정 8m)</td></tr>
+        <tr><td>경로</td><td>Routing_Zones 16개 (StartingPoint 등) + Tactical_Points 4개</td></tr>
+        <tr><td>씬 확장 2026-05-24</td><td><span style="color:var(--hc-amber)">scene_01 / Extended_field / Crouched_Walking / traffic_sign</span></td></tr>
+        <tr><td>날씨</td><td>WeatherEffects / Sun / DomeLight_01</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 9</div>
+        <div style="font-size:24px;color:var(--hc-amber)">Isaac Sim 뷰포트 스크린샷</div>
+        <div class="ph-desc">gp_scene 전경 + Go2 위치 + 산악 지형 + 철조망<br>(GUI 모드, third-person view 권장)</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: main-side.md §씬 구조, CHANGELOG.md 2026-05-24</div>
+  <div class="hc-footer"><span>cobot3 · isaac sim scene</span><span>09 / 45</span></div>
+</section>
+
+<!-- 10. UNITREE GO2 -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>robot · unitree-go2 · walk-these-ways</div></div>
+  <p class="hc-prompt">cat scene/go2_policy/policy.jit | head -1</p>
+  <h2 class="hc-h2">Go2 — 12-DOF + walk-these-ways RL (obs 42, history 15)</h2>
+  <div class="lead-conclusion">FL/FR/RL/RR × hip/thigh/calf · 학습 분포 끝단 튜닝으로 단차 22cm 통과</div>
+  <div class="hc-grid-2">
+    <div>
+      <table class="tbl">
+        <tr><th colspan="2">하드웨어</th></tr>
+        <tr><td>DOF</td><td>12 (4족 × 3관절)</td></tr>
+        <tr><td>질량</td><td>~25 kg</td></tr>
+        <tr><td>standing height</td><td>0.4 m (body_height 변동 ±0.1)</td></tr>
+        <tr><td>max speed</td><td>~2 m/s (RL 학습 분포 내)</td></tr>
+      </table>
+      <table class="tbl" style="margin-top:8px">
+        <tr><th colspan="2">정책</th></tr>
+        <tr><td>모델</td><td>walk-these-ways JIT (adaptation + body MLP)</td></tr>
+        <tr><td>obs</td><td>42 dim × history 15 = 630-dim input</td></tr>
+        <tr><td>action</td><td>12-dim, scale 0.25, hip ×0.5</td></tr>
+        <tr><td>PD gains</td><td>kp=25, kd=0.6</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:13px">_CMD_BASE 튜닝 (2026-05-24 단차 통과)</h3>
+      <table class="tbl">
+        <tr><th>idx</th><th>이름</th><th>이전</th><th>현재</th></tr>
+        <tr><td>3</td><td>body_height</td><td>0.0</td><td><span style="color:var(--hc-amber)">+0.05</span></td></tr>
+        <tr><td>4</td><td>step_freq</td><td>3.6 Hz</td><td><span style="color:var(--hc-amber)">3.0 Hz</span></td></tr>
+        <tr><td>5</td><td>gait phase</td><td>0.5 (trot)</td><td>0.5</td></tr>
+        <tr><td>9</td><td><b>footswing</b></td><td>0.15 m</td><td><span style="color:var(--hc-green)">0.22 m</span></td></tr>
+        <tr><td>12</td><td>stance_w</td><td>0.33</td><td>0.33</td></tr>
+        <tr><td>13</td><td>stance_l</td><td>0.45</td><td>0.45</td></tr>
+      </table>
+      <div class="ph" style="min-height:90px;margin-top:10px">
+        <div class="ph-title">USER IMG · slide 10</div>
+        <div class="ph-desc">Go2 보행 시퀀스 (5프레임) 또는 단차 통과 전후 비교</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: main-side.md §go2_controller.py, CHANGELOG.md 2026-05-24 단차 통과</div>
+  <div class="hc-footer"><span>cobot3 · unitree go2 · walk-these-ways</span><span>10 / 45</span></div>
+</section>
+
+<!-- 11. CAMERA SYSTEM -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>cameras · 7-channel · stereo+depth</div></div>
+  <p class="hc-prompt">ros2 topic list | grep -E '^/cam/' | wc -l</p>
+  <h2 class="hc-h2">카메라 7개 — 주 3 (rear/inspect/overhead) + 전술 4 (TP)</h2>
+  <div class="lead-conclusion">inspect/rear z+30cm (2026-05-24), overhead 200m + VAP=HAP 정방형</div>
+  <table class="tbl">
+    <tr><th>카메라</th><th>prim 경로</th><th>위치 (base 기준)</th><th>회전</th><th>focal</th><th>역할</th></tr>
+    <tr><td>rear</td><td>/World/Go2/base/camera_rear</td><td>(-0.235, 0, <span style="color:var(--hc-green)">0.40</span>)</td><td>_Q_REAR (시선 -X)</td><td>10.5mm</td><td>후방 MJPEG</td></tr>
+    <tr><td>inspect</td><td>/World/Go2/base/camera_inspect</td><td>(+0.235, 0, <span style="color:var(--hc-green)">0.40</span>)</td><td>_Q_FRONT + 짐벌 stab</td><td>10.5mm</td><td>YOLO 입력 + 사격 조준</td></tr>
+    <tr><td>overhead</td><td>/World/Overhead_Camera</td><td>base.xy + (0,0,<span style="color:var(--hc-green)">200</span>)</td><td>identity (North-up)</td><td>8mm · HAP=VAP=20.955mm</td><td>TACTICAL MAP 배경 (±262m)</td></tr>
+    <tr><td>TP_A~D</td><td>/World/Tactical_Fixed_Cameras/TP_*_Cam</td><td>tactical_points + (0,0,8)</td><td>_quat_camera_forward</td><td>6mm</td><td>전술 고정 관측 + depth</td></tr>
+  </table>
+  <div class="diagram" style="margin-top:14px">
+    <svg viewBox="0 0 920 200">
+      <defs><pattern id="grid11" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+      <rect width="920" height="200" fill="#020617"/><rect width="920" height="200" fill="url(#grid11)"/>
+      <!-- Top-down -->
+      <text x="460" y="22" fill="#7ed3a4" font-size="11" text-anchor="middle" font-weight="600">TOP-DOWN VIEW · Go2 + 카메라 위치</text>
+      <!-- Go2 body -->
+      <rect x="380" y="80" width="160" height="60" rx="20" fill="rgba(126,211,164,.15)" stroke="#7ed3a4" stroke-width="1.5"/>
+      <text x="460" y="115" fill="#7ed3a4" font-size="14" font-weight="700" text-anchor="middle">Go2 base</text>
+      <text x="460" y="135" fill="#94a3b8" font-size="9" text-anchor="middle">12-DOF · 0.7×0.4 m</text>
+      <!-- inspect (front) -->
+      <circle cx="550" cy="110" r="6" fill="#e9c58a" stroke="#fff" stroke-width="1"/>
+      <text x="565" y="106" fill="#e9c58a" font-size="10" font-weight="600">inspect (z+30)</text>
+      <text x="565" y="118" fill="#94a3b8" font-size="8">+X 방향, 짐벌 ±70°</text>
+      <line x1="556" y1="110" x2="700" y2="110" stroke="#e9c58a" stroke-width="1" stroke-dasharray="3,2"/>
+      <path d="M 556 110 L 700 80 L 700 140 Z" fill="rgba(233,197,138,.08)" stroke="#e9c58a" stroke-width="0.5" stroke-dasharray="2,2"/>
+      <!-- rear -->
+      <circle cx="370" cy="110" r="6" fill="#64dfdf" stroke="#fff" stroke-width="1"/>
+      <text x="220" y="106" fill="#64dfdf" font-size="10" font-weight="600">rear (z+30)</text>
+      <text x="220" y="118" fill="#94a3b8" font-size="8">-X 방향, 후방 관측</text>
+      <line x1="365" y1="110" x2="220" y2="110" stroke="#64dfdf" stroke-width="1" stroke-dasharray="3,2"/>
+      <path d="M 365 110 L 220 80 L 220 140 Z" fill="rgba(100,223,223,.08)" stroke="#64dfdf" stroke-width="0.5" stroke-dasharray="2,2"/>
+      <!-- overhead -->
+      <circle cx="460" cy="40" r="7" fill="#a78bfa" stroke="#fff" stroke-width="1"/>
+      <text x="475" y="38" fill="#a78bfa" font-size="10" font-weight="600">overhead (200m 위)</text>
+      <text x="475" y="50" fill="#94a3b8" font-size="8">North-up 고정, ±262m 정방형</text>
+      <line x1="460" y1="46" x2="460" y2="78" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,2"/>
+      <!-- TP -->
+      <text x="60" y="178" fill="#fb7185" font-size="10" font-weight="600">TP_A~D</text>
+      <text x="60" y="190" fill="#94a3b8" font-size="8">씬 내 고정 4지점 (z+8m 관측탑)</text>
+      <line x1="105" y1="178" x2="820" y2="178" stroke="#fb7185" stroke-width="0.5" stroke-dasharray="2,2"/>
+    </svg>
+  </div>
+  <div class="src">참조: main-side.md §카메라 배치, CHANGELOG.md 카메라 z+30cm</div>
+  <div class="hc-footer"><span>cobot3 · cameras 7-channel</span><span>11 / 45</span></div>
+</section>
+
+<!-- 12. 통신 경로 최적화 -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>optimization · tier1-2-3</div></div>
+  <p class="hc-prompt">cat dev-docs/communication-optimization.md | grep "^##"</p>
+  <h2 class="hc-h2">통신 효율화 — D1~D11, 5 핵심 변경으로 97% 절감</h2>
+  <div class="lead-conclusion">depth 압축 + camera_info latched + YOLO 채널 + DB 통합 + gps_track yaw</div>
+  <div class="diagram">
+    <svg viewBox="0 0 920 200">
+      <defs><pattern id="grid12" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+      <rect width="920" height="200" fill="#020617"/><rect width="920" height="200" fill="url(#grid12)"/>
+      <text x="100" y="30" fill="#fb7185" font-size="13" font-weight="700">BEFORE (2026-05-23)</text>
+      <text x="100" y="48" fill="#fb7185" font-size="22" font-weight="700">17.9 MB/s</text>
+      <rect x="100" y="58" width="350" height="32" rx="3" fill="rgba(251,113,133,.35)" stroke="#fb7185"/>
+      <text x="120" y="80" fill="#fff" font-size="11">depth raw 9.1 + RGB 누출 7.8 + 기타 1.0</text>
+      <text x="100" y="118" fill="#7ed3a4" font-size="13" font-weight="700">AFTER (2026-05-24)</text>
+      <text x="100" y="136" fill="#7ed3a4" font-size="22" font-weight="700">0.57 MB/s</text>
+      <rect x="100" y="146" width="11" height="32" rx="3" fill="rgba(126,211,164,.45)" stroke="#7ed3a4"/>
+      <text x="120" y="168" fill="#fff" font-size="11">depth PNG 0.2 + JPEG 0.2 + 기타 0.17</text>
+      <text x="520" y="48" fill="#e9c58a" font-size="11" font-weight="700">[97% 절감]</text>
+      <text x="520" y="68" fill="#94a3b8" font-size="10">d1. depth_degrade_node 신규 (PNG 16UC1 mm)</text>
+      <text x="520" y="84" fill="#94a3b8" font-size="10">d2. camera_info 1Hz timer 제거 (1회 + 60s 보호)</text>
+      <text x="520" y="100" fill="#94a3b8" font-size="10">d3. C2_YOLO_CAMERAS env (inspect+tp_a 기본)</text>
+      <text x="520" y="116" fill="#94a3b8" font-size="10">d4. detection_events 통합 (intruder_* 2→1)</text>
+      <text x="520" y="132" fill="#94a3b8" font-size="10">d5. gps_track yaw 합류 (odom 일관)</text>
+      <text x="520" y="148" fill="#94a3b8" font-size="10">d6. tp_grid mosaic (HTTP/1.1 conn limit 회피)</text>
+    </svg>
+  </div>
+  <div class="src">참조: communication-optimization.md §1~7, ROS2_TRAFFIC_MEASUREMENT_REPORT.md</div>
+  <div class="hc-footer"><span>cobot3 · optimization tier 1-3</span><span>12 / 45</span></div>
+</section>
+
+<!-- 13. DATA FLOW E2E -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>data-flow · end-to-end</div></div>
+  <p class="hc-prompt">trace = video + telemetry + command</p>
+  <h2 class="hc-h2">E2E 데이터 흐름 — 3 path (영상/텔레메트리/명령)</h2>
+  <div class="lead-conclusion">downlink: OG→degrade→ros_bridge→WS/DB / uplink: REST→ros_bridge→/cmd_vel→OG</div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 300">
+      <defs>
+        <pattern id="grid13" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        <marker id="ah13" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#7ed3a4"/></marker>
+        <marker id="ah13r" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#fb7185"/></marker>
+      </defs>
+      <rect width="960" height="300" fill="#020617"/><rect width="960" height="300" fill="url(#grid13)"/>
+      <text x="60" y="24" fill="#7ed3a4" font-size="11" font-weight="700">▼ DOWNLINK (Main → C2)</text>
+      <text x="60" y="42" fill="#7ed3a4" font-size="10">[1] 영상</text>
+      <rect x="100" y="32" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="160" y="46" fill="#fff" font-size="9" text-anchor="middle">Isaac OG 50Hz</text>
+      <line x1="220" y1="43" x2="252" y2="43" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="252" y="32" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="312" y="46" fill="#fff" font-size="9" text-anchor="middle">video_degrade 5fps</text>
+      <line x1="372" y1="43" x2="404" y2="43" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="404" y="32" width="130" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="469" y="46" fill="#fff" font-size="9" text-anchor="middle">/c2/*/compressed</text>
+      <line x1="534" y1="43" x2="566" y2="43" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="566" y="32" width="130" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="631" y="46" fill="#fff" font-size="9" text-anchor="middle">ros_bridge YOLO</text>
+      <line x1="696" y1="43" x2="728" y2="43" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="728" y="32" width="170" height="22" rx="3" fill="rgba(100,223,223,.12)" stroke="#64dfdf"/><text x="813" y="46" fill="#fff" font-size="9" text-anchor="middle">browser (WebRTC + MJPEG)</text>
+      <text x="60" y="78" fill="#7ed3a4" font-size="10">[2] depth</text>
+      <rect x="100" y="68" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="160" y="82" fill="#fff" font-size="9" text-anchor="middle">/cam/tactical/*/depth</text>
+      <line x1="220" y1="79" x2="252" y2="79" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="252" y="68" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="312" y="82" fill="#fff" font-size="9" text-anchor="middle">depth_degrade PNG</text>
+      <line x1="372" y1="79" x2="404" y2="79" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="404" y="68" width="180" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="494" y="82" fill="#fff" font-size="9" text-anchor="middle">/c2/tp_*/depth_compressed</text>
+      <line x1="584" y1="79" x2="616" y2="79" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="616" y="68" width="240" height="22" rx="3" fill="rgba(100,223,223,.12)" stroke="#64dfdf"/><text x="736" y="82" fill="#fff" font-size="9" text-anchor="middle">3D projection (bbox 중앙 거리)</text>
+      <text x="60" y="114" fill="#7ed3a4" font-size="10">[3] 텔레메트리</text>
+      <rect x="130" y="104" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="190" y="118" fill="#fff" font-size="9" text-anchor="middle">/robot/{odom,state,gps}</text>
+      <line x1="250" y1="115" x2="282" y2="115" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="282" y="104" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="342" y="118" fill="#fff" font-size="9" text-anchor="middle">ros_bridge cache</text>
+      <line x1="402" y1="115" x2="434" y2="115" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="434" y="104" width="120" height="22" rx="3" fill="rgba(251,146,60,.12)" stroke="#fb923c"/><text x="494" y="118" fill="#fff" font-size="9" text-anchor="middle">db_writer asyncpg</text>
+      <line x1="554" y1="115" x2="586" y2="115" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="586" y="104" width="120" height="22" rx="3" fill="rgba(251,146,60,.12)" stroke="#fb923c"/><text x="646" y="118" fill="#fff" font-size="9" text-anchor="middle">PostgreSQL :5432</text>
+      <line x1="402" y1="126" x2="402" y2="148" stroke="#7ed3a4" marker-end="url(#ah13)"/>
+      <rect x="350" y="148" width="110" height="20" rx="3" fill="rgba(100,223,223,.12)" stroke="#64dfdf"/><text x="405" y="161" fill="#fff" font-size="9" text-anchor="middle">WS /events emit</text>
+      <!-- UPLINK -->
+      <text x="60" y="208" fill="#fb7185" font-size="11" font-weight="700">▲ UPLINK (C2 → Main)</text>
+      <text x="60" y="226" fill="#fb7185" font-size="10">[4] 명령</text>
+      <rect x="100" y="216" width="120" height="22" rx="3" fill="rgba(100,223,223,.12)" stroke="#64dfdf"/><text x="160" y="230" fill="#fff" font-size="9" text-anchor="middle">Web / DualSense</text>
+      <line x1="220" y1="227" x2="252" y2="227" stroke="#fb7185" marker-end="url(#ah13r)"/>
+      <rect x="252" y="216" width="160" height="22" rx="3" fill="rgba(167,139,250,.12)" stroke="#a78bfa"/><text x="332" y="230" fill="#fff" font-size="9" text-anchor="middle">POST /robots/{rid}/cmd_vel</text>
+      <line x1="412" y1="227" x2="444" y2="227" stroke="#fb7185" marker-end="url(#ah13r)"/>
+      <rect x="444" y="216" width="170" height="22" rx="3" fill="rgba(233,197,138,.12)" stroke="#e9c58a"/><text x="529" y="230" fill="#fff" font-size="9" text-anchor="middle">ros_bridge.pub_cmd_vel</text>
+      <line x1="614" y1="227" x2="646" y2="227" stroke="#fb7185" marker-end="url(#ah13r)"/>
+      <rect x="646" y="216" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="706" y="230" fill="#fff" font-size="9" text-anchor="middle">/robot/cmd_vel</text>
+      <line x1="766" y1="227" x2="798" y2="227" stroke="#fb7185" marker-end="url(#ah13r)"/>
+      <rect x="798" y="216" width="120" height="22" rx="3" fill="rgba(126,211,164,.12)" stroke="#7ed3a4"/><text x="858" y="230" fill="#fff" font-size="9" text-anchor="middle">go2_controller</text>
+      <text x="60" y="262" fill="#fb7185" font-size="10">[5] 네비 goal</text>
+      <rect x="130" y="252" width="180" height="22" rx="3" fill="rgba(100,223,223,.12)" stroke="#64dfdf"/><text x="220" y="266" fill="#fff" font-size="9" text-anchor="middle">MapTrack click / goto_tp</text>
+      <line x1="310" y1="263" x2="342" y2="263" stroke="#fb7185" marker-end="url(#ah13r)"/>
+      <rect x="342" y="252" width="200" height="22" rx="3" fill="rgba(167,139,250,.12)" stroke="#a78bfa"/><text x="442" y="266" fill="#fff" font-size="9" text-anchor="middle">nav2_patrol _start_routing</text>
+      <line x1="542" y1="263" x2="574" y2="263" stroke="#fb7185" marker-end="url(#ah13r)"/>
+      <rect x="574" y="252" width="200" height="22" rx="3" fill="rgba(233,197,138,.12)" stroke="#e9c58a"/><text x="674" y="266" fill="#fff" font-size="9" text-anchor="middle">Nav2 navigate_to_pose action</text>
+    </svg>
+  </div>
+  <div class="src">참조: architecture.md §5 데이터 흐름 (5 paths)</div>
+  <div class="hc-footer"><span>cobot3 · e2e data flow</span><span>13 / 45</span></div>
+</section>
+
+<!-- ============================================================
+     SECTION D — ROS2 & 통신 (14~23)
+     ============================================================ -->
+
+<!-- 14. TOPIC CATALOG P1 -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 03/08 · ros2</div></div>
+  <p class="hc-prompt">ros2 topic list | grep -E '^/(cam|c2|robot)/'</p>
+  <h2 class="hc-h2">토픽 카탈로그 P1 — 다운링크 (영상 11 + 텔레메트리 8)</h2>
+  <div class="lead-conclusion">BEST_EFFORT (영상 stream) + RELIABLE (텔레메트리 손실 불가)</div>
+  <table class="tbl">
+    <tr><th>토픽</th><th>타입</th><th>QoS</th><th>Hz</th><th>발행자</th><th>구독자</th></tr>
+    <tr><td>/cam/{rear,inspect,overhead}/rgb</td><td>sensor_msgs/Image</td><td>BE 5</td><td>50</td><td>OG CamRGB</td><td>video_degrade (로컬)</td></tr>
+    <tr><td>/cam/tactical/tp_{a,b,c,d}/rgb</td><td>sensor_msgs/Image</td><td>BE 5</td><td>1~3</td><td>OG TP_*_Cam</td><td>video_degrade (로컬)</td></tr>
+    <tr><td>/cam/tactical/tp_*/depth</td><td>sensor_msgs/Image (32FC1)</td><td>BE 5</td><td>1~5.6</td><td>OG TP_*_CamDepth</td><td>depth_degrade (로컬)</td></tr>
+    <tr><td>/c2/{rear,inspect,overhead}/compressed</td><td>CompressedImage (JPEG)</td><td>BE 5</td><td>5</td><td>video_degrade</td><td>ros_bridge._on_video</td></tr>
+    <tr><td>/c2/tp_*/compressed</td><td>CompressedImage (JPEG)</td><td>BE 5</td><td>2</td><td>video_degrade (TP)</td><td>ros_bridge + YOLO</td></tr>
+    <tr><td>/c2/tp_*/depth_compressed <span style="color:var(--hc-amber)">(NEW)</span></td><td>CompressedImage (PNG 16UC1)</td><td>BE 5</td><td>2</td><td>depth_degrade</td><td>ros_bridge._on_depth</td></tr>
+    <tr><td>/robot/odom</td><td>nav_msgs/Odometry</td><td>R 10</td><td>63</td><td>OG OdoPub</td><td>nav2, telemetry_bridge</td></tr>
+    <tr><td>/robot/{state,gps,leg_joint_states}</td><td>String JSON / NavSatFix / JointState</td><td>R 10</td><td>5~500</td><td>telemetry_bridge / OG</td><td>ros_bridge</td></tr>
+    <tr><td>/scene/landmarks · /robot/weapon/state</td><td>String JSON</td><td>R TL 1</td><td>latched</td><td>landmarks_pub / weapon_relay</td><td>nav2_patrol, ros_bridge</td></tr>
+    <tr><td>/tf · /tf_static</td><td>tf2_msgs/TFMessage</td><td>R 10</td><td>50</td><td>OG TF / world_odom_tf_pub</td><td>Nav2 tf_buffer</td></tr>
+    <tr><td>/rosout</td><td>rcl_interfaces/Log</td><td>R 10</td><td>event</td><td>모든 ROS2 노드</td><td>ros_bridge (level≥WARN)</td></tr>
+  </table>
+  <div class="src">참조: ros2-interface.md §토픽 목록, communication-optimization.md depth 압축</div>
+  <div class="hc-footer"><span>cobot3 · topic catalog P1</span><span>14 / 45</span></div>
+</section>
+
+<!-- 15. TOPIC CATALOG P2 -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>topic-catalog · uplink + events</div></div>
+  <p class="hc-prompt">ros2 topic list | grep -vE '^/(cam|c2|tf|rosout|clock)'</p>
+  <h2 class="hc-h2">토픽 카탈로그 P2 — 업링크 명령 5 + 이벤트 11</h2>
+  <div class="lead-conclusion">명령: cmd_vel/nav_goal/inspect/mission · 이벤트: alerts/detection/fall/wind/weapon</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">▲ UPLINK (C2 → Main)</h3>
+      <table class="tbl">
+        <tr><td>/robot/cmd_vel</td><td>Twist · R 10</td></tr>
+        <tr><td>/robot/nav/goal</td><td>PoseStamped · R 10</td></tr>
+        <tr><td>/robot/inspect/command</td><td>String JSON · R 10</td></tr>
+        <tr><td>/mission_command</td><td>String (sortie/home/stop/goto_tp:TP_*)</td></tr>
+        <tr><td>/weather/command</td><td>String JSON · R 10</td></tr>
+        <tr><td>/robot/npc/spawn</td><td>String JSON · R 10</td></tr>
+        <tr><td>/robot/weapon/fire</td><td>Trigger service</td></tr>
+        <tr><td>/robot/speaker/audio</td><td>String (PCM base64)</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">▼ EVENTS (Main → C2)</h3>
+      <table class="tbl">
+        <tr><td>/patrol_state</td><td>FSM mode/waypoint/route · 5 Hz</td></tr>
+        <tr><td>/routing_state</td><td>tp_id/route/current_idx · 2026-05-23</td></tr>
+        <tr><td>/alerts · /animal_alerts</td><td>YOLO person/animal alert</td></tr>
+        <tr><td>/detections_text</td><td>YOLO bbox 전체 (cooldown 무관)</td></tr>
+        <tr><td>/intruder_states</td><td>NPC ground-truth</td></tr>
+        <tr><td>/robot/fall_{alert,state}</td><td>FALLEN/RECOVERING edge + 2Hz 스냅샷</td></tr>
+        <tr><td>/wind/state · /weather/state</td><td>Vector3 (20Hz) / JSON (5Hz)</td></tr>
+        <tr><td>/cmd_vel_nav2_raw</td><td>Nav2→safety_filter 사이 (디버그)</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="src">참조: ros2-interface.md §업링크 + 이벤트, sub1-side.md §WebSocket 이벤트</div>
+  <div class="hc-footer"><span>cobot3 · topic catalog P2</span><span>15 / 45</span></div>
+</section>
+
+<!-- 16. QoS POLICY -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>qos · 8-key json mandatory</div></div>
+  <p class="hc-prompt">cat fastdds_qos.json | jq 'keys | length'</p>
+  <h2 class="hc-h2">QoS 매트릭스 — 8 키 JSON 완전 필수 (부분 지정 거부)</h2>
+  <div class="lead-conclusion">history/depth/reliability/durability/deadline/lifespan/liveliness/leaseDuration</div>
+  <table class="tbl">
+    <tr><th>토픽 패턴</th><th>reliability</th><th>durability</th><th>depth</th><th>이유</th></tr>
+    <tr><td>/cam/*/rgb (Main 내부)</td><td>BEST_EFFORT</td><td>VOLATILE</td><td>5</td><td>50Hz, OG ↔ video_degrade 로컬</td></tr>
+    <tr><td>/c2/*/compressed</td><td>BEST_EFFORT</td><td>VOLATILE</td><td>5</td><td>5fps JPEG, 손실 허용</td></tr>
+    <tr><td>/c2/tp_*/depth_compressed</td><td>BEST_EFFORT</td><td>VOLATILE</td><td>5</td><td>2fps PNG 16UC1 (NEW 2026-05-24)</td></tr>
+    <tr><td>/robot/{state,gps,odom}</td><td>RELIABLE</td><td>VOLATILE</td><td>10</td><td>텔레메트리 손실 불가</td></tr>
+    <tr><td>/cam/*/camera_info</td><td>RELIABLE</td><td><span style="color:var(--hc-amber)">TRANSIENT_LOCAL</span></td><td>1</td><td>latched · 1회 + 60s 보호 발행</td></tr>
+    <tr><td>/scene/landmarks · /robot/weapon/state</td><td>RELIABLE</td><td><span style="color:var(--hc-amber)">TRANSIENT_LOCAL</span></td><td>1</td><td>latched 상태 (zone, weapon FSM)</td></tr>
+    <tr><td>/robot/cmd_vel · /robot/nav/goal</td><td>RELIABLE</td><td>VOLATILE</td><td>10</td><td>명령</td></tr>
+    <tr><td>/tf · /tf_static</td><td>RELIABLE</td><td>(TF 표준)</td><td>10</td><td>Nav2 호환</td></tr>
+  </table>
+  <div class="hc-card" style="margin-top:14px">
+    <div class="lbl">// 함정 — Isaac OG ROS2 파서 엄격</div>
+    <div class="desc"><span style="color:var(--hc-red)">"Missing key: deadline"</span> 오류 발생 시 8키 전부 작성 (deadline=0.0, lifespan=0.0, leaseDuration=0.0 디폴트 명시).</div>
+  </div>
+  <div class="src">참조: ros2-interface.md §QoS, design-ros2-bridge.md</div>
+  <div class="hc-footer"><span>cobot3 · qos policy 8-key</span><span>16 / 45</span></div>
+</section>
+
+<!-- 17. FASTDDS UDP-ONLY -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>fastdds · udp-only profile</div></div>
+  <p class="hc-prompt">cat main_side/fastdds_no_shm.xml | grep -A1 transport</p>
+  <h2 class="hc-h2">FastDDS UDP-only — SHM 비활성 (Isaac ↔ 시스템 호환)</h2>
+  <div class="lead-conclusion">Isaac 번들 FastDDS ↔ 시스템 2.6.x SharedMemory wire 포맷 불일치 해소</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">문제</h3>
+      <div class="hc-card" style="margin-bottom:10px"><div class="lbl">// 증상</div><div class="desc">같은 PC 안에서도 ros2 topic 0 수신. publishers 0 표시. discovery 실패.</div></div>
+      <div class="hc-card"><div class="lbl">// 원인</div><div class="desc">Isaac 번들 FastDDS (2.6.x) ↔ 시스템 ros 2 humble FastDDS (2.6.11). SharedMemory segment 포맷 미세 차이로 상호 미인식.</div></div>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">해결</h3>
+      <div class="hc-codebox" style="font-size:10px;padding:14px">
+<span class="cm">&lt;!-- fastdds_no_shm.xml --&gt;</span>
+&lt;dds&gt;
+ &lt;profiles&gt;
+  &lt;transport_descriptors&gt;
+   &lt;transport_descriptor&gt;
+    &lt;transport_id&gt;<span class="st">udp_only_transport</span>&lt;/transport_id&gt;
+    &lt;type&gt;<span class="kw">UDPv4</span>&lt;/type&gt;
+   &lt;/transport_descriptor&gt;
+  &lt;/transport_descriptors&gt;
+  &lt;participant profile_name="udp_only" is_default_profile=<span class="st">"true"</span>&gt;
+   &lt;rtps&gt;&lt;userTransports&gt;...&lt;/userTransports&gt;
+    &lt;useBuiltinTransports&gt;<span class="kw">false</span>&lt;/useBuiltinTransports&gt;
+   &lt;/rtps&gt;
+  &lt;/participant&gt;
+ &lt;/profiles&gt;
+&lt;/dds&gt;
+      </div>
+      <div class="small" style="margin-top:8px">env: <code style="color:var(--hc-cyan)">FASTRTPS_DEFAULT_PROFILES_FILE=&lt;path&gt;</code></div>
+    </div>
+  </div>
+  <div class="hc-card" style="margin-top:14px">
+    <div class="lbl">// P2 계획 — multicast 차단</div>
+    <div class="desc">현재 multicast 기본 사용 → 구독자 없는 토픽도 LAN 누출 가능. <span style="color:var(--hc-amber)">defaultMulticastLocatorList 비우기 + initialPeersList 추가</span> 다음 Isaac 재시작 시.</div>
+  </div>
+  <div class="src">참조: ros2-interface.md §FastDDS, design-ros2-bridge.md, communication-optimization.md §8</div>
+  <div class="hc-footer"><span>cobot3 · fastdds udp-only</span><span>17 / 45</span></div>
+</section>
+
+<!-- 18. 2-PC LAN SETUP -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>2-pc · lan-setup</div></div>
+  <p class="hc-prompt">cat common/site.env</p>
+  <h2 class="hc-h2">2-PC LAN — common/site.env 단일소스 IP/DOMAIN</h2>
+  <div class="lead-conclusion">양측 fastdds_*.xml 자동 치환 (__MAIN_PC_IP__/__C2_PC_IP__/__C2_LAN_IP__/__MAIN_LAN_IP__)</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">common/site.env</h3>
+      <div class="hc-codebox" style="font-size:11px">
+<span class="cm"># 단일소스 IP/도메인 설정</span>
+<span class="var">MAIN_SIDE_IP</span>=<span class="st">192.168.10.94</span>
+<span class="var">SUB1_SIDE_IP</span>=<span class="st">192.168.10.105</span>
+<span class="var">ROS_DOMAIN_ID</span>=<span class="kw">130</span>
+<span class="var">RMW_IMPLEMENTATION</span>=<span class="st">rmw_fastrtps_cpp</span>
+<span class="var">ROS_LOCALHOST_ONLY</span>=<span class="kw">0</span>
+
+<span class="cm"># fastdds 프로파일 (UDP only)</span>
+<span class="var">FASTRTPS_DEFAULT_PROFILES_FILE</span>=<span class="st">&lt;path&gt;/fastdds_no_shm.xml</span>
+      </div>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">검증 (양측 PC)</h3>
+      <div class="hc-codebox" style="font-size:11px">
+<span class="cm"># Main PC</span>
+<span class="fn">ros2 topic hz</span> /robot/odom
+<span class="cm">  → ~63 Hz</span>
+
+<span class="cm"># C2 PC (양방향 확인)</span>
+<span class="fn">ros2 topic hz</span> /c2/inspect/compressed
+<span class="cm">  → ~5 Hz</span>
+
+<span class="cm"># LAN 트래픽 (Main → C2)</span>
+<span class="fn">sudo iftop</span> -i wlp128s20f3
+<span class="cm">  → TX ~0.57 MB/s ✓</span>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: project_requirments.md §통신, ops.md §환경변수, communication-optimization.md §7</div>
+  <div class="hc-footer"><span>cobot3 · 2-pc lan setup</span><span>18 / 45</span></div>
+</section>
+
+<!-- 19. NAV2 FSM -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>nav2 · patrol fsm</div></div>
+  <p class="hc-prompt">tail /tmp/cobot3_nav2_patrol.log | grep mode=</p>
+  <h2 class="hc-h2">nav2_patrol FSM — IDLE/PATROL/HOME/ROUTING/PAUSED</h2>
+  <div class="lead-conclusion">mission_command 수신 → 상태 전이 → Nav2 action 클라이언트로 goal 전송</div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 280">
+      <defs>
+        <pattern id="grid19" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        <marker id="ah19" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#7ed3a4"/></marker>
+        <marker id="ah19r" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#fb7185"/></marker>
+      </defs>
+      <rect width="960" height="280" fill="#020617"/><rect width="960" height="280" fill="url(#grid19)"/>
+      <!-- IDLE (center) -->
+      <circle cx="480" cy="140" r="55" fill="rgba(148,163,184,.15)" stroke="#94a3b8" stroke-width="2"/>
+      <text x="480" y="135" fill="#fff" font-size="16" font-weight="700" text-anchor="middle">IDLE</text>
+      <text x="480" y="155" fill="#94a3b8" font-size="10" text-anchor="middle">대기 / 정지</text>
+      <!-- PATROL -->
+      <circle cx="180" cy="80" r="50" fill="rgba(126,211,164,.15)" stroke="#7ed3a4" stroke-width="2"/>
+      <text x="180" y="80" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">PATROL</text>
+      <text x="180" y="98" fill="#94a3b8" font-size="9" text-anchor="middle">cube → cone</text>
+      <!-- HOME -->
+      <circle cx="780" cy="80" r="50" fill="rgba(100,223,223,.15)" stroke="#64dfdf" stroke-width="2"/>
+      <text x="780" y="80" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">HOME</text>
+      <text x="780" y="98" fill="#94a3b8" font-size="9" text-anchor="middle">→ StartingPoint</text>
+      <!-- ROUTING -->
+      <circle cx="180" cy="220" r="50" fill="rgba(233,197,138,.15)" stroke="#e9c58a" stroke-width="2"/>
+      <text x="180" y="218" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">ROUTING</text>
+      <text x="180" y="236" fill="#94a3b8" font-size="9" text-anchor="middle">goto_tp:TP_*</text>
+      <!-- PAUSED -->
+      <circle cx="780" cy="220" r="50" fill="rgba(251,113,133,.15)" stroke="#fb7185" stroke-width="2"/>
+      <text x="780" y="218" fill="#fff" font-size="14" font-weight="700" text-anchor="middle">PAUSED</text>
+      <text x="780" y="236" fill="#94a3b8" font-size="9" text-anchor="middle">cmd_vel 뮤트</text>
+      <!-- transitions -->
+      <line x1="438" y1="116" x2="232" y2="92" stroke="#7ed3a4" stroke-width="1.5" marker-end="url(#ah19)"/>
+      <text x="320" y="100" fill="#7ed3a4" font-size="10">sortie</text>
+      <line x1="220" y1="100" x2="430" y2="125" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#ah19)"/>
+      <text x="320" y="125" fill="#94a3b8" font-size="9">arrive_box</text>
+      <line x1="525" y1="118" x2="730" y2="92" stroke="#64dfdf" stroke-width="1.5" marker-end="url(#ah19)"/>
+      <text x="620" y="100" fill="#64dfdf" font-size="10">home / rtb</text>
+      <line x1="438" y1="170" x2="232" y2="206" stroke="#e9c58a" stroke-width="1.5" marker-end="url(#ah19)"/>
+      <text x="320" y="190" fill="#e9c58a" font-size="10">goto_tp:TP_*</text>
+      <line x1="220" y1="220" x2="430" y2="160" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#ah19)"/>
+      <text x="320" y="220" fill="#94a3b8" font-size="9">routing done</text>
+      <line x1="525" y1="160" x2="730" y2="208" stroke="#fb7185" stroke-width="1.5" marker-end="url(#ah19r)"/>
+      <text x="620" y="195" fill="#fb7185" font-size="10">stop</text>
+      <line x1="730" y1="220" x2="525" y2="170" stroke="#7ed3a4" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#ah19)"/>
+      <text x="620" y="230" fill="#7ed3a4" font-size="9">resume</text>
+      <text x="480" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">_on_mission(command) → _start_routing(tp_id) / _send_goal_now(point) → _on_goal_result(SUCCEEDED)</text>
+    </svg>
+  </div>
+  <div class="src">참조: main-side.md §nav2_patrol.py, sub1-side.md §FSM</div>
+  <div class="hc-footer"><span>cobot3 · nav2 patrol fsm</span><span>19 / 45</span></div>
+</section>
+
+<!-- 20. REST API -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>fastapi · 17 endpoints</div></div>
+  <p class="hc-prompt">curl http://192.168.10.105:8000/docs | grep -c '/robots/'</p>
+  <h2 class="hc-h2">Web REST API — 조회 8 + 명령 6 + 영상 2 + 진단 1</h2>
+  <div class="lead-conclusion">변경 명령에만 X-API-Key 요구 (조회는 무인증)</div>
+  <table class="tbl">
+    <tr><th>Method</th><th>Path</th><th>Body / Param</th><th>Resp / 비고</th></tr>
+    <tr><td>GET</td><td>/robots/{rid}/state</td><td>—</td><td>{state, odom, gps, leg_q}</td></tr>
+    <tr><td>GET</td><td>/robots/{rid}/gps</td><td>—</td><td>{gps: lat/lon/alt}</td></tr>
+    <tr><td>GET</td><td>/telemetry/{gps_track,detections,fire_events,alerts,patrol_state}</td><td>—</td><td>DB 시계열</td></tr>
+    <tr><td>GET</td><td>/missions/state</td><td>—</td><td>patrol·intruder·landmarks 스냅샷</td></tr>
+    <tr><td>POST</td><td>/robots/{rid}/goto</td><td>{x, y}</td><td>nav_goal pub</td></tr>
+    <tr><td>POST</td><td>/robots/{rid}/cmd_vel</td><td>{linear, angular, vy?}</td><td>Twist pub, PAUSED 가드</td></tr>
+    <tr><td>POST</td><td>/robots/{rid}/fire</td><td>{target, operator, target_alert_id?}</td><td>HITL 사격 시퀀스</td></tr>
+    <tr><td>POST</td><td>/robots/{rid}/inspect</td><td>{pan?, tilt?, look_at?, look_at_pixel?, absolute?}</td><td>짐벌 명령</td></tr>
+    <tr><td>POST</td><td>/robots/{rid}/goto_tp</td><td>{tp_id: "TP_A"~"TP_D"}</td><td>ROUTING 모드 (2026-05-23)</td></tr>
+    <tr><td>GET</td><td>/robots/{rid}/preview_route?tp_id=TP_*</td><td>—</td><td>ZoneRouter Dijkstra preview (로봇 현재 world 기반)</td></tr>
+    <tr><td>POST</td><td>/missions/command</td><td>{command: sortie/home/stop/resume/idle}</td><td>mission FSM</td></tr>
+    <tr><td>POST</td><td>/weather</td><td>{rain?, wind?, snow?, fog?}</td><td>Isaac 날씨 변경</td></tr>
+    <tr><td>POST</td><td>/c2/webrtc/offer</td><td>SDP offer</td><td>aiortc answer</td></tr>
+    <tr><td>GET</td><td>/c2/video/mjpeg?camera={rear,inspect,overhead,tp_a~d,tp_grid}</td><td>—</td><td>multipart/x-mixed-replace 5fps · tp_grid = 1×4 mosaic</td></tr>
+    <tr><td>GET</td><td>/c2/sample</td><td>—</td><td>1Hz: latest + rx 카운터 + publishers + env</td></tr>
+  </table>
+  <div class="src">참조: sub1-side.md §FastAPI REST 엔드포인트</div>
+  <div class="hc-footer"><span>cobot3 · web rest api</span><span>20 / 45</span></div>
+</section>
+
+<!-- 21. WS EVENTS -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>websocket · /events stream</div></div>
+  <p class="hc-prompt">wscat -c ws://192.168.10.105:8000/events</p>
+  <h2 class="hc-h2">WS /events — 16 type 단방향 실시간 multicast</h2>
+  <div class="lead-conclusion">state/gps/log/detection/alert/animal_alert/fire/weapon_state/wind/fall/patrol/intruder/landmarks/routing/diag</div>
+  <table class="tbl">
+    <tr><th>type</th><th>data</th><th>Hz</th><th>UI 소비처</th></tr>
+    <tr><td>state</td><td>mode/gait/battery/waypoint/odom?</td><td>5</td><td>TelemetryStrip, StatusHeader</td></tr>
+    <tr><td>gps</td><td>{lat,lon,alt}</td><td>5</td><td>MapTrack (track)</td></tr>
+    <tr><td>log</td><td>{level, node, msg}</td><td>event</td><td>EventLog (WARN+)</td></tr>
+    <tr><td>detection</td><td>YOLO bbox 전체</td><td>event</td><td>DualCameraView bbox overlay</td></tr>
+    <tr><td>alert / animal_alert</td><td>person/animal 정책 통과</td><td>event</td><td>AlertsLog, AnimalAlertsLog</td></tr>
+    <tr><td>fire</td><td>{target, hit, distance_m}</td><td>event</td><td>WeaponFireControl</td></tr>
+    <tr><td>weapon_state</td><td>FSM (READY/COCKED/FIRED)</td><td>1 latched</td><td>WeaponFireControl badge</td></tr>
+    <tr><td>wind_state</td><td>Vector3 (m/s)</td><td>5 (20→down)</td><td>WindGauge</td></tr>
+    <tr><td>fall_alert / fall_state</td><td>edge + 2Hz snapshot</td><td>event + 2</td><td>FallStatusBadge</td></tr>
+    <tr><td>patrol_state</td><td>FSM mode/waypoint/route/pose</td><td>5</td><td>PatrolControls, MapTrack</td></tr>
+    <tr><td>intruder_state</td><td>NPC GT 위치</td><td>5</td><td>MapTrack (빨강 점)</td></tr>
+    <tr><td>landmarks</td><td>cube/cone/fence/zones/tps</td><td>1 latched</td><td>MapTrack 좌표계 setup</td></tr>
+    <tr><td>routing_state</td><td>tp_id/route/current_idx</td><td>event</td><td>MapTrack 라우팅 점선 (amber)</td></tr>
+    <tr><td>diag</td><td>rx 카운터 + publishers + health</td><td>0.2 (5s)</td><td>TopicHealthMonitor</td></tr>
+  </table>
+  <div class="src">참조: sub1-side.md §WebSocket 이벤트</div>
+  <div class="hc-footer"><span>cobot3 · ws /events</span><span>21 / 45</span></div>
+</section>
+
+<!-- 22. FOXGLOVE SDK -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>foxglove · sdk-native :8767</div></div>
+  <p class="hc-prompt">cat foxglove_sdk_publisher.py | grep -E 'sdk_channel\('</p>
+  <h2 class="hc-h2">Foxglove SDK native — :8767, String JSON → well-known schema</h2>
+  <div class="lead-conclusion">5 채널: intruder/landmark markers, patrol goal, inspect annotations, alert log</div>
+  <table class="tbl">
+    <tr><th>채널</th><th>Foxglove schema</th><th>변환 소스</th><th>시각화</th></tr>
+    <tr><td>/sdk/intruder_markers</td><td>SceneUpdate (SpherePrimitive)</td><td>/intruder_states</td><td>3D 빨강 구체 (NPC 위치)</td></tr>
+    <tr><td>/sdk/landmark_markers</td><td>SceneUpdate (CubePrimitive)</td><td>/scene/landmarks</td><td>3D 큐브 (home/goal/fence)</td></tr>
+    <tr><td>/sdk/patrol_goal_pose</td><td>PoseInFrame</td><td>/patrol_state.waypoint</td><td>3D 화살표 (현재 목표)</td></tr>
+    <tr><td>/sdk/inspect_annotations</td><td>ImageAnnotations</td><td>/detections_text</td><td>2D bbox + label overlay</td></tr>
+    <tr><td>/sdk/alert_log</td><td>foxglove.Log (level=WARNING)</td><td>/alerts</td><td>Log panel</td></tr>
+  </table>
+  <div class="hc-card" style="margin-top:14px">
+    <div class="lbl">// Lichtblick 연결 — 두 데이터 소스 동시</div>
+    <div class="desc">foxglove_bridge :8765 (전 토픽) + foxglove_sdk_publisher :8767 (변환된 5채널 well-known). Lichtblick layout.json에 둘 다 등록.</div>
+  </div>
+  <div class="src">참조: sub1-side.md §Foxglove SDK Python 사이드카</div>
+  <div class="hc-footer"><span>cobot3 · foxglove sdk channels</span><span>22 / 45</span></div>
+</section>
+
+<!-- 23. DUALSENSE -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>dualsense · ps5-gamepad · pygame</div></div>
+  <p class="hc-prompt">cat dualsense_worker.py | grep -E 'AXIS_|BTN_'</p>
+  <h2 class="hc-h2">DualSense — 30 Hz 폴링, L-stick(짐벌) + D-pad(이동) + 버튼(미션)</h2>
+  <div class="lead-conclusion">INSPECT_RATE 2°/s (정밀 조준), 데드존 0.30, exp 곡선 |stick|^1.2</div>
+  <div class="hc-grid-2">
+    <div>
+      <table class="tbl">
+        <tr><th>입력</th><th>기능</th></tr>
+        <tr><td>L-stick X/Y</td><td>inspect 카메라 pan/tilt ±70°, <span style="color:var(--hc-amber)">2°/s</span></td></tr>
+        <tr><td>L2 / R2</td><td>inspect zoom in / out (focal 변동)</td></tr>
+        <tr><td>D-pad ↑/↓/←/→</td><td>base movement strafe</td></tr>
+        <tr><td>R-stick X</td><td>yaw 회전</td></tr>
+        <tr><td>× (cross)</td><td>stop_toggle (정지/재개)</td></tr>
+        <tr><td>△ (triangle)</td><td>sortie (PATROL 시작)</td></tr>
+        <tr><td>○ (circle)</td><td>home (HOME 복귀)</td></tr>
+        <tr><td>□ (square)</td><td>fire (HITL 사격 트리거)</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 23</div>
+        <div style="font-size:18px;color:var(--hc-amber)">PS5 DualSense 사진</div>
+        <div class="ph-desc">상단 뷰 + 키 매핑 화살표 overlay 권장.<br>또는 dualsense_worker.py 설명용 컨트롤러 다이어그램.</div>
+      </div>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 동작 흐름</div><div class="desc">pygame.joystick 50Hz 폴링 → ros_bridge.pub_cmd_vel / pub_inspect_cmd / pub_mission. WS state event로 게임패드 상태 UI 표시 (DualSenseStatus).</div></div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §DualSense worker</div>
+  <div class="hc-footer"><span>cobot3 · dualsense gamepad</span><span>23 / 45</span></div>
+</section>
+
+<!-- ============================================================
+     SECTION E — 자율 기능 (24~29)
+     ============================================================ -->
+
+<!-- 24. YOLO INFERENCE -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 04/08 · autonomy</div></div>
+  <p class="hc-prompt">cat sub1_side/server/yolo_infer.py | head -5</p>
+  <h2 class="hc-h2">YOLO inference — C2 서버측, dmz_sentry_best.pt 2-class</h2>
+  <div class="lead-conclusion">channel policy: C2_YOLO_CAMERAS=inspect,tp_a (기본 2채널, CPU 60%)</div>
+  <div class="hc-grid-2">
+    <div>
+      <table class="tbl">
+        <tr><th colspan="2">모델</th></tr>
+        <tr><td>weights</td><td>dmz_sentry_best.pt (2-class: person, animal)</td></tr>
+        <tr><td>backbone</td><td>YOLOv8n (FP16 권장)</td></tr>
+        <tr><td>input</td><td>640×360 BGR (degrade JPEG decode)</td></tr>
+        <tr><td>conf 임계</td><td>0.7 (단일 임계, bbox+alert 동일)</td></tr>
+        <tr><td>cooldown</td><td>person 3s / animal 5s</td></tr>
+      </table>
+      <table class="tbl" style="margin-top:10px">
+        <tr><th colspan="2">채널 정책 (C2_YOLO_CAMERAS env)</th></tr>
+        <tr><td>기본</td><td>inspect, tp_a (CPU 60%)</td></tr>
+        <tr><td>전체</td><td>inspect, tp_a, tp_b, tp_c, tp_d</td></tr>
+        <tr><td>출력</td><td>bbox + conf + cls + world_xyz (TP는 3D)</td></tr>
+        <tr><td>DB</td><td>detection_events (kind='detection')</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 24</div>
+        <div style="font-size:18px;color:var(--hc-amber)">YOLO 탐지 결과 스크린샷</div>
+        <div class="ph-desc">inspect 카메라 + 빨강 bbox + class label (person 0.94, animal 0.78).<br>웹 DualCameraView 캡처 권장.</div>
+      </div>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// alert 정책</div><div class="desc">conf ≥0.7 + cooldown 미경과 → /alerts (person) 또는 /animal_alerts (animal) 발행 → AlertsLog UI + Foxglove SDK 변환.</div></div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §ros_bridge YOLO, config.py YOLO_*, communication-optimization.md §5</div>
+  <div class="hc-footer"><span>cobot3 · yolo inference</span><span>24 / 45</span></div>
+</section>
+
+<!-- 25. 3D PROJECTION -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>3d-projection · depth → world</div></div>
+  <p class="hc-prompt">def _project_detection_to_map(camera, det, image_shape)</p>
+  <h2 class="hc-h2">3D Projection — TP depth (PNG 16UC1) → bbox 중앙 거리 → world XY</h2>
+  <div class="lead-conclusion">depth 320×180 다운샘플 호환 + pinhole projection (fx=W/(2·tan(FOV/2)))</div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 240">
+      <defs>
+        <pattern id="grid25" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        <marker id="ah25" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="#7ed3a4"/></marker>
+      </defs>
+      <rect width="960" height="240" fill="#020617"/><rect width="960" height="240" fill="url(#grid25)"/>
+      <!-- 1. depth msg -->
+      <rect x="40" y="60" width="140" height="100" rx="5" fill="rgba(167,139,250,.15)" stroke="#a78bfa"/>
+      <text x="110" y="82" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">1. depth msg</text>
+      <text x="110" y="104" fill="#94a3b8" font-size="9" text-anchor="middle">CompressedImage</text>
+      <text x="110" y="118" fill="#94a3b8" font-size="9" text-anchor="middle">PNG 16UC1 320×180</text>
+      <text x="110" y="138" fill="#a78bfa" font-size="9" text-anchor="middle">~22 KB/msg</text>
+      <line x1="180" y1="110" x2="216" y2="110" stroke="#7ed3a4" marker-end="url(#ah25)"/>
+      <!-- 2. decode -->
+      <rect x="216" y="60" width="160" height="100" rx="5" fill="rgba(126,211,164,.15)" stroke="#7ed3a4"/>
+      <text x="296" y="82" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">2. _decode_depth</text>
+      <text x="296" y="104" fill="#94a3b8" font-size="9" text-anchor="middle">cv2.imdecode PNG</text>
+      <text x="296" y="118" fill="#94a3b8" font-size="9" text-anchor="middle">→ uint16 mm</text>
+      <text x="296" y="138" fill="#94a3b8" font-size="9" text-anchor="middle">→ float32 meter</text>
+      <line x1="376" y1="110" x2="412" y2="110" stroke="#7ed3a4" marker-end="url(#ah25)"/>
+      <!-- 3. YOLO bbox -->
+      <rect x="412" y="60" width="160" height="100" rx="5" fill="rgba(233,197,138,.15)" stroke="#e9c58a"/>
+      <text x="492" y="82" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">3. bbox 중앙 샘플</text>
+      <text x="492" y="104" fill="#94a3b8" font-size="9" text-anchor="middle">_sample_depth</text>
+      <text x="492" y="118" fill="#94a3b8" font-size="9" text-anchor="middle">sx,sy = dh/iw 자동 비율</text>
+      <text x="492" y="138" fill="#e9c58a" font-size="9" text-anchor="middle">depth_map[cy, cx] (m)</text>
+      <line x1="572" y1="110" x2="608" y2="110" stroke="#7ed3a4" marker-end="url(#ah25)"/>
+      <!-- 4. pinhole -->
+      <rect x="608" y="60" width="160" height="100" rx="5" fill="rgba(100,223,223,.15)" stroke="#64dfdf"/>
+      <text x="688" y="82" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">4. pinhole inverse</text>
+      <text x="688" y="104" fill="#94a3b8" font-size="9" text-anchor="middle">CameraInfo fx/fy/cx/cy</text>
+      <text x="688" y="118" fill="#94a3b8" font-size="9" text-anchor="middle">ray = ((px-cx)/fx, ...)·d</text>
+      <text x="688" y="138" fill="#64dfdf" font-size="9" text-anchor="middle">camera frame XYZ (m)</text>
+      <line x1="768" y1="110" x2="804" y2="110" stroke="#7ed3a4" marker-end="url(#ah25)"/>
+      <!-- 5. world -->
+      <rect x="804" y="60" width="140" height="100" rx="5" fill="rgba(126,211,164,.20)" stroke="#7ed3a4"/>
+      <text x="874" y="82" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">5. world frame</text>
+      <text x="874" y="104" fill="#94a3b8" font-size="9" text-anchor="middle">+ TP pose + yaw</text>
+      <text x="874" y="138" fill="#7ed3a4" font-size="11" text-anchor="middle">world (x, y, z)</text>
+      <!-- bottom labels -->
+      <text x="480" y="200" fill="#7ed3a4" font-size="10" text-anchor="middle">→ detection_events.world_xyz · MapTrack 빨강 점 표시</text>
+      <text x="480" y="218" fill="#94a3b8" font-size="9" text-anchor="middle">정확도: depth median + valid mask (0.2 &lt; d &lt; 350m), bbox 중앙 r=5 ROI</text>
+    </svg>
+  </div>
+  <div class="src">참조: sub1-side.md §_sample_depth + _project_detection_to_map</div>
+  <div class="hc-footer"><span>cobot3 · 3d projection</span><span>25 / 45</span></div>
+</section>
+
+<!-- 26. FIRE HITL -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>weapon · hitl-fire-sequence</div></div>
+  <p class="hc-prompt">POST /robots/{rid}/fire {target, operator}</p>
+  <h2 class="hc-h2">사격 HITL — look_at_pixel 조준 + raycast 히트 + FireEvent</h2>
+  <div class="lead-conclusion">DUAL CAMERA 더블클릭 = inspect 절대 조준 → 안전 잠금 해제 → fire 트리거</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">시퀀스</h3>
+      <table class="tbl">
+        <tr><td>1</td><td>inspect 카메라 더블클릭 → look_at_pixel</td></tr>
+        <tr><td>2</td><td>safety 잠금 해제 (WeaponSafetyContext UI)</td></tr>
+        <tr><td>3</td><td>POST /robots/{rid}/fire {target, operator}</td></tr>
+        <tr><td>4</td><td>weapon_relay → /robot/weapon/fire Trigger</td></tr>
+        <tr><td>5</td><td>camera_publisher: inspect 시선 raycast → hit 판정</td></tr>
+        <tr><td>6</td><td>트레이서 prim 1프레임 (cyan line)</td></tr>
+        <tr><td>7</td><td>FireEvent → DB fire_events + WS fire emit</td></tr>
+      </table>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// hit/miss</div><div class="desc">PhysX raycast intersection → 침입자 prim 히트 시 hit=True, distance_m 기록. operator 필드로 인적 운용자 추적.</div></div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 26</div>
+        <div style="font-size:18px;color:var(--hc-amber)">사격 시뮬 스크린샷</div>
+        <div class="ph-desc">inspect 카메라 뷰 + 빨강 reticle + 침입자 NPC + 트레이서 빔.<br>HITL 사격 인터페이스 (WeaponFireControl 패널 포함) 권장.</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: gp-quadruped-system-design.md §사격 시뮬, sub1-side.md §WeaponFireControl</div>
+  <div class="hc-footer"><span>cobot3 · weapon hitl fire</span><span>26 / 45</span></div>
+</section>
+
+<!-- 27. FALL RECOVERY -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>fall · auto-recovery · 10s cooldown</div></div>
+  <p class="hc-prompt">tail /tmp/cobot3_isaac_gui.console.log | grep -i fall</p>
+  <h2 class="hc-h2">Fall Detection — z&lt;-5 or ω&gt;50 rad/s → home teleport (10s cooldown)</h2>
+  <div class="lead-conclusion">physics 폭발/맵 탈출 즉시 감지 → 정책+fall 상태 초기화 → 시뮬 보존</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">_tick_oob_check (매 정책 tick)</h3>
+      <div class="hc-codebox" style="font-size:11px">
+<span class="cm"># 1) 물리폭발 감지</span>
+<span class="kw">if</span> <span class="fn">|w|</span> &gt; <span class="st">50</span> rad/s <span class="kw">or</span>
+   <span class="fn">|v|</span> &gt; <span class="st">30</span> m/s:
+    <span class="fn">_teleport_home</span>()
+
+<span class="cm"># 2) 맵탈출 감지</span>
+<span class="kw">if</span> z &lt; <span class="st">-5</span> m <span class="kw">or</span> z &gt; <span class="st">100</span>:
+    <span class="fn">_teleport_home</span>()
+
+<span class="cm"># 3) 복귀 (non-physics)</span>
+<span class="fn">stage.set_pose</span>(StartingPoint)
+<span class="fn">robot.initialize</span>()  <span class="cm"># 정책 리셋</span>
+<span class="fn">fall_state.reset</span>()
+<span class="cm"># 10s cooldown 후 next check 재개</span>
+      </div>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">fall_state FSM</h3>
+      <table class="tbl">
+        <tr><th>state</th><th>의미</th></tr>
+        <tr><td>UPRIGHT</td><td>정상 보행 (up_z &gt; 0.7)</td></tr>
+        <tr><td>FALLEN</td><td>임계 초과 (z dim 또는 각속도)</td></tr>
+        <tr><td>RECOVERING</td><td>teleport 중 (cooldown 진입)</td></tr>
+        <tr><td>RECOVERED</td><td>teleport 완료 + 정책 재초기화</td></tr>
+      </table>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 관찰성</div><div class="desc">/robot/fall_alert (edge JSON) + /robot/fall_state (2Hz 스냅샷) → FallStatusBadge UI · 웹 화면 빨강 깜빡 트리거 (alertActive 8s).</div></div>
+    </div>
+  </div>
+  <div class="src">참조: main-side.md §_tick_oob_check + _teleport_home, sub1-side.md §FallStatusBadge</div>
+  <div class="hc-footer"><span>cobot3 · fall recovery</span><span>27 / 45</span></div>
+</section>
+
+<!-- 28. NPC SPAWN -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>npc · spawn + ground-truth</div></div>
+  <p class="hc-prompt">POST /robots/{rid}/spawn_npc {forward_m, count}</p>
+  <h2 class="hc-h2">NPC 시뮬 — npc_relay 스폰 + /intruder_states GT + Foxglove markers</h2>
+  <div class="lead-conclusion">YOLO 정확도 평가용 ground-truth 동시 기록 (detection_events kind='gt_state')</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">스폰 흐름</h3>
+      <table class="tbl">
+        <tr><td>1</td><td>NpcSpawnButton UI → POST /robots/{rid}/spawn_npc</td></tr>
+        <tr><td>2</td><td>ros_bridge.pub_npc_spawn → /robot/npc/spawn (String JSON)</td></tr>
+        <tr><td>3</td><td>npc_relay: file mailbox /tmp/cobot3_npc_cmd.json</td></tr>
+        <tr><td>4</td><td>camera_publisher: poll → ArticulatedSkeleton/Capsule prim 추가</td></tr>
+        <tr><td>5</td><td>매 tick /intruder_states (String JSON) ground-truth 발행</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">DB ground-truth</h3>
+      <div class="hc-codebox" style="font-size:11px">
+<span class="cm"># detection_events (통합 테이블)</span>
+INSERT <span class="kw">INTO</span> detection_events
+ (ts, robot_id, source, <span class="hl">kind</span>,
+  intruder_id, world_x, world_y, world_z,
+  class_name)
+VALUES
+ (now(), <span class="st">'gp0'</span>, <span class="st">'ground_truth'</span>,
+  <span class="hl"><span class="st">'gt_state'</span></span>,
+  <span class="st">'npc_001'</span>, 199.0, 902.5, 4.5,
+  <span class="st">'person'</span>);
+      </div>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 평가</div><div class="desc">YOLO detection (kind='detection') vs ground-truth (kind='gt_state') 시간 join → precision/recall 통계.</div></div>
+    </div>
+  </div>
+  <div class="src">참조: main-side.md §npc_relay.py, sub1-side.md §detection_events</div>
+  <div class="hc-footer"><span>cobot3 · npc spawn + ground-truth</span><span>28 / 45</span></div>
+</section>
+
+<!-- 29. VOICE -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>voice · ws-pcm · speaker-relay</div></div>
+  <p class="hc-prompt">POST /robots/{rid}/speaker {preset:"warning"}</p>
+  <h2 class="hc-h2">음성 & 확성기 — 마이크 → WS → /robot/speaker/audio → Isaac 자막</h2>
+  <div class="lead-conclusion">2 경로: 프리셋 텍스트 (저대역) + 마이크 PCM Opus (양방향 stretch)</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">경로 1: 프리셋 (저대역)</h3>
+      <table class="tbl">
+        <tr><td>1</td><td>SpeakerControls UI 버튼 (예: "엎드려")</td></tr>
+        <tr><td>2</td><td>POST /robots/{rid}/speaker {preset: "warning"}</td></tr>
+        <tr><td>3</td><td>ros_bridge.send_speaker → /robot/speaker/audio (String JSON)</td></tr>
+        <tr><td>4</td><td>Isaac console: "송출중: {preset_text}"</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">경로 2: 마이크 PCM (양방향)</h3>
+      <table class="tbl">
+        <tr><td>1</td><td>브라우저 PTT (push-to-talk) Web Audio API</td></tr>
+        <tr><td>2</td><td>Opus 인코딩 → WS binary frame</td></tr>
+        <tr><td>3</td><td>server_bridge → /robot/speaker/audio (pcm_b64, rate)</td></tr>
+        <tr><td>4</td><td>FireEvent 류 로깅 (시뮬 음원 없음 — P4 TTS 합성)</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="hc-card" style="margin-top:14px">
+    <div class="lbl">// 현재 한계</div>
+    <div class="desc">Isaac 음원 출력 없음 → console.log 자막으로 표현. <span style="color:var(--hc-amber)">P4 계획</span>: TTS 합성 + 시뮬 스피커 prim 추가.</div>
+  </div>
+  <div class="src">참조: gp-quadruped-system-design.md §양방향 음성, sub1-side.md §speaker endpoint</div>
+  <div class="hc-footer"><span>cobot3 · voice & speaker</span><span>29 / 45</span></div>
+</section>
+
+<!-- ============================================================
+     SECTION F — Web UI (30~35)
+     ============================================================ -->
+
+<!-- 30. MAIN PAGE -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 05/08 · web-ui</div></div>
+  <p class="hc-prompt">curl http://192.168.10.105:3000/ | grep '<section'</p>
+  <h2 class="hc-h2">메인 페이지 — HERO + CONTROLS + ALERTS + 푸터</h2>
+  <div class="lead-conclusion">app/page.tsx · grid 12-col · 4-row 시각 위계 (HERO 가장 큰 영역)</div>
+  <div class="col2">
+    <div>
+      <table class="tbl">
+        <tr><th colspan="2">레이아웃 섹션 (위→아래)</th></tr>
+        <tr><td>상단</td><td>StatusHeader + TelemetryStrip + WindGauge + FallStatusBadge</td></tr>
+        <tr><td>HERO (xl:9+3)</td><td>DualCameraView (75%) + MapTrack (25%)</td></tr>
+        <tr><td>ROW 2 (8+4)</td><td>TacticalOpsPanel (weapon/route) + RobotControlPanel</td></tr>
+        <tr><td>ROW 3 (8+4)</td><td>AlertsLog + AnimalAlertsLog</td></tr>
+        <tr><td>ROW 4 (8+4)</td><td>WeatherControl + NpcSpawnButton</td></tr>
+      </table>
+      <table class="tbl" style="margin-top:10px">
+        <tr><th colspan="2">주요 컴포넌트 prop</th></tr>
+        <tr><td>StatusHeader</td><td>wsOk, landmarks</td></tr>
+        <tr><td>DualCameraView</td><td>liveAlerts, tpDetections</td></tr>
+        <tr><td>MapTrack</td><td>track, cur, landmarks, intruders, patrolState, alertActive, routingState, previewRoute</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 30</div>
+        <div style="font-size:18px;color:var(--hc-amber)">웹 메인 페이지 스크린샷</div>
+        <div class="ph-desc">http://192.168.10.105:3000 풀스크린.<br>HERO 카메라+지도, CONTROLS, ALERTS 전체 보이도록 캡처.</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §Next.js 메인 페이지</div>
+  <div class="hc-footer"><span>cobot3 · web main page</span><span>30 / 45</span></div>
+</section>
+
+<!-- 31. DUAL CAMERA -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>component · dual-camera-view</div></div>
+  <p class="hc-prompt">curl /c2/video/mjpeg?camera=tp_grid -o /tmp/grid.bin</p>
+  <h2 class="hc-h2">DUAL CAMERA — inspect + rear + TP_A~D mosaic (단일 MJPEG)</h2>
+  <div class="lead-conclusion">tp_grid 1×4 가로 strip (1280×180) — HTTP/1.1 origin 6-conn 제한 회피</div>
+  <div class="col2">
+    <div>
+      <table class="tbl">
+        <tr><th>패널</th><th>토픽</th><th>비고</th></tr>
+        <tr><td>InspectCamera (1)</td><td>/c2/video/mjpeg?camera=inspect</td><td>YOLO bbox overlay + 더블클릭 = look_at_pixel</td></tr>
+        <tr><td>RearCamera (1)</td><td>/c2/video/mjpeg?camera=rear</td><td>후방 모니터</td></tr>
+        <tr><td><span style="color:var(--hc-amber)">TacticalGrid (1)</span></td><td>/c2/video/mjpeg?camera=<span style="color:var(--hc-amber)">tp_grid</span></td><td>1×4 가로 mosaic + 4 quadrant 오버레이 (TP-A/B/C/D 라벨)</td></tr>
+      </table>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 왜 mosaic?</div><div class="desc">브라우저 HTTP/1.1 = origin 당 6 connection 제한. inspect+rear+overhead+TP×4+WS+REST → 한계 초과 → 새로고침마다 1 채널 누락. 백엔드에서 4 TP를 단일 frame으로 합쳐 1 connection으로 4 채널 표시.</div></div>
+      <div class="hc-card" style="margin-top:8px"><div class="lbl">// 백엔드 _build_tp_grid_frame</div><div class="desc">get_video_frame(tp_a..d) × 320×180 hconcat (cv2) → JPEG q50 → multipart 5fps.</div></div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 31</div>
+        <div style="font-size:18px;color:var(--hc-amber)">DualCameraView 스크린샷</div>
+        <div class="ph-desc">상단: inspect (YOLO bbox) + rear<br>하단: tp_grid mosaic 4 패널.<br>가능하면 침입자 detection bbox 포함.</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §DualCameraView, CHANGELOG.md mosaic 추가</div>
+  <div class="hc-footer"><span>cobot3 · dual camera view</span><span>31 / 45</span></div>
+</section>
+
+<!-- 32. TACTICAL MAP -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>component · map-track · overhead-bg</div></div>
+  <p class="hc-prompt">cat components/MapTrack.tsx | head -30</p>
+  <h2 class="hc-h2">TACTICAL MAP — overhead 배경 ±262m + 라우팅/경로/TP/궤적</h2>
+  <div class="lead-conclusion">CSS scale (262/extent) 동적 정합 · w2o() world→odom · 클릭 = goto</div>
+  <div class="col2">
+    <div>
+      <table class="tbl">
+        <tr><th>레이어</th><th>소스</th><th>표시</th></tr>
+        <tr><td>배경</td><td>/c2/video/mjpeg?camera=overhead</td><td>200m height MJPEG (SSR-safe useEffect)</td></tr>
+        <tr><td>궤적 (track)</td><td>cur.odom 누적</td><td>phos 그린 선</td></tr>
+        <tr><td>routing zones (16)</td><td>landmarks.routing_zones</td><td>회색 점선 (preview) / amber 점선 (active)</td></tr>
+        <tr><td>TP 마커 (4)</td><td>landmarks.tactical_points</td><td>amber tri (활성) / 빨강 tri (비활성)</td></tr>
+        <tr><td>intruder (GT)</td><td>intruders[]</td><td>빨강 점 + 펄스 ring</td></tr>
+        <tr><td>cube/cone</td><td>landmarks.{cube,cone}</td><td>파랑 사각 + 주황 삼각</td></tr>
+        <tr><td>fence</td><td>landmarks.fence[]</td><td>회색 점 라인</td></tr>
+        <tr><td>FOV cone</td><td>cur.yaw + ±60° (inspect/rear)</td><td>phos/amber wedge gradient</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 32</div>
+        <div style="font-size:18px;color:var(--hc-amber)">MapTrack 스크린샷</div>
+        <div class="ph-desc">overhead 배경 + 궤적 + TP 마커 + 라우팅 amber 점선 + 침입자.<br>±150~200m 줌 권장 (TP 전부 보이는 범위).</div>
+      </div>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 좌표계</div><div class="desc">w2o() = world - StartingPoint = odom 변환. zone/TP는 world 좌표라 변환 필수. CSS scale = OVERHEAD_GROUND_HALF / view.extent 동적 zoom.</div></div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §MapTrack, CHANGELOG.md TACTICAL MAP 정합</div>
+  <div class="hc-footer"><span>cobot3 · tactical map</span><span>32 / 45</span></div>
+</section>
+
+<!-- 33. PATROL CONTROLS -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>component · patrol-controls + tactical-ops</div></div>
+  <p class="hc-prompt">POST /missions/command {command:"sortie"}</p>
+  <h2 class="hc-h2">미션 제어 — sortie/home/stop/resume/idle 5 버튼 + ROUTING TP</h2>
+  <div class="lead-conclusion">PatrolControls + TacticalPointsPanel + WeaponFireControl 통합 (TacticalOpsPanel)</div>
+  <div class="col2">
+    <div>
+      <table class="tbl">
+        <tr><th>버튼</th><th>액션</th><th>전이</th></tr>
+        <tr><td>SORTIE</td><td>/missions/command sortie</td><td>IDLE → PATROL → /robot/nav/goal (cone)</td></tr>
+        <tr><td>HOME (RTB)</td><td>/missions/command home</td><td>* → HOME → /robot/nav/goal (cube)</td></tr>
+        <tr><td>STOP</td><td>/missions/command stop</td><td>* → PAUSED (cmd_vel safety filter 뮤트)</td></tr>
+        <tr><td>RESUME</td><td>/missions/command resume</td><td>PAUSED → 이전 상태</td></tr>
+        <tr><td>IDLE</td><td>/missions/command idle</td><td>* → IDLE (cmd_vel 0)</td></tr>
+        <tr><td>TP_A~D</td><td>POST /robots/{rid}/goto_tp</td><td>ROUTING (ZoneRouter Dijkstra)</td></tr>
+      </table>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 진행률</div><div class="desc">/routing_state.current_idx / total → progress bar 표시. 라우팅 중 amber 점선 라인 강조 + 현재 zone 원형 마커.</div></div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 33</div>
+        <div style="font-size:18px;color:var(--hc-amber)">TacticalOpsPanel 스크린샷</div>
+        <div class="ph-desc">PatrolControls (5 버튼) + TacticalPointsPanel (TP_A~D + 미리보기)<br>+ WeaponFireControl 통합 뷰.</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §PatrolControls, TacticalPointsPanel, WeaponFireControl</div>
+  <div class="hc-footer"><span>cobot3 · mission control</span><span>33 / 45</span></div>
+</section>
+
+<!-- 34. MOVEMENT PANEL -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>component · base-movement + teleop</div></div>
+  <p class="hc-prompt">POST /robots/{rid}/cmd_vel {linear:0.5, angular:0.2}</p>
+  <h2 class="hc-h2">움직임 & 조종 — 8방향 + WASD + 슬라이더 + DualSense status</h2>
+  <div class="lead-conclusion">RobotControlPanel = BaseMovementPanel + DualSenseStatus + (선택) TeleopPad</div>
+  <div class="col2">
+    <div>
+      <table class="tbl">
+        <tr><th>인터페이스</th><th>매핑</th></tr>
+        <tr><td>8-방향 패드</td><td>↑/↓/←/→/↖/↗/↙/↘ (strafe + diagonal)</td></tr>
+        <tr><td>슬라이더</td><td>속도 0~1.0 m/s (cmd_vel 스케일)</td></tr>
+        <tr><td>키보드 WASD</td><td>전후좌우 이동 (strafe)</td></tr>
+        <tr><td>QE</td><td>회전 yaw ±</td></tr>
+        <tr><td>Space</td><td>긴급 정지 (PAUSED)</td></tr>
+        <tr><td>DualSense 표시</td><td>연결 상태 + 키 매핑 표 + 배터리</td></tr>
+      </table>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// PAUSED 가드</div><div class="desc">ros_bridge.pub_cmd_vel 진입 시 latest["patrol_state"].mode == "PAUSED" 확인 → 즉시 return. velocity_smoother/dualsense/web teleop 잔여 발행을 모두 차단.</div></div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 34</div>
+        <div style="font-size:18px;color:var(--hc-amber)">RobotControlPanel 스크린샷</div>
+        <div class="ph-desc">BaseMovementPanel (8-방향 + 속도) + DualSenseStatus (게임패드 상태).<br>가능하면 cmd_vel 라이브 로그 같이 포함.</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §BaseMovementPanel, DualSenseStatus, PAUSED race fix</div>
+  <div class="hc-footer"><span>cobot3 · movement & control</span><span>34 / 45</span></div>
+</section>
+
+<!-- 35. INSPECTOR -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>component · inspector-camera-panel</div></div>
+  <p class="hc-prompt">POST /robots/{rid}/inspect {pan:0.5, absolute:true}</p>
+  <h2 class="hc-h2">검사 카메라 — pan/tilt/zoom + look_at + 2°/click</h2>
+  <div class="lead-conclusion">백엔드 _qz(-pan)*_qy(-tilt) 컨벤션 → 웹 ▶▲ = 카메라 우/상 (직관 정합)</div>
+  <div class="col2">
+    <div>
+      <table class="tbl">
+        <tr><th>인터페이스</th><th>동작</th></tr>
+        <tr><td>슬라이더 PAN/TILT</td><td>±70° 절대값 (continuous)</td></tr>
+        <tr><td>▶ ◀ 버튼</td><td>pan ±2°/click (2026-05-24 정밀화)</td></tr>
+        <tr><td>▲ ▼ 버튼</td><td>tilt ±2°/click</td></tr>
+        <tr><td>ZOOM +/−</td><td>focal 스케일 ×1.25 / ×0.8 (8~90mm clamp)</td></tr>
+        <tr><td>맵 Shift+클릭</td><td>look_at 절대 좌표 (world XY)</td></tr>
+        <tr><td>RESET (○)</td><td>pan=tilt=0, focal=18mm</td></tr>
+      </table>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 부호 컨벤션 통일 (2026-05-24)</div><div class="desc">백엔드 q_user = _qz(<span style="color:var(--hc-amber)">-pan</span>)*_qy(<span style="color:var(--hc-amber)">-tilt</span>). 웹/DualSense (오른쪽=+pan, 위=+tilt 직관) + look_at = -atan2(dy,dx). 모든 클라이언트 일관성.</div></div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 35</div>
+        <div style="font-size:18px;color:var(--hc-amber)">InspectorCameraPanel 스크린샷</div>
+        <div class="ph-desc">슬라이더 + 8 방향 버튼 (▲▼◀▶◯)<br>+ zoom +/- + 현재 pan/tilt/zoom 값 표시.</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: sub1-side.md §InspectorCameraPanel, main-side.md §_qz(-pan) 부호</div>
+  <div class="hc-footer"><span>cobot3 · inspector camera</span><span>35 / 45</span></div>
+</section>
+
+<!-- ============================================================
+     SECTION G — 최적화 성과 (36~40)
+     ============================================================ -->
+
+<!-- 36. COMM EFFICIENCY -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 06/08 · optimization</div></div>
+  <p class="hc-prompt">iftop -i wlp128s20f3 | grep Cumulative</p>
+  <h2 class="hc-h2">통신 효율화 — 17.9 MB/s → 0.57 MB/s (97% ↓)</h2>
+  <div class="lead-conclusion">실측 베이스라인 + Tier 1~3 5 변경 + 재측정 검증</div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 240">
+      <defs><pattern id="grid36" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+      <rect width="960" height="240" fill="#020617"/><rect width="960" height="240" fill="url(#grid36)"/>
+      <text x="480" y="24" fill="#7ed3a4" font-size="13" text-anchor="middle" font-weight="700">Main → C2 LAN TX (KB/s 단위)</text>
+      <!-- y axis -->
+      <line x1="80" y1="50" x2="80" y2="200" stroke="#94a3b8" stroke-width="1"/>
+      <text x="70" y="55" fill="#94a3b8" font-size="9" text-anchor="end">18,000</text>
+      <text x="70" y="105" fill="#94a3b8" font-size="9" text-anchor="end">12,000</text>
+      <text x="70" y="155" fill="#94a3b8" font-size="9" text-anchor="end">6,000</text>
+      <text x="70" y="205" fill="#94a3b8" font-size="9" text-anchor="end">0</text>
+      <!-- BEFORE bar -->
+      <rect x="120" y="52" width="100" height="148" fill="rgba(251,113,133,.45)" stroke="#fb7185" stroke-width="1.5"/>
+      <text x="170" y="46" fill="#fb7185" font-size="12" font-weight="700" text-anchor="middle">17,933</text>
+      <text x="170" y="220" fill="#fff" font-size="11" text-anchor="middle" font-weight="600">BEFORE</text>
+      <text x="170" y="234" fill="#94a3b8" font-size="9" text-anchor="middle">2026-05-23</text>
+      <!-- AFTER bar -->
+      <rect x="270" y="195" width="100" height="5" fill="rgba(126,211,164,.45)" stroke="#7ed3a4" stroke-width="1.5"/>
+      <text x="320" y="186" fill="#7ed3a4" font-size="12" font-weight="700" text-anchor="middle">568</text>
+      <text x="320" y="220" fill="#fff" font-size="11" text-anchor="middle" font-weight="600">AFTER</text>
+      <text x="320" y="234" fill="#94a3b8" font-size="9" text-anchor="middle">2026-05-24</text>
+      <!-- breakdown -->
+      <text x="450" y="60" fill="#e9c58a" font-size="11" font-weight="700">변경 항목 (97% ↓)</text>
+      <line x1="450" y1="68" x2="900" y2="68" stroke="#e9c58a" stroke-width="0.5"/>
+      <text x="450" y="86" fill="#fff" font-size="10">D1. depth_degrade_node (PNG 16UC1) </text>
+      <text x="900" y="86" fill="#7ed3a4" font-size="10" text-anchor="end">9.1 → 0.2 MB/s</text>
+      <text x="450" y="104" fill="#fff" font-size="10">D2. /cam/*/rgb multicast 누출 (Foxglove)</text>
+      <text x="900" y="104" fill="#7ed3a4" font-size="10" text-anchor="end">~8 MB/s 회피</text>
+      <text x="450" y="122" fill="#fff" font-size="10">D3. camera_info 1Hz → latched 1회</text>
+      <text x="900" y="122" fill="#7ed3a4" font-size="10" text-anchor="end">CPU wakeup ↓</text>
+      <text x="450" y="140" fill="#fff" font-size="10">D4. YOLO 채널 5→2 (C2_YOLO_CAMERAS)</text>
+      <text x="900" y="140" fill="#7ed3a4" font-size="10" text-anchor="end">CPU 60% ↓</text>
+      <text x="450" y="158" fill="#fff" font-size="10">D5. DB detection_events 통합 (2→1)</text>
+      <text x="900" y="158" fill="#7ed3a4" font-size="10" text-anchor="end">쿼리 단순화</text>
+      <text x="450" y="176" fill="#fff" font-size="10">D6. tp_grid mosaic (HTTP/1.1 conn 회피)</text>
+      <text x="900" y="176" fill="#7ed3a4" font-size="10" text-anchor="end">4 conn → 1</text>
+    </svg>
+  </div>
+  <div class="src">참조: communication-optimization.md §1~7, ROS2_TRAFFIC_MEASUREMENT_REPORT.md</div>
+  <div class="hc-footer"><span>cobot3 · communication efficiency</span><span>36 / 45</span></div>
+</section>
+
+<!-- 37. KPI DASHBOARD -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>kpi · performance-dashboard</div></div>
+  <p class="hc-prompt">curl /c2/sample | jq .health</p>
+  <h2 class="hc-h2">KPI Dashboard — LAN/카메라/텔레메트리/YOLO/DB 5 지표 모두 ✓</h2>
+  <div class="lead-conclusion">실측 + p95 + 임계값 비교 (모두 목표 이하)</div>
+  <div class="kpi-row">
+    <div class="hc-card"><div class="lbl">LAN TX</div><div class="val">0.57</div><div class="desc">MB/s · 목표 &lt;2 · ✓</div></div>
+    <div class="hc-card"><div class="lbl">/cam/*/compressed</div><div class="val">5.0</div><div class="desc">fps · 지연 ~200ms · ✓</div></div>
+    <div class="hc-card"><div class="lbl">/robot/odom</div><div class="val">63</div><div class="desc">Hz · physics_dt 1/500 · ✓</div></div>
+    <div class="hc-card"><div class="lbl">YOLO p95</div><div class="val">~40</div><div class="desc">ms · 목표 &lt;50 · ✓</div></div>
+  </div>
+  <div class="kpi-row" style="margin-top:14px">
+    <div class="hc-card"><div class="lbl">depth msg</div><div class="val">22</div><div class="desc">KB/msg · raw 920KB → 2.4% 압축</div></div>
+    <div class="hc-card"><div class="lbl">DB flush</div><div class="val">1s</div><div class="desc">asyncpg batch · 10Hz collect</div></div>
+    <div class="hc-card"><div class="lbl">CPU usage</div><div class="val">60%</div><div class="desc">C2 (YOLO 2채널), 여유 40%</div></div>
+    <div class="hc-card"><div class="lbl">WS clients</div><div class="val">~5</div><div class="desc">동시 브라우저 · 안정</div></div>
+  </div>
+  <div class="hc-card" style="margin-top:14px"><div class="lbl">// 관찰성 (/c2/sample 1Hz 폴링)</div><div class="desc">ros_bridge HEALTH: 토픽별 rx 카운터 + publishers + env vars. 0인 토픽 즉시 발견 + diag hint. TopicHealthMonitor UI가 임계 색상 표시.</div></div>
+  <div class="src">참조: communication-optimization.md §7 향후 모니터링 지표</div>
+  <div class="hc-footer"><span>cobot3 · kpi performance</span><span>37 / 45</span></div>
+</section>
+
+<!-- 38. SUBSCRIBER OPT -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>optimization · subscriber-aware</div></div>
+  <p class="hc-prompt">ros2 topic info /cam/inspect/rgb -v</p>
+  <h2 class="hc-h2">구독자 인식 최적화 — Foxglove whitelist + multicast 차단 (P2)</h2>
+  <div class="lead-conclusion">RAW 토픽 구독자 0 ↔ Foxglove 전역 구독 → 정책으로 차단</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">이전: 7.8 MB/s 누출</h3>
+      <div class="hc-card" style="margin-bottom:8px"><div class="lbl">// 진단</div><div class="desc">/cam/*/rgb (7 raw) Main 로컬 구독자(video_degrade)만인데 LAN TX 17.9MB/s.</div></div>
+      <div class="hc-card" style="margin-bottom:8px"><div class="lbl">// 원인 — FastDDS 기본 multicast</div><div class="desc">구독자가 같은 PC라도 multicast 패킷이 LAN 인터페이스로도 송출. 또한 Foxglove Bridge가 전역 구독으로 활성화.</div></div>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">현재 + P2 계획</h3>
+      <div class="hc-card" style="margin-bottom:8px"><div class="lbl">// 현재 — 우회</div><div class="desc">depth 압축 + camera_info latched + YOLO 채널 정책 → 0.57 MB/s 달성. <span style="color:var(--hc-green)">근본 multicast 차단은 P2 작업.</span></div></div>
+      <div class="hc-card"><div class="lbl">// P2 — 근본 해결</div><div class="desc">fastdds_no_shm.xml에 <code style="color:var(--hc-amber)">&lt;defaultMulticastLocatorList&gt;</code> 비우기 + <code style="color:var(--hc-amber)">&lt;initialPeersList&gt;</code> Main/C2 IP 명시. 다음 Isaac 재시작 시.</div></div>
+    </div>
+  </div>
+  <div class="diagram">
+    <svg viewBox="0 0 920 130">
+      <defs><pattern id="grid38" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+      <rect width="920" height="130" fill="#020617"/><rect width="920" height="130" fill="url(#grid38)"/>
+      <!-- multicast -->
+      <text x="60" y="30" fill="#fb7185" font-size="11" font-weight="700">현재 (multicast 누출)</text>
+      <circle cx="80" cy="70" r="20" fill="rgba(126,211,164,.15)" stroke="#7ed3a4"/>
+      <text x="80" y="74" fill="#fff" font-size="10" text-anchor="middle">Isaac</text>
+      <circle cx="200" cy="70" r="20" fill="rgba(251,113,133,.15)" stroke="#fb7185"/>
+      <text x="200" y="74" fill="#fff" font-size="10" text-anchor="middle">MCAST</text>
+      <line x1="100" y1="70" x2="180" y2="70" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="2,2"/>
+      <line x1="220" y1="60" x2="340" y2="50" stroke="#fb7185" stroke-width="1.5"/>
+      <text x="290" y="42" fill="#fb7185" font-size="9">→ video_degrade (필요)</text>
+      <line x1="220" y1="70" x2="340" y2="80" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="3,2"/>
+      <text x="290" y="78" fill="#fb7185" font-size="9">→ Foxglove Bridge (전역 구독)</text>
+      <line x1="220" y1="90" x2="340" y2="110" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="3,2"/>
+      <text x="290" y="114" fill="#fb7185" font-size="9">→ LAN (구독자 없어도 누출)</text>
+      <!-- P2 unicast -->
+      <text x="500" y="30" fill="#7ed3a4" font-size="11" font-weight="700">P2 (unicast + whitelist)</text>
+      <circle cx="520" cy="70" r="20" fill="rgba(126,211,164,.15)" stroke="#7ed3a4"/>
+      <text x="520" y="74" fill="#fff" font-size="10" text-anchor="middle">Isaac</text>
+      <line x1="540" y1="70" x2="700" y2="70" stroke="#7ed3a4" stroke-width="1.5"/>
+      <text x="620" y="62" fill="#7ed3a4" font-size="9">→ unicast initialPeers</text>
+      <text x="620" y="84" fill="#94a3b8" font-size="9">multicast 비활성</text>
+      <circle cx="720" cy="70" r="20" fill="rgba(167,139,250,.15)" stroke="#a78bfa"/>
+      <text x="720" y="74" fill="#fff" font-size="10" text-anchor="middle">C2 only</text>
+      <text x="780" y="70" fill="#94a3b8" font-size="9">+ Foxglove topic_whitelist</text>
+    </svg>
+  </div>
+  <div class="src">참조: communication-optimization.md §8 잔여 작업 (FastDDS multicast 차단 P2)</div>
+  <div class="hc-footer"><span>cobot3 · subscriber-aware opt</span><span>38 / 45</span></div>
+</section>
+
+<!-- 39. DB SCHEMA -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>db · schema-unification</div></div>
+  <p class="hc-prompt">psql -d cobot3 -c "\\dt detection_events"</p>
+  <h2 class="hc-h2">DB 통합 — intruder_* 2-테이블 → detection_events 1-테이블</h2>
+  <div class="lead-conclusion">kind='detection' (YOLO) | 'gt_state' (NPC GT) 구분 + 30일 보관</div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 240">
+      <defs><pattern id="grid39" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+      <rect width="960" height="240" fill="#020617"/><rect width="960" height="240" fill="url(#grid39)"/>
+      <!-- BEFORE -->
+      <text x="100" y="28" fill="#fb7185" font-size="13" font-weight="700">BEFORE (2 테이블 분산)</text>
+      <rect x="80" y="40" width="200" height="180" rx="6" fill="rgba(251,113,133,.10)" stroke="#fb7185" stroke-width="1.5"/>
+      <text x="180" y="62" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">intruder_detections</text>
+      <text x="100" y="82" fill="#fff" font-size="9">id BIGSERIAL</text>
+      <text x="100" y="96" fill="#fff" font-size="9">robot_id TEXT</text>
+      <text x="100" y="110" fill="#fff" font-size="9">ts TIMESTAMPTZ</text>
+      <text x="100" y="124" fill="#fff" font-size="9">class_name TEXT</text>
+      <text x="100" y="138" fill="#fff" font-size="9">confidence REAL</text>
+      <text x="100" y="152" fill="#fff" font-size="9">bbox_x,y,w,h REAL ×4</text>
+      <text x="100" y="166" fill="#fff" font-size="9">world_x,y,z REAL ×3</text>
+      <text x="100" y="180" fill="#fff" font-size="9">beyond_fence BOOL</text>
+      <text x="100" y="194" fill="#fff" font-size="9">camera_frame TEXT</text>
+      <text x="100" y="210" fill="#fb7185" font-size="9" font-weight="600">13 컬럼 · YOLO 픽셀 bbox</text>
+      <rect x="300" y="40" width="200" height="180" rx="6" fill="rgba(251,113,133,.10)" stroke="#fb7185" stroke-width="1.5"/>
+      <text x="400" y="62" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">intruder_states_log</text>
+      <text x="320" y="82" fill="#fff" font-size="9">id BIGSERIAL</text>
+      <text x="320" y="96" fill="#fff" font-size="9">ts TIMESTAMPTZ</text>
+      <text x="320" y="110" fill="#fff" font-size="9">intruder_id TEXT</text>
+      <text x="320" y="124" fill="#fff" font-size="9">x, y, z REAL</text>
+      <text x="320" y="138" fill="#fff" font-size="9">label TEXT</text>
+      <text x="320" y="210" fill="#fb7185" font-size="9" font-weight="600">6 컬럼 · NPC GT 좌표</text>
+      <!-- arrow -->
+      <text x="540" y="120" fill="#e9c58a" font-size="20" text-anchor="middle">→</text>
+      <text x="540" y="138" fill="#e9c58a" font-size="9" text-anchor="middle">migration</text>
+      <text x="540" y="150" fill="#e9c58a" font-size="9" text-anchor="middle">2026-05-24</text>
+      <!-- AFTER -->
+      <text x="700" y="28" fill="#7ed3a4" font-size="13" font-weight="700">AFTER (단일 테이블)</text>
+      <rect x="580" y="40" width="370" height="180" rx="6" fill="rgba(126,211,164,.10)" stroke="#7ed3a4" stroke-width="1.5"/>
+      <text x="765" y="62" fill="#7ed3a4" font-size="13" font-weight="700" text-anchor="middle">detection_events</text>
+      <text x="600" y="82" fill="#fff" font-size="9">id BIGSERIAL · ts TIMESTAMPTZ</text>
+      <text x="600" y="96" fill="#fff" font-size="9">robot_id TEXT REFERENCES robots</text>
+      <text x="600" y="110" fill="#7ed3a4" font-size="9">source TEXT · camera_inspect | camera_tp_a..| ground_truth</text>
+      <text x="600" y="124" fill="#7ed3a4" font-size="9" font-weight="600">kind TEXT · 'detection' | 'gt_state' ← 분기</text>
+      <text x="600" y="138" fill="#fff" font-size="9">class_name TEXT · confidence REAL</text>
+      <text x="600" y="152" fill="#e9c58a" font-size="9">bbox_pixel JSONB · {x,y,w,h}</text>
+      <text x="600" y="166" fill="#fff" font-size="9">world_x, world_y, world_z REAL</text>
+      <text x="600" y="180" fill="#fff" font-size="9">beyond_fence BOOL · intruder_id TEXT (gt만)</text>
+      <text x="600" y="194" fill="#fff" font-size="9">ack BOOL DEFAULT FALSE</text>
+      <text x="600" y="210" fill="#7ed3a4" font-size="9" font-weight="600">12 컬럼 · 통합 + 30일 보관 + 인덱스 3개</text>
+    </svg>
+  </div>
+  <div class="src">참조: communication-optimization.md §6, sub1-side.md §detection_events, sub1_side/db/migrations/2026-05-24_detection_unify.sql</div>
+  <div class="hc-footer"><span>cobot3 · db schema unification</span><span>39 / 45</span></div>
+</section>
+
+<!-- 40. MONITORING & FUTURE -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>monitoring · future-improvements</div></div>
+  <p class="hc-prompt">curl /c2/sample | jq .rx,.publishers</p>
+  <h2 class="hc-h2">모니터링 — /c2/sample 1Hz + 임계값 기반 자동 알림 (계획)</h2>
+  <div class="lead-conclusion">5 지표 베이스라인 + 일일 자동 트래픽 측정 → CI 회귀 방지</div>
+  <table class="tbl">
+    <tr><th>지표</th><th>현재</th><th>임계</th><th>측정 방법</th></tr>
+    <tr><td>Main LAN TX</td><td>0.57 MB/s</td><td>&lt;2 MB/s</td><td>iftop cron 1h, /sys/class/net 차분</td></tr>
+    <tr><td>depth msg 크기</td><td>~22 KB</td><td>&lt;100 KB</td><td>ros2 topic bw /c2/tp_*/depth_compressed</td></tr>
+    <tr><td>detection_events row</td><td>(베이스라인 수립 중)</td><td>—</td><td>일간 SELECT count(*) WHERE ts &gt; now()-1d</td></tr>
+    <tr><td>YOLO latency p95</td><td>~30~40ms</td><td>&lt;50ms</td><td>ros_bridge.py 내부 timer</td></tr>
+    <tr><td>ros_bridge HEALTH</td><td>토픽별 0 없음</td><td>0 = 알람</td><td>/c2/sample.rx 카운터 매 5초 diag emit</td></tr>
+  </table>
+  <div class="ph" style="margin-top:14px">
+    <div class="ph-title">USER IMG · slide 40</div>
+    <div style="font-size:18px;color:var(--hc-amber)">모니터링 대시보드 스크린샷</div>
+    <div class="ph-desc">/c2/sample 응답 시각화 (TopicHealthMonitor 패널) + iftop 차트.<br>현재는 디버그 페이지 TopicHealthMonitor 캡처 권장.</div>
+  </div>
+  <div class="src">참조: communication-optimization.md §9 향후 모니터링 지표</div>
+  <div class="hc-footer"><span>cobot3 · monitoring & future</span><span>40 / 45</span></div>
+</section>
+
+<!-- ============================================================
+     SECTION H — 운영 & 마무리 (41~45)
+     ============================================================ -->
+
+<!-- 41. STARTUP -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 07/08 · ops</div></div>
+  <p class="hc-prompt">cobot3-restart_all · cobot3-sub1side-restart</p>
+  <h2 class="hc-h2">기동 절차 — Main + C2 양측 bash alias 자동화</h2>
+  <div class="lead-conclusion">cobot3-clear (PAT 정리) → cobot3-start_all → 검증 (ros2 topic hz 63Hz)</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">Main PC (cobot3-restart_all)</h3>
+      <div class="hc-codebox" style="font-size:11px">
+<span class="cm"># ~/.bashrc:730 function</span>
+<span class="kw">cobot3-clear</span>     <span class="cm"># 잔존 정리</span>
+<span class="kw">cobot3-start_all</span> <span class="cm"># 전체 재기동</span>
+
+<span class="cm"># 기동 순서:</span>
+<span class="fn">isaac-sim.sh</span> + camera_publisher.py
+<span class="fn">video_degrade ×7</span> + depth_degrade ×4
+<span class="fn">telemetry_bridge</span>, landmarks_pub
+<span class="fn">inspect_relay</span>, npc_relay, weapon_relay
+<span class="fn">wind_publisher</span>, fall_relay
+<span class="fn">nav2_patrol</span> + cmd_vel_safety_filter
+<span class="fn">URDF :8766</span>
+
+<span class="cm"># 검증:</span>
+<span class="fn">ros2 topic hz</span> /robot/odom  <span class="cm"># ~63 Hz</span>
+      </div>
+    </div>
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">C2 PC (cobot3-sub1side-restart)</h3>
+      <div class="hc-codebox" style="font-size:11px">
+<span class="cm"># ~/.bashrc:431 function</span>
+<span class="kw">cobot3-sub1side-down_all</span>
+<span class="kw">cobot3-sub1side-start_all</span>
+
+<span class="cm"># 기동 순서:</span>
+<span class="fn">PostgreSQL</span> + 스키마 ensure
+<span class="fn">FastAPI :8000</span> (uvicorn)
+<span class="fn">Next.js :3000</span>
+<span class="fn">foxglove_bridge :8765</span>
+<span class="fn">foxglove_sdk_publisher :8767</span>
+<span class="fn">Lichtblick :8080</span> (docker)
+<span class="fn">Nav2 stack</span> + safety filter
+
+<span class="cm"># 동기:</span>
+<span class="kw">/clock</span> 첫 메시지 후 nav2 (~90s)
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: ops.md §기동 순서, ~/.bashrc cobot3-* 함수 (Main:730, C2:431)</div>
+  <div class="hc-footer"><span>cobot3 · startup procedure</span><span>41 / 45</span></div>
+</section>
+
+<!-- 42. TROUBLESHOOTING -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>troubleshooting · 5 cases</div></div>
+  <p class="hc-prompt">grep -E '증상|원인|해결' dev-docs/ops.md</p>
+  <h2 class="hc-h2">트러블슈팅 5 케이스 — DDS · render · QoS · lifecycle · USD</h2>
+  <div class="lead-conclusion">실전 디버깅 — 증상 → 원인 → 대응 매핑</div>
+  <table class="tbl">
+    <tr><th>증상</th><th>원인</th><th>대응</th></tr>
+    <tr><td>같은-PC ros2 topic 0 수신</td><td>Isaac py3.11 ↔ System py3.10 DDS SHM 불통</td><td>UDP-only profile (FASTRTPS_DEFAULT_PROFILES_FILE)</td></tr>
+    <tr><td>OG 토픽 0 Hz (publishers 1)</td><td>world.step(render=False) → OG tick 미발생</td><td>render=True 필수 (50Hz OnPlaybackTick)</td></tr>
+    <tr><td>"Missing key: deadline" + 엔드포인트 0</td><td>QoS JSON 부분 (deadline/lifespan 누락)</td><td>8키 전부 명시 (디폴트값 0.0 포함)</td></tr>
+    <tr><td>nav2_patrol WAITING_FOR_NAV2 무한</td><td>lifecycle timeout (Isaac CPU 점유 중)</td><td>/clock 첫 메시지 후 nav2 기동 (~90s)</td></tr>
+    <tr><td>URDF import 무한 recompose</td><td>defaultPrim 미설정</td><td>dest USD에 defaultPrim 설정 + 재import</td></tr>
+    <tr><td>Main LAN TX 비정상 ↑ (&gt;5 MB/s)</td><td>(a) depth_degrade 미동작 (b) FastDDS multicast 누출</td><td>(a) ps aux | grep depth_degrade 확인 (b) communication-optimization.md §8</td></tr>
+    <tr><td>video_degrade SystemExit (2026-05-24)</td><td>단독 실행 (DEGRADE_IN env 미설정)</td><td>run_degrade.sh 사용 또는 env 명시</td></tr>
+    <tr><td>detection_events row 미증가</td><td>YOLO 채널 제한 (기본 inspect+tp_a)</td><td>C2_YOLO_CAMERAS=inspect,tp_a,tp_b,... 확장</td></tr>
+    <tr><td>nav2 goal 무한 + cmd_vel 발행되지만 이동 ~0</td><td>발 단차 모서리 걸림 (footswing 0.15m 부족)</td><td>_CMD_BASE footswing 0.22m + body_height +0.05</td></tr>
+    <tr><td>inspect 클릭 → 카메라 반대 방향</td><td>백엔드 _qz(pan) 수학 컨벤션 ≠ 웹 직관 컨벤션</td><td>_qz(-pan)*_qy(-tilt) + look_at = -atan2 (2026-05-24)</td></tr>
+  </table>
+  <div class="src">참조: project_requirments.md §트러블슈팅, ops.md §트러블슈팅 표</div>
+  <div class="hc-footer"><span>cobot3 · troubleshooting</span><span>42 / 45</span></div>
+</section>
+
+<!-- 43. PERF TUNING -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>perf-tuning · single-step-traverse</div></div>
+  <p class="hc-prompt">diff go2_controller.py _CMD_BASE</p>
+  <h2 class="hc-h2">단차 통과 튜닝 — footswing 15→22cm, step_freq 3.6→3.0</h2>
+  <div class="lead-conclusion">Nav2 cmd 0.91 m/s → 실 이동 0.09 m/s (90% 손실) → footswing 증가로 해결</div>
+  <div class="hc-grid-2">
+    <div>
+      <h3 class="hc-h3" style="font-size:14px">_CMD_BASE 변화</h3>
+      <table class="tbl">
+        <tr><th>idx</th><th>이름</th><th>before</th><th>after</th><th>효과</th></tr>
+        <tr><td>3</td><td>body_height</td><td>0.0</td><td><span style="color:var(--hc-green)">+0.05</span></td><td>몸체 +5cm 클리어런스</td></tr>
+        <tr><td>4</td><td>step_freq</td><td>3.6</td><td><span style="color:var(--hc-green)">3.0</span></td><td>발 들 시간 ↑</td></tr>
+        <tr><td>9</td><td>footswing</td><td>0.15</td><td><span style="color:var(--hc-green)">0.22</span></td><td>15→22cm 단차 통과</td></tr>
+      </table>
+      <div class="hc-card" style="margin-top:10px"><div class="lbl">// 학습 분포 끝단</div><div class="desc">walk-these-ways 정책의 안전 범위 내 (학습 데이터 분포 끝단). 평지 속도 ~10% 저하 (0.6 → 0.54 m/s) trade-off.</div></div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-title">USER IMG · slide 43</div>
+        <div style="font-size:18px;color:var(--hc-amber)">단차 통과 모션</div>
+        <div class="ph-desc">BEFORE (단차에 걸림) vs AFTER (단차 위로 발 들음)<br>2-shot 비교 또는 시퀀스 사진.</div>
+      </div>
+    </div>
+  </div>
+  <div class="src">참조: CHANGELOG.md 2026-05-24 단차 통과 튜닝, main-side.md §go2_controller</div>
+  <div class="hc-footer"><span>cobot3 · perf tuning footswing</span><span>43 / 45</span></div>
+</section>
+
+<!-- 44. ROADMAP -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>roadmap · p0-p4 milestones</div></div>
+  <p class="hc-prompt">cat gp-quadruped-system-design.md | grep -E '^## P[0-4]'</p>
+  <h2 class="hc-h2">개발 로드맵 — P0~P4 마일스톤 (P0~P2 완료, P3 진행)</h2>
+  <div class="lead-conclusion">시뮬 우선 → sim2real → 다중 로봇 + 열화상 + 실 DMZ 배포</div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 200">
+      <defs><pattern id="grid44" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern></defs>
+      <rect width="960" height="200" fill="#020617"/><rect width="960" height="200" fill="url(#grid44)"/>
+      <!-- timeline base -->
+      <line x1="60" y1="100" x2="900" y2="100" stroke="#94a3b8" stroke-width="1.5"/>
+      <!-- milestones -->
+      <circle cx="120" cy="100" r="10" fill="#7ed3a4" stroke="#fff" stroke-width="2"/>
+      <text x="120" y="78" fill="#7ed3a4" font-size="11" font-weight="700" text-anchor="middle">P0</text>
+      <text x="120" y="128" fill="#fff" font-size="10" text-anchor="middle">환경 통합</text>
+      <text x="120" y="142" fill="#94a3b8" font-size="8" text-anchor="middle">scene · DB · Next.js</text>
+      <text x="120" y="160" fill="#7ed3a4" font-size="9" text-anchor="middle">✓ 완료</text>
+      <circle cx="270" cy="100" r="10" fill="#7ed3a4" stroke="#fff" stroke-width="2"/>
+      <text x="270" y="78" fill="#7ed3a4" font-size="11" font-weight="700" text-anchor="middle">P1</text>
+      <text x="270" y="128" fill="#fff" font-size="10" text-anchor="middle">보행 + 지형</text>
+      <text x="270" y="142" fill="#94a3b8" font-size="8" text-anchor="middle">Go2 + RL · 절차적 산악</text>
+      <text x="270" y="160" fill="#7ed3a4" font-size="9" text-anchor="middle">✓ 완료</text>
+      <circle cx="420" cy="100" r="10" fill="#7ed3a4" stroke="#fff" stroke-width="2"/>
+      <text x="420" y="78" fill="#7ed3a4" font-size="11" font-weight="700" text-anchor="middle">P2</text>
+      <text x="420" y="128" fill="#fff" font-size="10" text-anchor="middle">센서 + 다운링크</text>
+      <text x="420" y="142" fill="#94a3b8" font-size="8" text-anchor="middle">RealSense OG · 5fps</text>
+      <text x="420" y="160" fill="#7ed3a4" font-size="9" text-anchor="middle">✓ 완료</text>
+      <circle cx="570" cy="100" r="12" fill="#e9c58a" stroke="#fff" stroke-width="2"/>
+      <text x="570" y="78" fill="#e9c58a" font-size="11" font-weight="700" text-anchor="middle">P3</text>
+      <text x="570" y="128" fill="#fff" font-size="10" text-anchor="middle">업링크 + 통신 효율화</text>
+      <text x="570" y="142" fill="#94a3b8" font-size="8" text-anchor="middle">사격 · 음성 · DB · 97% 절감</text>
+      <text x="570" y="160" fill="#e9c58a" font-size="9" text-anchor="middle">진행 중 (현재)</text>
+      <circle cx="720" cy="100" r="10" fill="rgba(100,223,223,.3)" stroke="#64dfdf" stroke-width="2" stroke-dasharray="3,2"/>
+      <text x="720" y="78" fill="#64dfdf" font-size="11" font-weight="700" text-anchor="middle">P4</text>
+      <text x="720" y="128" fill="#fff" font-size="10" text-anchor="middle">rough-terrain RL · 열화상</text>
+      <text x="720" y="142" fill="#94a3b8" font-size="8" text-anchor="middle">정책 학습 · 센서 추가</text>
+      <text x="720" y="160" fill="#64dfdf" font-size="9" text-anchor="middle">계획</text>
+      <circle cx="860" cy="100" r="10" fill="rgba(167,139,250,.3)" stroke="#a78bfa" stroke-width="2" stroke-dasharray="3,2"/>
+      <text x="860" y="78" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">P5</text>
+      <text x="860" y="128" fill="#fff" font-size="10" text-anchor="middle">sim2real · 다중 로봇</text>
+      <text x="860" y="142" fill="#94a3b8" font-size="8" text-anchor="middle">실 DMZ · namespace</text>
+      <text x="860" y="160" fill="#a78bfa" font-size="9" text-anchor="middle">계획</text>
+      <!-- title -->
+      <text x="480" y="25" fill="#7ed3a4" font-size="13" font-weight="700" text-anchor="middle">cobot3 GP 4족 로봇 — 5 마일스톤 타임라인</text>
+    </svg>
+  </div>
+  <div class="src">참조: gp-quadruped-system-design.md §P0~P4 마일스톤</div>
+  <div class="hc-footer"><span>cobot3 · roadmap</span><span>44 / 45</span></div>
+</section>
+
+<!-- 45. CONCLUSION -->
+<section class="slide">
+  <div class="hc-grid"></div><div class="hc-scanlines"></div>
+  <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>section · 08/08 · conclusion</div></div>
+  <p class="hc-prompt">cat CHANGELOG.md | head -3; git log --oneline | head -3</p>
+  <h2 class="hc-h2">결론 — 시뮬 통합 완료, sim2real + multi-robot 진로 확보</h2>
+  <div class="lead-conclusion">P0~P2 완료 · P3 통신 97% 효율화 달성 · P4 sim2real 준비</div>
+  <div class="hc-grid-3">
+    <div class="hc-card"><div class="lbl">// 달성 (P0~P2)</div><div class="desc"><b style="color:var(--hc-green)">2-PC 통신</b> 검증, <b style="color:var(--hc-green)">물리 보행</b> 안정 (walk-these-ways), <b style="color:var(--hc-green)">텔레메트리 5Hz 적재</b>, <b style="color:var(--hc-green)">웹 UI 풀스택</b></div></div>
+    <div class="hc-card"><div class="lbl">// 달성 (P3 진행)</div><div class="desc"><b style="color:var(--hc-amber)">통신 97% 절감</b> (17.9→0.57 MB/s), depth 압축, mosaic, DB detection_events 통합, 라우팅 정확도 (odom→world)</div></div>
+    <div class="hc-card"><div class="lbl">// 계획 (P4~P5)</div><div class="desc"><b style="color:var(--hc-cyan)">rough-terrain RL</b>, 열화상 센서, multi-robot namespace, 실 DMZ DEM, sim2real 배포 스크립트</div></div>
+  </div>
+  <div style="margin-top:24px">
+    <h3 class="hc-h3" style="font-size:14px">핵심 산출물</h3>
+    <table class="tbl">
+      <tr><th>카테고리</th><th>산출</th></tr>
+      <tr><td>코드</td><td>main_side/ 21 모듈 · sub1_side/ server 8 + web 30+ 컴포넌트</td></tr>
+      <tr><td>문서</td><td>dev-docs/ 14 markdown (4732 줄) + 본 발표 (45 슬라이드)</td></tr>
+      <tr><td>인프라</td><td>cobot3-restart_all (Main) · cobot3-sub1side-restart (C2) · scripts/scene_pack.sh</td></tr>
+      <tr><td>최적화</td><td>communication-optimization.md (실측 17.9→0.57 MB/s) · CHANGELOG 2026-05-24 8 항목</td></tr>
+    </table>
+  </div>
+  <div style="margin-top:30px;text-align:center">
+    <p style="font-size:30px;color:var(--hc-green);font-weight:700;font-family:'JetBrains Mono',monospace">$ cobot3-restart_all && echo "READY FOR DEPLOYMENT"<span class="hc-cursor"></span></p>
+  </div>
+  <div class="hc-footer"><span>cobot3 · github.com/ThatsHoon/cobot3</span><span>45 / 45</span></div>
+</section>
+
+</div>
+<script src="assets/runtime.js"></script>
+</body>
+</html>

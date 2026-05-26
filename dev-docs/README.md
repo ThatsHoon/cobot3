@@ -18,6 +18,8 @@ GP 경계근무 4족보행 로봇 시스템 — Isaac Sim 5.1 + Unitree **Go2** 
 | [architecture.html](architecture.html) | 시스템 아키텍처 인터랙티브 시각화 |
 | [gp-quadruped-system-design.md](gp-quadruped-system-design.md) | 구 설계서 (아카이브) |
 | [project_requirments.md](project_requirments.md) | 개발환경 초기 설정 가이드 |
+| [communication-optimization.md](communication-optimization.md) | 2026-05-24 통신 효율화 (실측 17.9→0.57 MB/s) |
+| [presentation/index.html](presentation/index.html) | **HTML 발표 자료 (45 슬라이드, Dark Tactical)** — 시스템 정리·발표·인수인계용. ←→ 키 네비, T 테마 cycle, F 풀스크린, S 발표자 모드. 14 placeholder는 사용자 스크린샷 채워넣기. |
 
 ---
 
