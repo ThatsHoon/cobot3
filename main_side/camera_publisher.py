@@ -2022,47 +2022,40 @@ def _apply_wind_force():
 WEAPON_MOUNT_PATH = "/World/Go2/base/weapon_mount"
 MUZZLE_PATH = f"{WEAPON_MOUNT_PATH}/muzzle"
 
-# Weapon asset (2026-05-26): Low-Poly M16 USDZ reference 적용.
-# procedural rifle (cylinder+cube) 대체. muzzle prim 은 유지 — fire impulse
-# 의 origin/방향 source. mount root 의 orient 는 inspect pan/tilt 동기 회전.
-_WEAPON_ASSET = os.environ.get(
-    "GP_WEAPON_ASSET",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                 "scene/assets/Low-Poly_M16.usdz"))
-_WEAPON_SCALE = float(os.environ.get("GP_WEAPON_SCALE", "0.0001"))
-_WEAPON_YAW_DEG   = float(os.environ.get("GP_WEAPON_YAW_DEG", "180.0"))
-_WEAPON_PITCH_DEG = float(os.environ.get("GP_WEAPON_PITCH_DEG", "0.0"))
-_WEAPON_ROLL_DEG  = float(os.environ.get("GP_WEAPON_ROLL_DEG", "0.0"))
-_WEAPON_OFFSET = (
-    float(os.environ.get("GP_WEAPON_OFFSET_X", "0.05")),
-    float(os.environ.get("GP_WEAPON_OFFSET_Y", "0.00")),
-    float(os.environ.get("GP_WEAPON_OFFSET_Z", "0.10")),
-)
-_WEAPON_MUZZLE_X = float(os.environ.get("GP_WEAPON_MUZZLE_X", "0.475"))
-
 def _build_weapon_visual():
-    """Low-Poly_M16.usdz reference + muzzle Xform (impulse origin 유지)."""
+    """procedural rifle: barrel(cylinder) + receiver(cube) + stock(cube)."""
     if stage.GetPrimAtPath(WEAPON_MOUNT_PATH).IsValid():
         stage.RemovePrim(WEAPON_MOUNT_PATH)
     _root = UsdGeom.Xform.Define(stage, Sdf.Path(WEAPON_MOUNT_PATH))
+    # mount 위치 (등판 위)
     _xfr = UsdGeom.Xformable(_root)
-    _xfr.AddTranslateOp().Set(Gf.Vec3f(*_WEAPON_OFFSET))
-    # USDZ reference (asset 자체 회전/scale 적용은 자식 Xform 에서)
-    _asset_path = f"{WEAPON_MOUNT_PATH}/M16"
-    _asset_prim = stage.DefinePrim(Sdf.Path(_asset_path), "Xform")
-    if os.path.exists(_WEAPON_ASSET):
-        _asset_prim.GetReferences().AddReference(_WEAPON_ASSET)
-    else:
-        log(f"⚠ weapon asset 없음: {_WEAPON_ASSET}")
-    _axf = UsdGeom.Xformable(_asset_prim)
-    _axf.AddScaleOp().Set(Gf.Vec3f(_WEAPON_SCALE, _WEAPON_SCALE, _WEAPON_SCALE))
-    _axf.AddRotateXYZOp().Set(Gf.Vec3f(
-        _WEAPON_ROLL_DEG, _WEAPON_PITCH_DEG, _WEAPON_YAW_DEG))
-    # muzzle prim (raycast/임펄스 origin) — asset 와 별도 위치
+    _xfr.AddTranslateOp().Set(Gf.Vec3f(0.05, 0.0, 0.10))
+    # barrel — cylinder along +X (forward)
+    _bar = UsdGeom.Cylinder.Define(stage, Sdf.Path(f"{WEAPON_MOUNT_PATH}/barrel"))
+    _bar.GetRadiusAttr().Set(0.012)
+    _bar.GetHeightAttr().Set(0.55)
+    _bar.GetAxisAttr().Set("X")
+    _bxf = UsdGeom.Xformable(_bar.GetPrim())
+    _bxf.AddTranslateOp().Set(Gf.Vec3f(0.20, 0.0, 0.0))
+    _bar.GetDisplayColorAttr().Set([Gf.Vec3f(0.12, 0.12, 0.13)])
+    # receiver — short cube
+    _rec = UsdGeom.Cube.Define(stage, Sdf.Path(f"{WEAPON_MOUNT_PATH}/receiver"))
+    _rec.GetSizeAttr().Set(1.0)
+    _rxf = UsdGeom.Xformable(_rec.GetPrim())
+    _rxf.AddTranslateOp().Set(Gf.Vec3f(-0.05, 0.0, 0.0))
+    _rxf.AddScaleOp().Set(Gf.Vec3f(0.12, 0.05, 0.06))
+    _rec.GetDisplayColorAttr().Set([Gf.Vec3f(0.18, 0.16, 0.14)])
+    # stock
+    _stk = UsdGeom.Cube.Define(stage, Sdf.Path(f"{WEAPON_MOUNT_PATH}/stock"))
+    _stk.GetSizeAttr().Set(1.0)
+    _sxf = UsdGeom.Xformable(_stk.GetPrim())
+    _sxf.AddTranslateOp().Set(Gf.Vec3f(-0.22, 0.0, -0.005))
+    _sxf.AddScaleOp().Set(Gf.Vec3f(0.20, 0.045, 0.05))
+    _stk.GetDisplayColorAttr().Set([Gf.Vec3f(0.22, 0.18, 0.13)])
+    # muzzle prim (raycast/임펄스 origin)
     _muz = UsdGeom.Xform.Define(stage, Sdf.Path(MUZZLE_PATH))
-    UsdGeom.Xformable(_muz).AddTranslateOp().Set(Gf.Vec3f(_WEAPON_MUZZLE_X, 0.0, 0.0))
-    log(f"weapon 시각 prim: {WEAPON_MOUNT_PATH} asset={os.path.basename(_WEAPON_ASSET)} "
-        f"scale={_WEAPON_SCALE} yaw={_WEAPON_YAW_DEG}")
+    UsdGeom.Xformable(_muz).AddTranslateOp().Set(Gf.Vec3f(0.475, 0.0, 0.0))
+    log(f"weapon 시각 prim 생성: {WEAPON_MOUNT_PATH} (procedural rifle)")
 
 try:
     _build_weapon_visual()
