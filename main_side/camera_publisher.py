@@ -2029,7 +2029,7 @@ _WEAPON_ASSET = os.environ.get(
     "GP_WEAPON_ASSET",
     os.path.join(os.path.dirname(os.path.abspath(__file__)),
                  "scene/assets/Low-Poly_M16.usdz"))
-_WEAPON_SCALE = float(os.environ.get("GP_WEAPON_SCALE", "0.06"))
+_WEAPON_SCALE = float(os.environ.get("GP_WEAPON_SCALE", "0.012"))
 _WEAPON_YAW_DEG   = float(os.environ.get("GP_WEAPON_YAW_DEG", "180.0"))
 _WEAPON_PITCH_DEG = float(os.environ.get("GP_WEAPON_PITCH_DEG", "0.0"))
 _WEAPON_ROLL_DEG  = float(os.environ.get("GP_WEAPON_ROLL_DEG", "0.0"))

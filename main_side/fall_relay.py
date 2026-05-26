@@ -75,27 +75,42 @@ class FallRelay(Node):
         level = {
             "FALLEN":     "ALERT",
             "RECOVERING": "WARN",
-            "RECOVERED":  "INFO",
-            "UPRIGHT":    "INFO",
+            "RECOVERED":      "INFO",
+            "UPRIGHT":        "INFO",
+            "OOB_EXPLOSION":  "ALERT",
+            "OOB_VERTICAL":   "ALERT",
         }.get(state, "INFO")
         event = {
-            "FALLEN":     "robot_fall_detected",
-            "RECOVERING": "robot_recovery_in_progress",
-            "RECOVERED":  "robot_recovery_done",
-            "UPRIGHT":    "robot_upright",
+            "FALLEN":         "robot_fall_detected",
+            "RECOVERING":     "robot_recovery_in_progress",
+            "RECOVERED":      "robot_recovery_done",
+            "UPRIGHT":        "robot_upright",
+            "OOB_EXPLOSION":  "robot_oob_explosion",
+            "OOB_VERTICAL":   "robot_oob_vertical",
         }.get(state, "robot_state")
+        reason = str(payload.get("reason", ""))
         msg = String()
         msg.data = json.dumps({
             "level": level,
             "event": event,
             "state": state,
+            "reason": reason,
             "up_z": float(payload.get("up_z", 0.0)),
             "stage": payload.get("stage"),
             "pose": payload.get("pose"),
             "ts": payload.get("ts", time.time()),
         })
         self._alert_pub.publish(msg)
-        self.get_logger().info(f"[alert] {state} up_z={payload.get('up_z', 0):.2f}")
+        # OOB 류는 /rosout warn 으로도 발행 → C2 ros_bridge 가 type='log' 로
+        # event WebSocket 에 자동 emit (디버그 페이지 EventLog 의 off 모드에서도
+        # 표시됨). 2026-05-26 사용자 요청.
+        if state.startswith("OOB_"):
+            pos = payload.get("pose") or {}
+            self.get_logger().warn(
+                f"OOB rollback [{state}] {reason} → home teleport "
+                f"@ pos=({pos.get('x',0):.1f},{pos.get('y',0):.1f},{pos.get('z',0):.1f})")
+        else:
+            self.get_logger().info(f"[alert] {state} up_z={payload.get('up_z', 0):.2f}")
 
     def _publish_state(self) -> None:
         msg = String()

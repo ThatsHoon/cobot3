@@ -713,9 +713,23 @@ class Go2WtwController:
         if not (explosion or vertical_oob):
             return False
 
-        reason = (f"ang={ang_mag:.0f}rad/s lin={lin_mag:.0f}m/s"
-                  if explosion else f"z={pz:.1f}m")
-        _log(f"OOB 감지 ({reason}) → StartingPoint teleport")
+        # 어느 trigger 가 어떤 임계를 어떻게 초과했는지 상세화 (C2 디버그 식별용)
+        triggers = []
+        if ang_mag > 50.0:
+            triggers.append(f"ang_vel {ang_mag:.1f}rad/s > 50")
+        if lin_mag > 30.0:
+            triggers.append(f"lin_vel {lin_mag:.1f}m/s > 30")
+        if pz < -5.0:
+            triggers.append(f"z {pz:.1f}m < -5 (맵 아래 추락)")
+        if pz > 1000.0:
+            triggers.append(f"z {pz:.1f}m > 1000 (허공 탈출)")
+        reason_str = " | ".join(triggers)
+        oob_kind = "OOB_EXPLOSION" if explosion else "OOB_VERTICAL"
+        _log(f"OOB 감지 [{oob_kind}] {reason_str} @ pos=({px:.1f},{py:.1f},{pz:.1f}) "
+             f"→ StartingPoint teleport")
+        # IPC 로 C2 까지 전파 (fall_relay 가 /rosout warn 발행 → type='log' event)
+        self._write_fall_ipc(oob_kind, 1.0, reason=reason_str,
+                             pos=(px, py, pz))
         self._teleport_home()
         self._oob_cooldown = now + 10.0   # 10s 간격 제한
         return True
@@ -772,26 +786,33 @@ class Go2WtwController:
     # -- fall 감지 + 자동 기립 ------------------------------------------------
 
     def _write_fall_ipc(self, state: str, up_z: float,
-                        stage: Optional[int] = None) -> None:
-        """fall_relay 가 mtime 폴 + content 변화 시 ROS 발행. dedup 으로 IO 절약."""
+                        stage: Optional[int] = None,
+                        reason: Optional[str] = None,
+                        pos: Optional[Tuple[float, float, float]] = None) -> None:
+        """fall_relay 가 mtime 폴 + content 변화 시 ROS 발행. dedup 으로 IO 절약.
+        reason/pos: OOB_* 전파용 부가 필드 (옵셔널)."""
         import json as _json
-        evt = f"{state}|{stage if stage is not None else ''}"
-        # state 변화 또는 stage 변화 시에만 기록 (heartbeat 는 별도 2Hz 로직 외부)
+        evt = f"{state}|{stage if stage is not None else ''}|{reason or ''}"
+        # state/stage/reason 변화 시에만 기록 (heartbeat 는 외부 2Hz 로직)
         if evt == self._last_fall_event:
             return
         self._last_fall_event = evt
         try:
-            try:
-                pos, _ = self._art.get_world_pose()
-                px, py, pz = (float(pos[0]), float(pos[1]), float(pos[2]))
-            except Exception:
-                px = py = pz = 0.0
+            if pos is not None:
+                px, py, pz = pos
+            else:
+                try:
+                    p, _ = self._art.get_world_pose()
+                    px, py, pz = (float(p[0]), float(p[1]), float(p[2]))
+                except Exception:
+                    px = py = pz = 0.0
             payload = {
                 "ts": time.time(),
-                "state": state,        # "UPRIGHT" | "FALLEN" | "RECOVERING" | "RECOVERED"
+                "state": state,        # UPRIGHT/FALLEN/RECOVERING/RECOVERED/OOB_EXPLOSION/OOB_VERTICAL
                 "up_z": float(up_z),
-                "stage": stage,        # 0..3 in RECOVERING, else null
+                "stage": stage,
                 "pose": {"x": px, "y": py, "z": pz},
+                "reason": reason or "",
             }
             with open('/tmp/cobot3_fall_state.json.tmp', 'w') as _f:
                 _json.dump(payload, _f)
