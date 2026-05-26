@@ -117,18 +117,26 @@ class ZoneRouter:
         if tp is None or not self._zones:
             return []
 
-        start_zone = min(self._zones, key=lambda n: _dist2d(robot_xy, self._zones[n]))
-        # 명시 매핑 우선 — TP→zone 강제 도착점. 없으면 가장 가까운 zone.
+        # 시작점: robot 에 가장 가까운 zone 중 '그래프 edge 가 있는' zone 만 후보.
+        # WHY: 고립 노드(예: StartingPoint 가 xlsx 에 미연결)면 Dijkstra 빈 경로
+        # 가 되어 폴백 직결로 인접 그래프 규칙이 무시됨. 사용자 의도("링크 정의된
+        # 그래프만 따르라")에 맞춰 고립 노드는 출발점 후보에서 제외.
+        connected = [n for n in self._zones if self._graph.get(n)]
+        if not connected:
+            connected = list(self._zones)  # 그래프 비었으면 폴백
+        start_zone = min(connected, key=lambda n: _dist2d(robot_xy, self._zones[n]))
+
+        # 도착점: 명시 매핑 우선. 없으면 가장 가까운 (연결된) zone.
         mapped = self._tp_zone_map.get(tp_id)
         if mapped and mapped in self._zones:
             end_zone = mapped
         else:
-            end_zone = min(self._zones, key=lambda n: _dist2d(tp, self._zones[n]))
+            end_zone = min(connected, key=lambda n: _dist2d(tp, self._zones[n]))
 
         zone_path = self._dijkstra(start_zone, end_zone)
         if not zone_path:
-            # 연결 경로 없음 → start/end 직결
-            zone_path = [start_zone, end_zone]
+            # 그래프상 단절 — 직결 폴백 금지(링크 규칙 위배). 빈 경로 반환.
+            return []
 
         waypoints = [self._zones[n] for n in zone_path]
 
