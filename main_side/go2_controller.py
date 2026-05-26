@@ -107,20 +107,25 @@ CMD_SCALE = np.array(
 # phase=0.5 → 대각쌍 교대 = TROT (효율적 전진).
 # phase=offset=bound=0 이면 4발 동위상 = PRONK(제자리 점프) → 비효율.
 # foot_indices=[g+ph+of+bd, g+of, g+bd, g+ph]; ph=0.5 → {0,3}↔{1,2} 교대.
-_CMD_BASE = np.array(
-    [0.0, 0.0, 0.0, 0.05, 3.0, 0.5, 0.0, 0.0, 0.45,
-     0.22, 0.0, 0.0, 0.33, 0.45, 0.0], dtype=np.float32)
-# 2026-05-24 단차 통과 튜닝 (사용자 보고: 도로 가장자리 단차에 발 걸려 추진 실패):
-#   idx3 body_height 0.0→0.05  (몸체 5cm ↑, 발 클리어런스 확보)
-#   idx4 step_freq 3.6→3.0      (스텝 주기 ↓, 발 한 번 들 시간 ↑ → 높이 효과 ↑)
-#   idx9 footswing 0.15→0.22    (발 들기 높이 15cm→22cm, 단차 22cm까지 통과)
-# 모두 walk-these-ways 학습 분포 끝단 (안전 범위 내).
-# 이전 튜닝 사유: freq 3.6 = 빠른 속도, footswing 0.15 = 평탄지형 효율.
-# 변경 부작용: 평탄지형 보행 속도 약간 ↓ (≈10%). 단차 통과율 ↑ 우선.
-# stance_l (idx13): 0.40 → 0.45 (Margolis WTW default 복원). 0.40 은
-# 앞뒤 다리 너비가 좁아 yaw 회전 시 회전 중심이 base 중심에서 앞쪽으로
-# 이동 → "머리 기준 회전" 시각 (2026-05-21 사용자 보고). 0.45 는 base
-# 중심 회전 + 학습 분포 안.
+# 2026-05-26 Adaptive Gait Mode — 평탄/경사 자동 전환 (spec:
+# dev-docs/specs/2026-05-26-adaptive-gait-mode.md). 단일 _CMD_BASE 의
+# mid-range 튜닝(footswing 22cm, freq 3.0)은 평탄지 nose-dive 부작용
+# 발생. FLAT/SLOPE 로 분리하여 환경별 최적 set 적용.
+# idx: 0vx 1vy 2vyaw 3height 4freq 5phase 6offset 7bound 8duration
+#      9footswing 10pitch 11roll 12stance_w 13stance_l 14aux
+_CMD_BASE_FLAT = np.array(
+    [0.0, 0.0, 0.0, 0.02, 3.2, 0.5, 0.0, 0.0, 0.45,
+     0.18, 0.0, 0.0, 0.33, 0.45, 0.0], dtype=np.float32)
+_CMD_BASE_SLOPE = np.array(
+    [0.0, 0.0, 0.0, 0.08, 2.5, 0.5, 0.0, 0.0, 0.45,
+     0.30, 0.0, 0.0, 0.36, 0.45, 0.0], dtype=np.float32)
+# 호환 — 외부에서 _CMD_BASE 참조하는 코드용 (현재 FLAT 기본).
+_CMD_BASE = _CMD_BASE_FLAT
+# Adaptive FSM 임계 (hysteresis + lock)
+_GAIT_SLOPE_ENTER = 0.15   # rad ~8.6° — SLOPE 진입
+_GAIT_SLOPE_EXIT  = 0.08   # rad ~4.6° — FLAT 복귀
+_GAIT_MODE_LOCK_S = 2.0    # 모드 전환 후 잠금 시간 (chattering 방지)
+_GAIT_EMA_ALPHA   = 0.05   # ≈1s 시정수 (50Hz)
 
 _CMD_TIMEOUT = 0.5     # s - teleop stale -> nav/idle
 # ready 후 nav 개입 전 제자리 안정화 정책틱 수 (zero-history 트랜지언트
@@ -218,6 +223,13 @@ class Go2WtwController:
         # 맵 탈출·물리폭발 감지 + StartingPoint 자동 복귀 (2026-05-22)
         self._home_xyz: Optional[Tuple[float, float, float]] = None
         self._oob_cooldown: float = 0.0   # 연속 teleport 방지 (최소 10s 간격)
+
+        # Adaptive Gait Mode (2026-05-26) — 평탄/경사 자동 전환
+        self._gait_mode: str = "FLAT"      # FLAT | SLOPE
+        self._active_cmd: np.ndarray = _CMD_BASE_FLAT
+        self._pitch_ema: float = 0.0
+        self._roll_ema: float = 0.0
+        self._gait_lock_until: float = 0.0
 
         # 외부 stance/height 오버라이드 (사격 시 ramp 용, 2026-05-21).
         # _CMD_BASE 의 idx 3=body_height, 12=stance_w, 13=stance_l 에 가산.
@@ -444,7 +456,7 @@ class Go2WtwController:
     # -- arbitration ------------------------------------------------------
 
     def _command(self) -> np.ndarray:
-        cmd = _CMD_BASE.copy()
+        cmd = self._active_cmd.copy()
         # 캘리브레이션: GP_GO2_CMD_MODE=cal → 순수 직진(vx=0.5,wz=0).
         if os.environ.get("GP_GO2_CMD_MODE") == "cal":
             cmd[0], cmd[1], cmd[2] = 0.5, 0.0, 0.0
@@ -555,6 +567,9 @@ class Go2WtwController:
                 self._step_n += 1
                 return
 
+            # Adaptive Gait Mode (평탄/경사 자동 전환) — fall/oob 후에만 평가.
+            self._tick_adaptive_gait(grav)
+
             cmd = self._command()
             cmd_scaled = cmd * CMD_SCALE
 
@@ -631,6 +646,40 @@ class Go2WtwController:
                 _log(f"policy_tick err: {exc!r}")
             self._step_n += 1
 
+    # -- Adaptive Gait Mode (평탄/경사 자동 전환, 2026-05-26) ----------------
+
+    def _tick_adaptive_gait(self, grav: np.ndarray) -> None:
+        """grav body-frame 벡터로 base pitch/roll EMA 계산 → slope_score 기반
+        FLAT↔SLOPE 전환. hysteresis(0.15/0.08 rad) + 2s lock 으로 chattering
+        방지. self._active_cmd 를 갱신해 _command() 가 다음 tick 에 반영.
+        spec: dev-docs/specs/2026-05-26-adaptive-gait-mode.md
+        """
+        # body-frame gravity → pitch/roll (nose-up=+, right-down=+)
+        # grav 는 단위벡터; 기립 상태에서 grav≈(0,0,-1).
+        pitch_now = float(np.arctan2(-grav[0], -grav[2]))
+        roll_now  = float(np.arctan2( grav[1], -grav[2]))
+        a = _GAIT_EMA_ALPHA
+        self._pitch_ema = (1 - a) * self._pitch_ema + a * pitch_now
+        self._roll_ema  = (1 - a) * self._roll_ema  + a * roll_now
+        slope_score = abs(self._pitch_ema) + 0.5 * abs(self._roll_ema)
+
+        now = time.time()
+        if now < self._gait_lock_until:
+            return
+
+        prev_mode = self._gait_mode
+        if prev_mode == "FLAT" and slope_score > _GAIT_SLOPE_ENTER:
+            self._gait_mode = "SLOPE"
+            self._active_cmd = _CMD_BASE_SLOPE
+            self._gait_lock_until = now + _GAIT_MODE_LOCK_S
+            _log(f"gait: FLAT→SLOPE score={slope_score:.2f} "
+                 f"(pitch={self._pitch_ema:.2f} roll={self._roll_ema:.2f})")
+        elif prev_mode == "SLOPE" and slope_score < _GAIT_SLOPE_EXIT:
+            self._gait_mode = "FLAT"
+            self._active_cmd = _CMD_BASE_FLAT
+            self._gait_lock_until = now + _GAIT_MODE_LOCK_S
+            _log(f"gait: SLOPE→FLAT score={slope_score:.2f}")
+
     # -- 맵 탈출·물리폭발 감지 + StartingPoint 복귀 --------------------------
 
     def set_home_xyz(self, x: float, y: float, z: float) -> None:
@@ -697,6 +746,12 @@ class Go2WtwController:
             self._jpt = None
         except Exception:
             pass
+        # adaptive gait — teleport 후 pose 급변으로 인한 mode flap 방지
+        self._pitch_ema = 0.0
+        self._roll_ema = 0.0
+        self._gait_mode = "FLAT"
+        self._active_cmd = _CMD_BASE_FLAT
+        self._gait_lock_until = time.time() + _GAIT_MODE_LOCK_S
         # fall 상태머신 초기화
         self._fallen = False
         self._fall_since = None

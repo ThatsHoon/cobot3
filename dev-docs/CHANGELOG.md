@@ -7,6 +7,18 @@
 
 ## 2026-05-26
 
+### Adaptive Gait Mode — 평탄/경사 자동 전환
+**변경 파일:**
+- `main_side/go2_controller.py` (수정 — _CMD_BASE_FLAT/SLOPE 두 set + _tick_adaptive_gait)
+- `dev-docs/specs/2026-05-26-adaptive-gait-mode.md` (신규 — 설계 문서)
+
+**왜:** 단일 _CMD_BASE (footswing 22cm, freq 3.0) 의 mid-range 튜닝이 평탄지
+nose-dive 부작용. WTW 페이퍼 권고대로 환경별로 분리 — FLAT (footswing 18,
+freq 3.2, height 2cm) / SLOPE (footswing 30, freq 2.5, height 8cm, stance_w
+36). body-frame gravity 로 pitch/roll EMA(시정수 ~1s) 계산 → slope_score 가
+0.15 rad 초과 시 SLOPE 진입 / 0.08 rad 미만 시 FLAT 복귀, 2s lock 으로
+chattering 방지. teleport_home 시 EMA reset. 학습 분포 내 안전 영역.
+
 ### Routing_Zones 수동 링크 정의 (xlsx) + TP→zone 강제 매핑
 **변경 파일:**
 - `main_side/load_routing_links.py` (신규 — xlsx → edges + tp_zone_map)
