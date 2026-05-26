@@ -658,8 +658,8 @@ class Go2WtwController:
         lin_mag = float(np.linalg.norm(lin_v))
         explosion = ang_mag > 50.0 or lin_mag > 30.0
 
-        # 수직 탈출: Z < -5m (맵 아래 추락) 또는 Z > 100m (허공으로 날아감)
-        vertical_oob = pz < -5.0 or pz > 100.0
+        # 수직 탈출: Z < -5m (맵 아래 추락) 또는 Z > 1000m (허공으로 날아감)
+        vertical_oob = pz < -5.0 or pz > 1000.0
 
         if not (explosion or vertical_oob):
             return False
