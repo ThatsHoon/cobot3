@@ -7,6 +7,21 @@
 
 ## 2026-05-26
 
+### Routing_Zones 수동 링크 정의 (xlsx) + TP→zone 강제 매핑
+**변경 파일:**
+- `main_side/load_routing_links.py` (신규 — xlsx → edges + tp_zone_map)
+- `main_side/scene/routing_zones_links.xlsx` (신규 — 34 zone + 33 양방향 링크 = 66 edges)
+- `main_side/zone_router.py`, `sub1_side/server/zone_router.py` (수정 — tp_zone_map 파라미터)
+- `main_side/camera_publisher.py` (수정 — xlsx 우선, 폴백으로 PhysX 자동 검증)
+- `main_side/nav2_patrol.py` (수정 — routing_edges + tp_zone_map 전달)
+- `sub1_side/server/app.py` (수정 — preview_route 에 tp_zone_map 전달)
+
+**왜:** zone_router 의 자동 max_edge_m=10m 인접 그래프가 실제 통과 가능성과
+불일치 (협로/계단/경사). 사용자가 xlsx 로 인접쌍을 직접 정의 — 그래프 edge
+선언이며 직선 경로가 아님(Nav2 가 실제 경로 plan). 또한 TP_A~D 각각의
+도착 zone 을 가장 가까운 zone 대신 사용자 지정 zone (Xform_09/13/32/23) 으로
+강제 매핑하여 의도된 종점으로 라우팅.
+
 ### TP/Overhead 카메라 far clip 100,000 확장 (배경 skybox 표시)
 **변경 파일:**
 - `main_side/camera_publisher.py` (수정 — TP 350→100,000, Overhead 2,000→100,000)

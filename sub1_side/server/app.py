@@ -387,7 +387,8 @@ async def preview_route(rid: str, tp_id: str):
         raise HTTPException(404, f"{tp_id} 없음")
     from zone_router import ZoneRouter
     edges = lm.get("routing_edges") or None
-    router = ZoneRouter(zones, tps, routing_edges=edges)
+    tp_zone_map = lm.get("tp_zone_map") or None
+    router = ZoneRouter(zones, tps, routing_edges=edges, tp_zone_map=tp_zone_map)
     # 2026-05-24 라우팅 정확도 개선: 로봇 현재 world 위치 기반.
     # /robot/odom 은 spawn(=StartingPoint) 누적 변위 (odom 좌표).
     # world = StartingPoint + odom xy. odom 미수신 시 StartingPoint 폴백.

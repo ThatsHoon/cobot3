@@ -182,10 +182,16 @@ class Nav2PatrolController(Node):
         if sp:
             self._sp_world = (float(sp["x"]), float(sp["y"]))
         if zones and tps and _ZONE_ROUTER_AVAILABLE:
-            self._router = _ZoneRouter(zones, tps)
+            edges = payload.get("routing_edges") or None
+            tp_zone_map = payload.get("tp_zone_map") or None
+            self._router = _ZoneRouter(zones, tps,
+                                       routing_edges=edges,
+                                       tp_zone_map=tp_zone_map)
             self.get_logger().info(
                 f"ZoneRouter 빌드: {self._router.zone_count}개 zone, "
                 f"TPs={self._router.available_tps()}, "
+                f"edges={len(edges) if edges else 'auto'}, "
+                f"tp_zone_map={tp_zone_map or {}}, "
                 f"sp_world={self._sp_world}")
         elif zones and tps and not _ZONE_ROUTER_AVAILABLE:
             self.get_logger().warn("zone_router.py import 실패 — ROUTING 기능 비활성")

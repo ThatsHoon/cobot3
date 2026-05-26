@@ -2243,10 +2243,28 @@ def _step_fire(dt: float):
 # ── 지형 엣지 검증 + 랜드마크 재덤프 ─────────────────────────────────────
 # PhysX 는 play() + 몇 스텝 이후에 raycast 가 신뢰 가능.
 # landmarks_pub.py 가 mtime 변화를 2초 폴링으로 감지해 /scene/landmarks 재발행.
-log("라우팅 엣지 PhysX 검증 시작 (30-step 워밍업)...")
-for _ in range(30):
-    world.step(render=False)
-_routing_edges = _validate_routing_edges(_all_routing_zones)
+# 1순위: scene/routing_zones_links.xlsx 수동 정의. 2순위: PhysX 자동 검증.
+_ROUTING_XLSX = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "scene", "routing_zones_links.xlsx",
+)
+_tp_zone_map: dict = {}
+try:
+    from load_routing_links import load_routing_links as _load_links
+    _xlsx_edges, _tp_zone_map = _load_links(_ROUTING_XLSX)
+except Exception as _e:
+    _xlsx_edges = None
+    log(f"⚠ load_routing_links import 실패: {_e!r}")
+
+if _xlsx_edges:
+    _routing_edges = _xlsx_edges
+    log(f"라우팅 엣지: xlsx 수동 정의 사용 ({len(_routing_edges)} edges, TP map={_tp_zone_map})")
+else:
+    log("라우팅 엣지 PhysX 검증 시작 (xlsx 없음 → 자동, 30-step 워밍업)...")
+    for _ in range(30):
+        world.step(render=False)
+    _routing_edges = _validate_routing_edges(_all_routing_zones)
+
 try:
     _lm2 = {
         "home":         {"x": float(_spawn[0]), "y": float(_spawn[1]), "z": float(_spawn[2])},
@@ -2255,6 +2273,7 @@ try:
         "routing_zones":   _all_routing_zones,
         "tactical_points": _all_tactical_points,
         "routing_edges":   _routing_edges,
+        "tp_zone_map":     _tp_zone_map,
     }
     with open("/tmp/cobot3_landmarks.json", "w") as _f2:
         _json.dump(_lm2, _f2)

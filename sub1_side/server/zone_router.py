@@ -30,11 +30,14 @@ class ZoneRouter:
         tactical_points: dict[str, dict],
         max_edge_m: float | None = None,
         routing_edges: list[dict] | None = None,
+        tp_zone_map: dict[str, str] | None = None,
     ) -> None:
         # zones: [{"name": str, "x": float, "y": float, "z": float}, ...]
         # tactical_points: {"TP_A": {"x": float, "y": float, "z": float}, ...}
         # routing_edges: [{"a": str, "b": str, "dist": float, "valid": bool}, ...]
         #   None → 거리 기반 자동 생성 (폴백)
+        # tp_zone_map: {"TP_A": "Xform_09", ...} — 도착 zone 강제 매핑.
+        #   plan() 이 가장 가까운 zone 대신 이 zone 을 종점으로 사용.
         eff_max = max_edge_m if max_edge_m is not None else DEFAULT_MAX_EDGE_M
         self._zones: dict[str, tuple[float, float]] = {
             z["name"]: (z["x"], z["y"]) for z in zones
@@ -42,6 +45,7 @@ class ZoneRouter:
         self._tps: dict[str, tuple[float, float]] = {
             k: (v["x"], v["y"]) for k, v in tactical_points.items()
         }
+        self._tp_zone_map: dict[str, str] = dict(tp_zone_map or {})
         if routing_edges is not None:
             self._graph = self._build_from_edges(routing_edges, eff_max)
         else:
@@ -114,7 +118,12 @@ class ZoneRouter:
             return []
 
         start_zone = min(self._zones, key=lambda n: _dist2d(robot_xy, self._zones[n]))
-        end_zone = min(self._zones, key=lambda n: _dist2d(tp, self._zones[n]))
+        # 명시 매핑 우선 — TP→zone 강제 도착점. 없으면 가장 가까운 zone.
+        mapped = self._tp_zone_map.get(tp_id)
+        if mapped and mapped in self._zones:
+            end_zone = mapped
+        else:
+            end_zone = min(self._zones, key=lambda n: _dist2d(tp, self._zones[n]))
 
         zone_path = self._dijkstra(start_zone, end_zone)
         if not zone_path:
