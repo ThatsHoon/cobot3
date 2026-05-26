@@ -2310,7 +2310,7 @@ def _step_fire(dt: float):
             # Hit-scan: muzzle 전방(반동 반대방향 = +cos/sin/-sin) raycast
             _dx_world = -_Fx_world / max(_FIRE_IMPULSE_N, 1e-6)
             _dy_world = -_Fy_world / max(_FIRE_IMPULSE_N, 1e-6)
-            _dz_world = -_math.sin(_fpitch)
+            _dz_world = +_math.sin(_fpitch)  # tilt 양수=위 → +Z (2026-05-26 부호 수정)
             _dir = (_dx_world, _dy_world, _dz_world)
             _hit = _weapon_hit_scan(_muz_pos, _dir)
             if _hit:
@@ -2330,8 +2330,8 @@ def _step_fire(dt: float):
         _fire["state"] = "HOLD"
         _fire["t_state"] = time.time()
     elif st == "HOLD":
-        # stance 유지 0.5s — 반동 시각효과 + 안정화
-        if elapsed >= 0.5:
+        # stance 유지 0.2s — 반동 시각효과 + 안정화 (2026-05-26 0.5→0.2)
+        if elapsed >= 0.2:
             _weapon_fx_hide()
             _fire["state"] = "RAMP_UP"
             _fire["t_state"] = time.time()
@@ -2342,13 +2342,13 @@ def _step_fire(dt: float):
             _ctrl.set_stance_override(0, 0, 0)
             _fire["state"] = "COOLDOWN"
             _fire["t_state"] = time.time()
-            _fire["cooldown_until"] = time.time() + 2.0
-            log(f"[weapon] 사격 완료 id={_fire['fire_id']} → cooldown 2s")
+            _fire["cooldown_until"] = time.time() + 0.2  # 2026-05-26 2.0→0.2 (사이클 ~1s)
+            log(f"[weapon] 사격 완료 id={_fire['fire_id']} → cooldown 0.2s")
             _write_fire_result(True, "completed", hit=_fire.get("last_hit"))
             _fire["last_hit"] = None
             _write_weapon_state()
     elif st == "COOLDOWN":
-        if elapsed >= 2.0:
+        if elapsed >= 0.2:  # 2026-05-26 2.0→0.2
             _fire["state"] = "IDLE"
             _fire["fire_id"] = None
             _write_weapon_state()
