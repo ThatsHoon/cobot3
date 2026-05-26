@@ -311,7 +311,9 @@ if RCLPY_OK:
             self._weather_pub = self.create_publisher(
                 String, T["weather_cmd"], rel_qos)
             # ---- 업링크 발행/클라이언트 ----
-            self._cmd_pub  = self.create_publisher(Twist, T["cmd_vel"], rel_qos)
+            # cmd_vel_manual 로 발행 — safety_filter 가 manual override mux 처리
+            # (Nav2 ~20Hz 와 race 방지, manual cmd 1s 우선). 2026-05-26.
+            self._cmd_pub  = self.create_publisher(Twist, T["cmd_vel_manual"], rel_qos)
             self._goal_pub = self.create_publisher(PoseStamped, T["nav_goal"], rel_qos)
             self._spk_pub  = self.create_publisher(String, T["speaker"], rel_qos)
             self._fire_cli = self.create_client(Trigger, T["fire_srv"])

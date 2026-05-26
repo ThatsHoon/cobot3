@@ -7,6 +7,19 @@
 
 ## 2026-05-26
 
+### Manual cmd_vel override mux (라우팅 중 manual 조향 허용)
+**변경 파일:**
+- `main_side/cmd_vel_safety_filter.py` (수정 — manual sub + time-based mux)
+- `sub1_side/server/config.py` (수정 — TOPICS["cmd_vel_manual"] 추가)
+- `sub1_side/server/ros_bridge.py` (수정 — _cmd_pub 토픽 변경)
+- `dev-docs/specs/2026-05-26-cmd-vel-manual-override.md` (신규 — 설계)
+
+**왜:** /robot/cmd_vel 단일 토픽에 Nav2 chain + C2 manual 동시 publish →
+last-msg-wins race 로 manual cmd 가 ~50ms 안에 nav cmd 에 덮여 무시되는
+증상. C2 가 /robot/cmd_vel_manual 별도 토픽으로 보내고 safety_filter 가
+mux — manual cmd 수신 시 last_manual_ts 갱신 + 즉시 발행, 1s 안에는
+nav cmd skip. 라우팅 진행 유지하면서 manual 잠시 조향 가능.
+
 ### Weapon M16 USDZ + Light pass-through (skybox sphere)
 **변경 파일:**
 - `main_side/camera_publisher.py` (수정 — _build_weapon_visual: procedural→USDZ ref)

@@ -49,7 +49,8 @@ TOPICS = {
     "nav_goal":  "/robot/nav/goal",         # geometry_msgs/PoseStamped
     "speaker":   "/robot/speaker/audio",    # std_msgs/String (JSON: preset/pcm-b64)
     "fire_srv":  "/robot/weapon/fire",      # std_srvs/Trigger (간이) — 설계 §10.2
-    "cmd_vel":   "/robot/cmd_vel",          # geometry_msgs/Twist (RELIABLE) — C2→로봇
+    "cmd_vel":   "/robot/cmd_vel",          # geometry_msgs/Twist (RELIABLE) — 최종 출구 (safety_filter 발행)
+    "cmd_vel_manual": "/robot/cmd_vel_manual",  # geometry_msgs/Twist — C2 manual override 입력
     # DMZ Sentry 통합 (2026-05-20)
     "mission_cmd":  "/mission_command",     # std_msgs/String (sortie/home/stop/resume/idle)
     "patrol_state": "/patrol_state",        # std_msgs/String (JSON mode/waypoint/route/pose)
