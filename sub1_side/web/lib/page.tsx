@@ -159,7 +159,7 @@ export default function Page() {
           {/* 우측 3col — Patrol + TacticalPoints + Inspect+BaseMv (통합) */}
           <div className="xl:col-span-3 flex flex-col gap-2 min-w-0">
             <PatrolControls patrolState={patrolState} />
-            <TacticalPointsPanel routingState={routingState} />
+            <TacticalPointsPanel routingState={routingState} patrolMode={patrolState?.mode} />
             {/* InspectCam + BaseMovement 통합 컨테이너 (사용자 요청) */}
             <div className="panel flex flex-col">
               <div className="panel-hd">
