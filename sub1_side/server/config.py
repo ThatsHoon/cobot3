@@ -79,14 +79,19 @@ TOPICS = {
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)
 
 
-# YOLO 모델 우선순위 (P3 2026-05-20): C2_YOLO_MODEL env > models/*.pt > yolov8n.pt
+# YOLO 모델 우선순위 (P3 2026-05-20): C2_YOLO_MODEL env > _DEFAULT_MODEL > models/*.pt > yolov8n.pt
 _MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+_DEFAULT_MODEL = "dmz_4class_v14.pt"  # 기본 모델 (2026-05-27 교체)
 
 
 def _pick_model() -> str:
     _env = os.environ.get("C2_YOLO_MODEL", "").strip()
     if _env:
         return _env
+    # 기본 모델이 존재하면 우선 사용
+    _default_path = os.path.join(_MODELS_DIR, _DEFAULT_MODEL)
+    if os.path.isfile(_default_path):
+        return _default_path
     if os.path.isdir(_MODELS_DIR):
         for _f in sorted(os.listdir(_MODELS_DIR)):
             if _f.endswith(".pt"):
