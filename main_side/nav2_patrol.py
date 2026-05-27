@@ -411,19 +411,26 @@ class Nav2PatrolController(Node):
         status = future.result().status
         if self._mode in (MissionMode.PAUSED, MissionMode.IDLE):
             return
-        if self._mode == MissionMode.ROUTING and status == GoalStatus.STATUS_SUCCEEDED:
+        # WHY: AB_PATROL 도 ROUTING 과 동일하게 waypoint 진행 처리해야 한다.
+        # 기존 ROUTING 만 체크하면 AB_PATROL 에서 _advance_routing 이 호출되지 않아
+        # 첫 waypoint 후 로봇이 영구 정지하는 버그 발생.
+        if self._mode in (MissionMode.ROUTING, MissionMode.AB_PATROL) \
+                and status == GoalStatus.STATUS_SUCCEEDED:
             self._advance_routing()
         elif status != GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().warn(f"Nav2 goal 종료 status={status}")
-            if self._mode == MissionMode.ROUTING:
-                # WHY: Nav2 가 ABORT(status=6) 등을 반환해도 ROUTING 을 이어가야 한다.
+            if self._mode in (MissionMode.ROUTING, MissionMode.AB_PATROL) \
+                    and self._route:
+                # WHY: Nav2 가 ABORT(status=6) 등을 반환해도 ROUTING/AB_PATROL 을 이어가야 한다.
                 # 현재 waypoint 를 그대로 재시도 — 장애물 일시적 막힘·controller
                 # timeout 등 일과성 실패에서 스스로 회복.
-                next_wp = self._route[self._route_idx]
-                self.get_logger().info(
-                    f"ROUTING ABORT 재시도 [{self._route_idx}/{len(self._route)}]: "
-                    f"({next_wp[0]:.1f},{next_wp[1]:.1f})")
-                self._send_goal_now(next_wp)
+                # _pending_target 이 있으면 새 goal 이 이미 발송 대기 중이므로 재시도 불필요.
+                if self._pending_target is None and self._goal_handle is None:
+                    next_wp = self._route[self._route_idx]
+                    self.get_logger().info(
+                        f"ROUTING ABORT 재시도 [{self._route_idx}/{len(self._route)}]: "
+                        f"({next_wp[0]:.1f},{next_wp[1]:.1f})")
+                    self._send_goal_now(next_wp)
 
     def _advance_routing(self) -> None:
         self._route_idx += 1
@@ -485,7 +492,10 @@ class Nav2PatrolController(Node):
         self._route_idx = 0
         self._route_tp_id = tp_id
         self._goal_arrived = False
-        self._cancel_current_goal()
+        # WHY: _cancel_current_goal() 별도 호출 제거 — _send_goal_now 가 기존 goal 을
+        # cancel 후 _pending_target 에 저장하고 _on_cancel_done 에서 안전하게 dispatch.
+        # 별도 cancel 후 즉시 dispatch 시 cancel 결과 콜백(_on_goal_result)이 새 goal
+        # handle 을 None 으로 덮어쓰는 race condition 발생 가능.
         self.get_logger().info(
             f"ROUTING 시작: tp={tp_id} 총 {len(waypoints)}개 waypoint "
             f"첫 목표=({waypoints[0][0]:.1f},{waypoints[0][1]:.1f})")
