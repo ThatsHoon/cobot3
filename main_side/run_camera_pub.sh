@@ -29,6 +29,10 @@ export ROS_DISTRO=humble
 export GP_HEADLESS=1
 # 동봉 이식 씬(스크립트 상대 — 하드코딩 제거; camera_publisher 기본과 일치)
 export GP_SCENE="${GP_SCENE:-$_HERE/scene/gp_scene.usd}"
+# ── 동물 접근 오브젝트 (wolf/deer/boar 등 USDZ 애니메이션) ──────────────
+# 0=비활성(기본) / 1=활성. 씬에 /World/Approach_Objects 생성 후 TP_A/B 방향으로 접근.
+export GP_APPROACH_OBJECTS="${GP_APPROACH_OBJECTS:-1}"
+export GP_APPROACH_OBJECT_SPEED="${GP_APPROACH_OBJECT_SPEED:-1.10}"
 ISAAC=~/dev_ws/isaac_sim/isaacsim/_build/linux-x86_64/release
 # 전체 raw 출력은 $LOG 에 전량 보존(tee). 콘솔에서는 알려진-양성 2종
 # (omni.usd-abi getRenderSettings stage-id + 짝지은 json 's')만 필터.

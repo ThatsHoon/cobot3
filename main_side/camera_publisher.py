@@ -860,11 +860,12 @@ _APPROACH_ASSET_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "scene", "assets", "objects")
 _APPROACH_ASSETS = [
     # label, usd, scale, lane, x_offset, y_extra, z_extra
-    # 기존 deer.usdz texture 깨짐 → animated USDZ 로 대체.
-    ("wolf",    "wolf_animated.usdz",            0.060, "TP_A",  0.0, 0.0, 0.0),
-    ("deer",    "deer_low_poly_animated.usdz",   0.010, "TP_A", -8.0, 0.0, 0.0),
+    # 동물 스케일: cobot3-new_hi 대비 절반 이하로 줄여 화면에서 작게 보이게 함.
+    # (USDZ 원본이 cm 단위 export → scale=0.01이 1m 크기. "작게" 요청으로 축소)
+    ("wolf",    "wolf_animated.usdz",            0.025, "TP_A",  0.0, 0.0, 0.0),
+    ("deer",    "deer_low_poly_animated.usdz",   0.005, "TP_A", -8.0, 0.0, 0.0),
     ("person",  "person.usdz",                   4.2,   "TP_A",  8.0, 0.0, 0.0),
-    ("boar",    "boar_walk.usdz",                0.05,  "TP_B", -58.0, 0.0, 0.1),
+    ("boar",    "boar_walk.usdz",                0.020, "TP_B", -58.0, 0.0, 0.1),
     ("soldier", "soldier.usdz",                  4.2,   "TP_B", -50.0, 0.0, 0.0),
     ("drone",   "drone.usdz",                    3.3,   "TP_B", -42.0, 0.0, 0.0),
 ]

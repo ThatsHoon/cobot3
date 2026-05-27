@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-05-27 (야간)
+
+### 동물 접근 오브젝트 활성화 — wolf/deer/boar 씬 배치
+**변경 파일:** `main_side/camera_publisher.py` (수정), `main_side/run_camera_pub.sh` (수정)
+- `GP_APPROACH_OBJECTS` 기본값 `0` → run_camera_pub.sh 에서 `1`로 활성화
+- 동물 스케일 축소 (cobot3-new_hi 대비 절반): wolf 0.060→0.025, deer 0.010→0.005, boar 0.050→0.020
+- 동물은 TP_A(wolf·deer), TP_B(boar) 앞 Y=945.0m 에서 Y=920.0m 으로 1.10m/s 접근
+- 에셋: `scene/assets/objects/wolf_animated.usdz`, `deer_low_poly_animated.usdz`, `boar_walk.usdz`
+- `/World/Approach_Objects/{wolf,deer,boar}/scale/asset` 계층 생성
+
+---
+
 ## 2026-05-27 (후반)
 
 ### 영상 블랙아웃 근본 원인 진단 및 수정 — degrade 노드 안정화
