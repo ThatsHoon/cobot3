@@ -1737,6 +1737,7 @@ def _apply_inspect_cmd():
     _inspect_state["last_mtime"] = m
     _inspect_state["rx"] += 1
     # 수동 명령 수신 → 자동 fence 주시 타임아웃 갱신
+    import time as _time
     _inspect_state["manual_until"] = _time.monotonic() + _INSPECT_AUTO_TIMEOUT_S
     import json as _json
     try:
@@ -2005,9 +2006,9 @@ def _update_weapon_xform():
         if not (_w and _w.IsValid()):
             return
         import math as _math
-        _LIM = _math.radians(_INSPECT_LIM)
-        _pan = max(-_LIM, min(_LIM, _inspect_state["pan"]))
-        _tilt = max(-_LIM, min(_LIM, _inspect_state["tilt"]))
+        # FOV 제한 없음 — 자동 fence 주시 모드에서 전방위 회전 허용 (2026-05-27)
+        _pan = _inspect_state["pan"]
+        _tilt = _inspect_state["tilt"]
         # base frame 의 yaw(pan) → +Z 축 회전, pitch(tilt) → +Y 축 회전
         _hp, _ht = _pan * 0.5, _tilt * 0.5
         _qz = Gf.Quatf(_math.cos(_hp), Gf.Vec3f(0.0, 0.0, _math.sin(_hp)))
@@ -2371,5 +2372,9 @@ try:
             _diag()
 except KeyboardInterrupt:
     log("중지(Ctrl+C)")
+except Exception as _loop_exc:
+    import traceback as _tb
+    log(f"[FATAL] 메인 루프 예외 → Shutting Down: {_loop_exc!r}")
+    log(_tb.format_exc())
 finally:
     simulation_app.close()
