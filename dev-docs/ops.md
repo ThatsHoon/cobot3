@@ -20,7 +20,7 @@ cobot3-start_all   # 역할=MAIN 자동판별 (MAIN_SIDE_IP 일치 확인)
 - `mission_echo.py` (/mission_command Isaac console echo)
 - `npc_relay.py` (/npc/* 명령 릴레이)
 - `camera_info_publisher.py` (3-카메라 CameraInfo 1Hz latched)
-- `run_urdf_server.sh` (:8766 Go2 URDF + DAE 서빙)
+- `run_urdf_server.sh` (:8780 Go2 URDF + DAE 서빙)
 - `fall_relay.py` / `weapon_relay.py` / `wind_publisher.py` (전투 이벤트 릴레이)
 - `run_nav2.sh` (Nav2 stack: map_server/planner/controller/BT/velocity_smoother)
 - `cmd_vel_safety_filter.py` (/cmd_vel_nav2_raw → /robot/cmd_vel, linear+angular 동시 통과, MUTE_MODES={"PAUSED"})
@@ -56,20 +56,20 @@ urdf_server,inspect_relay}.log`
 
 ```bash
 cobot3-restart_all          # = cobot3-clear → cobot3-start_all (gui)
-cobot3-restart_all mcp      # = cobot3-clear → cobot3-start_all-with_mcp (Isaac MCP 확장 :8766)
+cobot3-restart_all mcp      # = cobot3-clear → cobot3-start_all + GP_MCP=1 (Isaac MCP 확장 :8766, 씬+사이드카 모두 기동)
 ```
 
 내부 동작: 잔존 정리 PAT 가동 → 2초 SIGTERM → SIGKILL → 포트 점유 강제 해제 → Lichtblick 컨테이너 정리 → 그 후 `start_all` (자체 cleanup 이 이중 보호).
 
-### Isaac Sim MCP 확장 (2026-05-22)
+### Isaac Sim MCP 확장 (2026-05-22, 2026-05-27 수정)
 
-Claude Code ↔ Isaac Sim 직접 제어 채널. `cobot3-start_all-with_mcp` 또는 `cobot3-restart_all mcp` 시 자동 기동.
+Claude Code ↔ Isaac Sim 직접 제어 채널. `cobot3-restart_all mcp` 시 자동 기동.
 
 | 항목 | 값 |
 |------|---|
 | 구현 | `whats2000/isaacsim-mcp-server` (`~/dev_ws/isaacsim-mcp-server/`) |
 | 확장 버전 | `isaac.sim.mcp_extension-0.4.1` |
-| ext-folder | `~/dev_ws/isaacsim-mcp-server/` (`cobot3_env.sh` 의 `_cobot3_isaac_up mcp` 분기) |
+| 기동 방식 | **2026-05-27 수정:** `GP_MCP=1` + `camera_publisher.py` 의 `SimulationApp(extra_args=[--ext-folder, ..., --enable, isaac.sim.mcp_extension])`. 이전 방식(`isaac-sim.sh --enable`)은 별도 Kit 인스턴스로 씬 공유 불가 → 폐기. |
 | 포트 | `localhost:8766` (TCP, Kit 프로세스 내부) |
 | MCP 서버 진입점 | `uv run --directory ~/dev_ws/isaacsim-mcp-server isaacsim-mcp-server` |
 | 도구 수 | 42 (scene, objects, lighting, robots, sensors, materials, assets, simulation, graphs) |
@@ -233,7 +233,7 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `GP_APPROACH_ANIM_REPEAT_CYCLES` | `300` | 기본 반복 cycle 수 |
 | `GP_APPROACH_DEER_ANIM_SPEED` / `_WOLF_ / _DRONE_` | `1.0` | label 별 애니메이션 속도 |
 | `GP_APPROACH_ANIM_SOURCE_START_TC` / `_END_TC` | `4.0 / 44.0` | source clip TC 범위 |
-| `URDF_SERVER_PORT` | `8766` | Go2 URDF HTTP 서버 포트 |
+| `URDF_SERVER_PORT` | `8780` | Go2 URDF HTTP 서버 포트. **2026-05-27: 8766→8780** (MCP TCP :8766 충돌 해소) |
 
 ### C2 PC (web_server, 2026-05-21)
 | 변수 | 기본값 | 설명 |
@@ -317,6 +317,10 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | **자동 주행(Nav2) 이 teleop 대비 느리고 멈췄다 가는 현상** | ① `cmd_vel_safety_filter.py` 의 DRIVE/TURN 이진 분리: `|angular| ≥ 0.32 rad/s` 이면 TURN 모드 진입 → `linear.x = 0` 강제 → 로봇이 정지 후 제자리 회전 → 전진 반복. teleop 은 `/robot/cmd_vel` 직접 발행으로 필터 우회. ② DWB `max_vel_x = 0.6 m/s` (teleop 은 무제한). ③ `acc_lim_x = 0.5 m/s²` — 최고속 도달 1.2s. | (A) 빠른 완화: `nav2_params.yaml` `max_vel_x` 를 1.0으로 올리고 `acc_lim_x = 1.5`로 상향. (B) 근본 해결: `cmd_vel_safety_filter.py` DRIVE/TURN 분기 제거 — linear+angular 동시 통과 허용(사족 로봇은 실제로 곡선 주행 가능). (2026-05-22 분석) |
 | Isaac Sim 상단 메뉴에서 **Add → Animation Graph 옵션 없음** | `isaacsim.exp.full.kit` 에 `omni.anim.graph.*` / `omni.anim.retarget.*` / `omni.anim.people` 확장이 누락되어 Animation Graph UI 미등록. CLI `--enable` 플래그는 UI 확장에 불신뢰. | `isaacsim.exp.full.kit` `[dependencies]` 에 7개 확장 직접 추가 (2026-05-22): `omni.anim.graph.core`, `omni.anim.graph.bundle`, `omni.anim.graph.ui`, `omni.anim.retarget.core`, `omni.anim.retarget.bundle`, `omni.anim.retarget.ui`, `omni.anim.people`. Isaac Sim 재시작 시 영구 반영. |
 | **M_Medical_01 캐릭터 Play 해도 애니메이션 미재생** | (1) `skel:animationSource` 만 지정 시 Animation Graph 를 우회 → 직접 바인딩 — SkelAnimation 조인트(Root/Pelvis/…)와 Skeleton 조인트(RL_BoneRoot/…) 가 0개 매칭 → 무동작. (2) Animation Graph + ControlRig 의 `retargetTags` 레이어가 없으면 리타게팅 불가. | `Isaac/People/Characters/Biped_Setup.usd` 를 씬에 reference 로 추가 (USD prim `/World/BipedSetup`) → 내장 AnimationGraph(`/CharacterAnimation/AnimationGraph`)의 StateMachine(Idle/Walk/Sit/Talk) + ControlRig 리타게팅 자동 활성. 절차 → `main-side.md § M_Medical_01 캐릭터 애니메이션` 참조. (2026-05-22) |
+| **지형/가드타워가 시간대 변경 시 밝기 그대로** | 재질에 `tex_emissive`(UsdUVTexture) → `pbr_shader.emissiveColor` 연결로 **자체발광** 설정. 씬 조명(DomeLight/SphereLight) 강도와 무관하게 항상 baseColor 텍스처 색상으로 발광. | `weather_visuals.py` `_setup_lights()` 에서 7개 emissive prim 의 `inputs:scale`(Float4) attr 수집. `_apply_lights()` 에서 `Gf.Vec4f(ts,ts,ts,1.0)` 으로 프리셋별 `terrain_scale × dome_multiplier` 적용 (2026-05-27). |
+| **`cobot3-restart_all mcp` 시 씬 미로드·사이드카 미기동** | `_cobot3_isaac_up mcp` 가 `isaac-sim.sh --enable mcp_extension` 로 별도 Kit 인스턴스 기동 → 씬/OG/사이드카 없는 빈 인스턴스. `_cobot3_start_all_impl` 이 mcp 모드 early-return. | `GP_MCP=1 run_camera_pub_gui.sh` 로 camera_publisher 의 동일 Kit 인스턴스에 extra_args 로 extension 주입. early-return 제거로 사이드카 동시 기동 (2026-05-27). |
+| **MCP `Unknown command type: scene.get_info`** | `~/dev_ws/isaac-sim-mcp/`(구버전, 플랫 명령) 과 `~/dev_ws/isaacsim-mcp-server/`(신버전, dot 명령) 두 레포가 혼재. camera_publisher 가 구버전 ext-folder 로드. | `extra_args` 의 `--ext-folder` 를 `~/dev_ws/isaacsim-mcp-server/` 로 통일 (2026-05-27). |
+| **URDF HTTP 서버(:8766) 와 MCP TCP(:8766) 포트 충돌** | `run_urdf_server.sh` 기본 포트가 MCP extension 와 동일 8766. MCP 모드 기동 시 URDF 서버 바인드 실패. | `URDF_SERVER_PORT` 기본값 8766→8780 변경. `lichtblick/layout.json` URDF URL 동기 수정 (2026-05-27). |
 
 ---
 
@@ -334,7 +338,7 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 | `/tmp/cobot3_camera_info.log` | 3-카메라 CameraInfo latched 발행 (Main, 신규) |
 | `/tmp/cobot3_mission_echo.log` | /mission_command Isaac console echo (Main, 신규) |
 | `/tmp/cobot3_npc_relay.log` | /npc/* 명령 릴레이 (Main, 신규) |
-| `/tmp/cobot3_urdf_server.log` | Go2 URDF HTTP 서버 (:8766) |
+| `/tmp/cobot3_urdf_server.log` | Go2 URDF HTTP 서버 (:8780) |
 | `/tmp/cobot3_web.log` | Next.js dev server |
 | `/tmp/cobot3_world_odom_tf.log` | world→odom + Go2→base static TF (Main) |
 | `/tmp/cobot3_landmarks_pub.log` | /scene/landmarks latched 발행 (Main) |

@@ -24,7 +24,7 @@
 | `nav2_patrol.py` | PATROL/HOME/ROUTING FSM, ZoneRouter 라우팅 액션 클라이언트. 2026-05-24: `_sp_world` 캐시 + `_on_odom` 에서 odom→world 변환 (self._pose 일관) |
 | `inspect_relay.py` | `/robot/inspect/command` 사이드카 — `/tmp/cobot3_inspect_cmd.json` dump (Isaac 5.1 OG String sub 미등록 우회) |
 | `publish_robot_description.py` | /robot_description URDF 토픽 발행 (Foxglove 3D) |
-| `run_urdf_server.sh` | URDF HTTP 서버 :8766 (CORS, Lichtblick urdf URL 소스) |
+| `run_urdf_server.sh` | URDF HTTP 서버 :8780 (CORS, Lichtblick urdf URL 소스). **2026-05-27: 8766→8780 변경** (MCP TCP 포트 충돌 해소) |
 | `bake_gp_static_map.py` / `bake_go2_recon_map.sh` | Nav2 정적 맵 베이크 (PhysX raycast 0.5m/px) |
 | `bake_friction.py` / `gp_path_tool.py` | 마찰/지면 도구 |
 | `scene/go2_description/` | Go2 URDF + DAE 메시 (urdf_server 서빙 루트) |
@@ -46,6 +46,7 @@
 | 상수 | 값 | 환경변수 | 목적 |
 |------|----|---------|------|
 | `_HEADLESS` | bool | `GP_HEADLESS` (0=GUI, 1=headless) | Isaac 창 표시 여부 |
+| `_MCP_MODE` | bool | `GP_MCP` (1=on) | **2026-05-27 신규.** MCP 확장을 동일 Kit 프로세스 내에 로드. `extra_args=[--ext-folder, ~/dev_ws/isaacsim-mcp-server/, --enable, isaac.sim.mcp_extension]` 를 SimulationApp 에 주입. `cobot3-restart_all mcp` 로 자동 활성화. |
 | `SCENE` | `scene/gp_scene.usd` | `GP_SCENE` | 로드할 USD 씬 경로 |
 | `_OVERRIDES_USD` | `scene/overrides/gp_scene_overrides.usda` | `GP_USE_OVERRIDES` (1=on, 0=off) | 물리 보강 sublayer (2026-05-21). 자세한 항목은 [scene-overrides.md](scene-overrides.md). |
 | `GO2_PRIM` | `/World/Go2` | — | Go2 루트 prim |
@@ -268,6 +269,42 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 4. JPEG 인코딩 (quality=50)
 5. 발행: `sensor_msgs/CompressedImage` (BEST_EFFORT)
 6. 스로틀: TARGET_FPS=5.0 Hz
+
+---
+
+## weather_visuals.py (2026-05-27)
+
+시간대별 조명 프리셋을 실시간으로 적용하는 모듈. camera_publisher.py 내부에서 import.
+
+### 상수
+
+| 상수 | 값 | 설명 |
+|------|----|------|
+| `TIME_OF_DAY_PRESETS` | morning/noon/evening/night | 4개 시간대 프리셋 |
+| `TERRAIN_EMISSIVE_PATHS` | 7개 경로 | 지형·가드타워 자체발광 텍스처 UsdUVTexture prim 경로 |
+
+### `TIME_OF_DAY_PRESETS` 항목 (시간대별)
+
+| 키 | morning | noon | evening | night |
+|----|---------|------|---------|-------|
+| `dome_multiplier` | 0.5 | 1.0 | 0.3 | 0.05 |
+| `terrain_scale` | 0.65 | 1.0 | 0.38 | 0.03 |
+
+### 지형 자체발광(emissive) 제어 — 2026-05-27 수정
+
+**근본 원인:** 지형/가드타워 재질이 `UsdUVTexture(tex_emissive)` → `pbr_shader.emissiveColor` 연결로 자체발광. 씬 조명(DomeLight, SphereLight)과 무관하게 항상 밝음.
+
+**수정:** `inputs:scale` (Gf.Vec4f) 속성으로 emissive 텍스처 출력 강도를 프리셋별 `terrain_scale` 값으로 제어.
+
+```
+TERRAIN_EMISSIVE_PATHS (7개):
+  /World/Hill_terrain1/Materials/texture_material/tex_emissive
+  /World/Hill_terrain2/Materials/texture_material/tex_emissive
+  /World/Extended_field/Hill_terrain_extended/Materials/texture_material/tex_emissive
+  /World/Tactical_Fixed_Cameras/tp_{a~d}_guard_tower/Materials/Material/tex_emissive
+```
+
+`_setup_lights()` 에서 각 경로의 `inputs:scale` attr 을 수집. 없으면 `Float4` 타입으로 신규 생성. `_apply_lights()` 에서 `Gf.Vec4f(ts, ts, ts, 1.0)` 으로 세팅 (`ts = terrain_scale × dome_multiplier`).
 
 ---
 

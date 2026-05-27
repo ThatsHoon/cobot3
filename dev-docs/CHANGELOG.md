@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-05-27
+
+### 지형 자체발광(emissive) 제어 + MCP 모드 수정 + URDF 서버 포트 변경
+**변경 파일:**
+- `main_side/weather_visuals.py` (수정 — terrain emissive scale 제어 추가)
+- `main_side/camera_publisher.py` (수정 — GP_MCP=1 SimulationApp extra_args 주입)
+- `main_side/run_urdf_server.sh` (수정 — 포트 8766→8780)
+- `sub1_side/lichtblick/layout.json` (수정 — URDF URL 포트 8780)
+- `~/.bashrc` (수정 — `_cobot3_isaac_up mcp` 기동 방식 변경, mcp early-return 제거)
+
+**지형 emissive 수정:**
+지형/가드타워 재질이 `UsdUVTexture(tex_emissive)` → `pbr_shader.emissiveColor` 연결로
+씬 조명과 무관하게 자체발광. `weather_visuals.py` 에 `TERRAIN_EMISSIVE_PATHS`(7개)와
+`terrain_scale` 프리셋 값 추가. `inputs:scale`(Gf.Vec4f) 로 emissive 강도 제어.
+시간대별 `terrain_scale`: morning=0.65, noon=1.0, evening=0.38, night=0.03.
+
+**MCP 모드 수정:**
+`camera_publisher.py` 가 `SimulationApp` 을 직접 생성하므로 `GP_MCP=1` 시
+`extra_args=[--ext-folder, isaacsim-mcp-server/, --enable, isaac.sim.mcp_extension]`
+로 동일 Kit 인스턴스에 주입. 이전 `isaac-sim.sh --enable` 방식(별도 Kit 인스턴스) 폐기.
+MCP 버전 mismatch(구버전 flat 명령 → 신버전 dot 명령) 도 수정.
+
+**URDF 서버 포트:**
+MCP TCP :8766 충돌 해소를 위해 URDF HTTP 서버 기본 포트 8766→8780.
+
+---
+
 ## 2026-05-26
 
 ### YOLO 모델 교체 — cobot3_4class_best.pt (4-class DMZ 특화)

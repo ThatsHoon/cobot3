@@ -226,7 +226,7 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 
 | 패널 | 토픽 / userNode | 설명 |
 |---|---|---|
-| `3D!go2` | go2-urdf(http://192.168.10.94:8766/go2_description/urdf/go2.urdf), `/tf`, `/robot/odom`, `/cam/rear/points`, `/sdk/intruder_markers`, `/sdk/landmark_markers`, `/sdk/patrol_goal_pose` | follow `base` link |
+| `3D!go2` | go2-urdf(http://192.168.10.94:8780/go2_description/urdf/go2.urdf), `/tf`, `/robot/odom`, `/cam/rear/points`, `/sdk/intruder_markers`, `/sdk/landmark_markers`, `/sdk/patrol_goal_pose` | follow `base` link |
 | `Image!inspect` + camera_info frustum | `/c2/inspect/compressed` + `/cam/inspect/camera_info` | YOLO 입력 카메라 |
 | `Image!rear`  + camera_info frustum | `/c2/rear/compressed` + `/cam/rear/camera_info` | |
 | `Image!overhead` | `/c2/overhead/compressed` + `/cam/overhead/camera_info` | |
