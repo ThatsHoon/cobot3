@@ -87,3 +87,7 @@ main_side/scene/maps/*.pgm
 
 # RL 정책 체크포인트 (대용량 — Git LFS 없이는 추적 불가)
 main_side/scene/go2_policy/
+
+# 대용량 scene 아카이브 (Google Drive 경유 공유)
+main_side/scene.zip
+main_side/scene/*.zip
