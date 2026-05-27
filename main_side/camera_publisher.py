@@ -1672,7 +1672,11 @@ def _update_inspect_xform():
                 _go2_y = float(_bt[3][1])
                 _fx = max(_FENCE_X_MIN, min(_FENCE_X_MAX, _go2_x))
                 _world_angle = _math.atan2(_FENCE_Y_WORLD - _go2_y, _fx - _go2_x)
-                _pan_auto = (_world_angle - _yaw_w + _math.pi) % (2.0 * _math.pi) - _math.pi
+                # WHY: pan > 0 = 카메라 CW(우측) 회전 → _qz(-pan) 으로 적용.
+                # fence 방향각(_world_angle) 에서 로봇 yaw(_yaw_w) 를 빼면
+                # "fence 가 로봇 forward 에서 CCW 얼마" 인데, CCW 는 pan < 0 (좌측).
+                # → 부호 반전: pan = -(world_angle - yaw_w) = yaw_w - world_angle.
+                _pan_auto = (_yaw_w - _world_angle + _math.pi) % (2.0 * _math.pi) - _math.pi
                 _inspect_state["pan"] = _pan_auto
                 _inspect_state["tilt"] = 0.0
 
