@@ -88,6 +88,7 @@ export default function TacticalOpsPanel({
   const [selectedTp, setSelectedTp] = useState<string | null>(null);
   const [tpLoading, setTpLoading] = useState(false);
   const [tpError, setTpError] = useState<string | null>(null);
+  const [abLoading, setAbLoading] = useState(false);
 
   // Track live fire events for hit decision popup
   useEffect(() => {
@@ -272,6 +273,21 @@ export default function TacticalOpsPanel({
                   data-tone="phos"
                   className="btn w-full !py-2 !text-[10px] !tracking-[0.2em] font-display">
                   {tpLoading ? "TX..." : "이동 명령 / DISPATCH"}
+                </button>
+
+                {/* A↔B 반복 순찰 — TP_A → TP_B → TP_A 무한 루프 */}
+                <button
+                  onClick={async () => {
+                    setAbLoading(true);
+                    try { await postJSON("/missions/command", { command: "ab_patrol" }); }
+                    catch { /* 전송 실패는 patrolMsg 로 표시되지 않으므로 silent */ }
+                    finally { setAbLoading(false); }
+                  }}
+                  disabled={abLoading}
+                  data-active={patrolMode === "AB_PATROL" ? "true" : "false"}
+                  data-tone={patrolMode === "AB_PATROL" ? "phos" : undefined}
+                  className="btn w-full !py-2 !text-[10px] !tracking-[0.14em] font-mono">
+                  {abLoading ? "TX..." : patrolMode === "AB_PATROL" ? "● A↔B 순찰 中" : "A↔B 반복 순찰"}
                 </button>
               </div>
             </div>
