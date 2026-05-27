@@ -21,9 +21,21 @@ from isaacsim import SimulationApp
 
 # GP_HEADLESS=0 → GUI 창 표시, 1 → headless(웹 전송 전용).
 _HEADLESS = os.environ.get("GP_HEADLESS", "0") == "1"
-simulation_app = SimulationApp(
-    {"headless": _HEADLESS, "renderer": "RayTracedLighting"}
-)
+# GP_MCP=1 → isaac.sim.mcp_extension 동시 적재 (claude MCP execute_script 사용 가능).
+# WHY: camera_publisher 자체가 SimulationApp 을 생성하므로 extra_args 로
+# --enable 을 주입하는 것이 유일한 방법. isaac-sim.sh --enable 은 별도 Kit
+# 인스턴스가 되어 씬/OG 가 없는 빈 인스턴스가 됨.
+_MCP_MODE = os.environ.get("GP_MCP", "0") == "1"
+_sim_cfg: dict = {"headless": _HEADLESS, "renderer": "RayTracedLighting"}
+if _MCP_MODE:
+    # WHY: Claude 에 등록된 서버는 ~/dev_ws/isaacsim-mcp-server (신버전, dot notation).
+    # 구버전(~/dev_ws/isaac-sim-mcp) extension 을 로드하면 "Unknown command type:
+    # scene.get_info" 불일치 발생. 서버와 extension 은 항상 같은 저장소여야 함.
+    _sim_cfg["extra_args"] = [
+        "--ext-folder", os.path.expanduser("~/dev_ws/isaacsim-mcp-server/"),
+        "--enable", "isaac.sim.mcp_extension",
+    ]
+simulation_app = SimulationApp(_sim_cfg)
 
 import omni.usd
 import omni.timeline
@@ -1261,6 +1273,11 @@ def _update_approach_objects(dt):
 _setup_approach_objects()
 _configure_approach_animation_timeline()
 
+# 군인 소환 매니저 초기화 (stage 확정 이후 선언+init)
+import soldier_manager as _smmod
+_soldier_mgr = _smmod.SoldierManager()
+_soldier_mgr.init(stage)
+
 # 3) OG sensor_bridge — 기존(비기능 가능) 제거 후 항상 fresh 재생성 ----------
 try:
     import omni.graph.tools.ogn as _ogn  # noqa
@@ -1782,16 +1799,11 @@ def _apply_inspect_cmd():
             f"focal={_inspect_state['focal']:.1f} (rx={_inspect_state['rx']})")
 
 
-# ── NPC 소환 (지통실 버튼 → npc_relay → /tmp mailbox → 본 함수) ──────────
-# WHY: 사용자 요청 — 사람 형체 NPC 를 Go2 전방 20m 앞 z+5 에서 떨어뜨려
-# YOLO person 검출 검증. 사람 USD 자산이 로컬에 없어 procedural primitive
-# 합성 (capsule 몸통/사지 + 구체 머리, ~1.75m 인체 비율). RigidBody+Gravity
-# 활성 → 자유낙하 → 지면 충돌.
-_NPC_CMD_FILE = "/tmp/cobot3_npc_cmd.json"
-_NPC_ROOT_PRIM = "/World/NPCs"
-_npc_state = {"rx": 0, "spawned": 0, "last_mtime": 0.0}
-_SKIN_COLOR = Gf.Vec3f(0.96, 0.80, 0.69)
-_CLOTH_COLOR = Gf.Vec3f(0.20, 0.30, 0.55)
+# ── 군인 소환 (지통실 버튼 → npc_relay → /tmp mailbox → soldier_manager) ──
+# WHY: 기존 procedural capsule NPC 를 CrouchDying.usd 군인으로 교체.
+# 소환 위치: gp_scene 직사각형 (x=166~226, y=906~915, z=4.8) 내 랜덤.
+# walking → fence 방향 이동 → 피격 시 dying anim → 제거. (soldier_manager.py)
+# import + 인스턴스 생성은 stage 확정 후(_setup_approach_objects 블록 아래)에서 수행.
 
 
 def _yaw_from_xformable(prim) -> float:
@@ -1799,102 +1811,7 @@ def _yaw_from_xformable(prim) -> float:
     import math as _math
     m = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
         _U.TimeCode.Default())
-    # 회전 행렬 [m00, m01, m02; m10, m11, m12; ...] → yaw = atan2(m10, m00)
     return _math.atan2(float(m[1][0]), float(m[0][0]))
-
-
-def _build_npc(stage_, path, x, y, z):
-    """Procedural 사람 형체 NPC (capsule 몸통/사지 + 구체 머리). RigidBody
-    + CollisionAPI + 중력 자동 적용. 키 ≈ 1.75m, 어깨폭 ≈ 0.4m."""
-    from pxr import UsdPhysics as _UP, UsdShade as _US
-    if stage_.GetPrimAtPath(path).IsValid():
-        stage_.RemovePrim(path)
-    root = stage_.DefinePrim(path, "Xform")
-    rxf = UsdGeom.Xformable(root)
-    rxf.AddTranslateOp().Set(Gf.Vec3d(float(x), float(y), float(z)))
-    _UP.RigidBodyAPI.Apply(root)
-    _UP.MassAPI.Apply(root)
-    _UP.MassAPI(root).CreateMassAttr(75.0)
-    # 자식 prim 들은 root 의 RigidBody 에 자동 가담 (USD physics 규약).
-    parts = [
-        ("body",  "Capsule", (0.0, 0.0,  0.95), 0.18, 0.55, _CLOTH_COLOR),
-        ("head",  "Sphere",  (0.0, 0.0,  1.62), 0.14, 0.0,  _SKIN_COLOR),
-        ("arm_l", "Capsule", (-0.28, 0.0, 1.10), 0.07, 0.50, _SKIN_COLOR),
-        ("arm_r", "Capsule", ( 0.28, 0.0, 1.10), 0.07, 0.50, _SKIN_COLOR),
-        ("leg_l", "Capsule", (-0.10, 0.0, 0.40), 0.09, 0.60, _CLOTH_COLOR),
-        ("leg_r", "Capsule", ( 0.10, 0.0, 0.40), 0.09, 0.60, _CLOTH_COLOR),
-    ]
-    for name, prim_type, (px, py, pz), radius, height, color in parts:
-        p = stage_.DefinePrim(f"{path}/{name}", prim_type)
-        pxf = UsdGeom.Xformable(p)
-        pxf.AddTranslateOp().Set(Gf.Vec3d(px, py, pz))
-        if prim_type == "Capsule":
-            UsdGeom.Capsule(p).GetRadiusAttr().Set(float(radius))
-            UsdGeom.Capsule(p).GetHeightAttr().Set(float(height))
-        else:
-            UsdGeom.Sphere(p).GetRadiusAttr().Set(float(radius))
-        # 시각 색상 (displayColor primvar — material 없이 즉시 색칭)
-        UsdGeom.Gprim(p).CreateDisplayColorAttr([color])
-        _UP.CollisionAPI.Apply(p)
-
-
-def _apply_npc_cmd():
-    """NPC mailbox 폴링 — /tmp/cobot3_npc_cmd.json 의 mtime 변화 시 소환.
-
-    payload (npc_relay.py 가 작성):
-      {"forward_m": 20.0, "z_offset": 5.0, "count": 1} — Go2 base pose 기준
-      forward(전방) 방향 N미터, base.z + z_offset 위치에서 떨어뜨림.
-      forward_m 음수면 후방. count > 1 면 좌우 0.6m 간격으로 다중 소환.
-    """
-    try:
-        m = os.path.getmtime(_NPC_CMD_FILE)
-    except OSError:
-        return
-    if m <= _npc_state["last_mtime"]:
-        return
-    _npc_state["last_mtime"] = m
-    _npc_state["rx"] += 1
-    import json as _json
-    try:
-        with open(_NPC_CMD_FILE) as _f:
-            cmd = _json.load(_f)
-    except Exception as _e:
-        log(f"[npc] JSON 파싱 실패: {_e!r}")
-        return
-
-    fwd = float(cmd.get("forward_m", 20.0))
-    dz = float(cmd.get("z_offset", 5.0))
-    count = max(1, int(cmd.get("count", 1)))
-
-    base = stage.GetPrimAtPath(BASE_PRIM)
-    if not (base and base.IsValid()):
-        log(f"[npc] {BASE_PRIM} 없음 — 소환 무효")
-        return
-    bt = UsdGeom.Xformable(base).ComputeLocalToWorldTransform(
-        _U.TimeCode.Default()).ExtractTranslation()
-    yaw = _yaw_from_xformable(base)
-    import math as _math
-    fx = _math.cos(yaw); fy = _math.sin(yaw)
-    sx = -fy; sy = fx  # 좌우 (yaw + 90° 방향 단위벡터)
-
-    if not stage.GetPrimAtPath(_NPC_ROOT_PRIM).IsValid():
-        stage.DefinePrim(_NPC_ROOT_PRIM, "Xform")
-
-    for i in range(count):
-        offset = (i - (count - 1) * 0.5) * 0.6   # 중심 정렬, 0.6m 간격
-        nx = float(bt[0]) + fwd * fx + offset * sx
-        ny = float(bt[1]) + fwd * fy + offset * sy
-        nz = float(bt[2]) + dz
-        _npc_state["spawned"] += 1
-        idx = _npc_state["spawned"]
-        path = f"{_NPC_ROOT_PRIM}/npc_{idx:03d}"
-        try:
-            _build_npc(stage, path, nx, ny, nz)
-            log(f"[npc] 소환 #{idx} @ ({nx:.1f},{ny:.1f},{nz:.1f}) "
-                f"base=({float(bt[0]):.1f},{float(bt[1]):.1f},{float(bt[2]):.1f}) "
-                f"yaw={_math.degrees(yaw):.0f}° fwd={fwd}m dz={dz}m")
-        except Exception as _e:
-            log(f"[npc] 소환 실패: {_e!r}")
 
 
 # ── Weather visuals + Wind force + Weapon (2026-05-21) ─────────────────
@@ -2345,6 +2262,8 @@ def _step_fire(dt: float):
             _fire["cooldown_until"] = time.time() + 0.2  # 2026-05-26 2.0→0.2 (사이클 ~1s)
             log(f"[weapon] 사격 완료 id={_fire['fire_id']} → cooldown 0.2s")
             _write_fire_result(True, "completed", hit=_fire.get("last_hit"))
+            if _fire.get("last_hit"):          # 피격 군인 dying 트리거
+                _soldier_mgr.on_weapon_hit(_fire["last_hit"])
             _fire["last_hit"] = None
             _write_weapon_state()
     elif st == "COOLDOWN":
@@ -2409,7 +2328,7 @@ try:
         n += 1
         _apply_cmd()
         _apply_inspect_cmd()
-        _apply_npc_cmd()
+        _soldier_mgr.tick(world.get_physics_dt())
         _update_overhead_xform()
         _update_weapon_xform()
         _apply_weather_cmd()

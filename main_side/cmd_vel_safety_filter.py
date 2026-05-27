@@ -121,17 +121,24 @@ class CmdVelSafetyFilter(Node):
 
     def _on_manual_cmd(self, msg: Twist) -> None:
         """C2 manual cmd 수신 — last_manual_ts 갱신 + 즉시 발행 (Nav2 ~50ms
-        대기 불필요). PAUSED 면 mute 적용. clamp/NaN 가드는 _on_cmd_vel 와 동일."""
+        대기 불필요). PAUSED 면 mute 적용. clamp/NaN 가드는 _on_cmd_vel 와 동일.
+
+        WHY: 실제 움직임이 있을 때만 override 타임스탬프를 갱신한다.
+        C2 web UI 의 idle 폴링(0-velocity) 이 1s 마다 오더라도 Nav2 cmd_vel 을
+        영구 차단하지 않도록 — 조이스틱을 건드렸을 때만 override 발동."""
         if self._muted:
             self._pub.publish(Twist())
             return
-        self._last_manual_ts = time.monotonic()
         lin_raw = msg.linear.x if math.isfinite(msg.linear.x) else 0.0
         ang_raw = msg.angular.z if math.isfinite(msg.angular.z) else 0.0
         linear = self._clamp(lin_raw, -self._max_linear_x, self._max_linear_x)
         angular = self._clamp(ang_raw, -self._max_angular_z, self._max_angular_z)
+        effective_linear = linear if abs(linear) >= self._min_drive_linear else 0.0
+        # 실제 비-제로 명령일 때만 override 타임스탬프 갱신
+        if abs(effective_linear) >= self._min_drive_linear or abs(angular) > 0.01:
+            self._last_manual_ts = time.monotonic()
         out = Twist()
-        out.linear.x = linear if abs(linear) >= self._min_drive_linear else 0.0
+        out.linear.x = effective_linear
         out.angular.z = angular
         self._pub.publish(out)
 

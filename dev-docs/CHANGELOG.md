@@ -7,6 +7,55 @@
 
 ## 2026-05-26
 
+### YOLO 모델 교체 — cobot3_4class_best.pt (4-class DMZ 특화)
+**변경 파일:**
+- `sub1_side/server/models/cobot3_4class_best.pt` (신규 — `/home/rokey/Downloads/`에서 이동)
+- `sub1_side/server/config.py` (수정 — YOLO_CLASSES: COCO80 → 4-class 매핑)
+- `sub1_side/server/yolo_infer.py` (수정 — alert 로직: person 단독 → person/soldier/drone 침입자 그룹)
+
+**왜:** COCO80 범용 모델(dmz_sentry_best.pt) → DMZ 경계근무 특화 4-class 모델.
+클래스: {0:person, 1:soldier, 2:drone, 3:animal}.
+config.py YOLO_CLASSES, yolo_infer.py _INTRUDER_CLASSES 업데이트.
+alert event명: "person_detected_near_fence" → "intruder_detected".
+모델 C2(192.168.10.105) rsync 동기화 완료.
+
+### 군인 NPC 스케일/축 오정렬 수정 + 자동 소환 버그 수정
+**변경 파일:** `main_side/soldier_manager.py` (수정)
+
+**왜:** CrouchDying.usd 가 metersPerUnit=0.01(cm 스케일) + upAxis=Y 이고,
+gp_scene 은 metersPerUnit=1.0(m) + upAxis=Z 이다. character/ 참조 prim 에
+scale=0.01(cm→m) + RotateX(90°)(Y-up→Z-up) 미적용으로 캐릭터가 100× 크고
+공중에 떠 있었음. 또한 _last_mtime=0.0 초기화로 기존 cmd 파일이 있으면
+init 직후 첫 tick 에 자동 소환되는 버그도 수정.
+
+### 군인 NPC 소환 + Walking→Dying (무기 피격 트리거)
+**변경 파일:**
+- `main_side/soldier_manager.py` (신규 ~280줄 — 군인 생명주기 관리)
+- `main_side/camera_publisher.py` (수정 — 기존 NPC 코드 제거, soldier_manager 통합)
+- `sub1_side/server/app.py` (수정 — `/spawn_npc` → `/spawn_soldier`)
+- `sub1_side/server/ros_bridge.py` (수정 — `pub_soldier_spawn` 추가)
+- `sub1_side/web/components/NpcSpawnButton.tsx` (수정 — "SOLDIER SPAWN" UI)
+
+**왜:** 기존 procedural capsule NPC(Go2 전방 낙하)를 CrouchDying.usd 군인으로
+전면 교체. 소환 위치: gp_scene 직사각형(x=166~226, y=906~915, z=4.8) 랜덤.
+walking → fence(-Y) 이동 → 무기 피격(hit-scan raycast) 시 dying 애니메이션
+재생(~4.4s) → prim 제거. IPC 경로(/tmp/cobot3_npc_cmd.json, /robot/npc/spawn)
+재사용으로 npc_relay.py 무수정. Capsule collider 추가로 raycast 인식 안정화.
+
+### 디버그 페이지 관절 순서 오표시 수정 (leg_q reorder)
+**변경 파일:** `sub1_side/server/ros_bridge.py` (수정)
+
+**왜:** Isaac Sim OG `ROS2PublishJointState` 는 USD articulation 알파벳 순
+(FL_calf, FL_hip, FL_thigh, …)으로 발행하지만, 디버그 페이지
+`DiagnosticsStrip` 및 `ImmersiveCameraView` 는 policy 순
+(FL_hip, FL_thigh, FL_calf, FR_…)을 기대한다. `_on_leg` 콜백에서
+`msg.name` 기반 재정렬 없이 `list(msg.position)` 그대로 저장해
+hip/calf 위치 뒤바뀜 + RR 값 오표시 증상 발생.
+
+**수정:** `_on_leg`에서 `msg.name → index` 맵 생성 후 POLICY_ORDER 12개로
+재정렬. `msg.name` 없거나 길이 불일치 시 원본 그대로(폴백). DB
+`joint_snapshots`도 동일 순서로 일관성 유지.
+
 ### Manual cmd_vel override mux (라우팅 중 manual 조향 허용)
 **변경 파일:**
 - `main_side/cmd_vel_safety_filter.py` (수정 — manual sub + time-based mux)

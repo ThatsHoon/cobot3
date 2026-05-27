@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><title>카메라 파이프라인</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;padding:40px;min-height:100vh}
+.wrap{max-width:1060px;margin:0 auto}
+h1{color:#e8e8e8;font-size:20px;font-weight:600;margin-bottom:6px}
+.sub{color:#888;font-size:12px;margin-bottom:28px}
+.diagram{border:1px solid #333;border-radius:8px;padding:28px;background:#181818;overflow:hidden}
+svg{display:block;width:100%}
+.footer{color:#666;font-size:11px;text-align:center;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>카메라 파이프라인</h1><p class="sub">7 cameras → 압축 → ROS2 → YOLO/Streaming → UI</p>
+<div class="diagram">
+<svg viewBox="0 0 1100 420">
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#bbb"/>
+    </marker>
+    <marker id="ah-dash" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#b8b8b8"/>
+    </marker>
+  </defs>
+
+  <!--
+    Layout (all boxes 150×56):
+    Stage 1: x=20   Stage 2: x=188   Stage 3: x=356   Stage 4: x=524
+    Fork dot at x=692+150=842 → x=846
+    Branch A (YOLO):     x=870, y=80
+    Branch B (Streaming): x=870, y=240
+    Web UI: x=1040, y=172  (center between branches)
+  -->
+
+  <!-- ── ARROWS (behind boxes) ── -->
+  <line x1="170" y1="186" x2="188" y2="186" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="338" y1="186" x2="356" y2="186" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="506" y1="186" x2="524" y2="186" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <!-- Stage 4 → fork dot -->
+  <line x1="674" y1="186" x2="840" y2="186" stroke="#999" stroke-width="1.5"/>
+  <circle cx="844" cy="186" r="4" fill="#999999"/>
+  <!-- Fork A: up to YOLO -->
+  <line x1="844" y1="182" x2="844" y2="108" stroke="#888" stroke-width="1.5"/>
+  <line x1="844" y1="108" x2="870" y2="108" stroke="#888" stroke-width="1.5" marker-end="url(#ah-dash)"/>
+  <!-- Fork B: down to Streaming -->
+  <line x1="844" y1="190" x2="844" y2="268" stroke="#888" stroke-width="1.5"/>
+  <line x1="844" y1="268" x2="870" y2="268" stroke="#888" stroke-width="1.5" marker-end="url(#ah-dash)"/>
+  <!-- YOLO → Web UI -->
+  <path d="M 1020 108 C 1048 108, 1048 186, 1020 186" fill="none" stroke="#888" stroke-width="1.5" marker-end="url(#ah-dash)"/>
+  <!-- Streaming → Web UI -->
+  <path d="M 1020 268 C 1048 268, 1048 186, 1020 186" fill="none" stroke="#888" stroke-width="1.5" marker-end="url(#ah-dash)"/>
+
+  <!-- Arrow labels -->
+  <text x="179" y="178" text-anchor="middle" fill="#777777" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">RGB</text>
+  <text x="347" y="178" text-anchor="middle" fill="#777777" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">0.57 MB/s</text>
+  <text x="860" y="148" text-anchor="end" fill="#777777" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">alerts</text>
+  <text x="860" y="258" text-anchor="end" fill="#777777" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">H264</text>
+
+  <!-- ── STAGE 1: 7 Cameras ── -->
+  <rect x="20" y="158" width="150" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="95" y="182" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">7 Cameras</text>
+  <text x="95" y="198" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Isaac OG · 50Hz</text>
+  <text x="95" y="148" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">3 body · 4 tower</text>
+
+  <!-- ── STAGE 2: 압축·축소 ── -->
+  <rect x="188" y="158" width="150" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="263" y="182" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">압축·축소</text>
+  <text x="263" y="198" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">5fps · JPEG q50</text>
+  <text x="263" y="148" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">video_degrade ×7</text>
+
+  <!-- ── STAGE 3: ROS2 ── -->
+  <rect x="356" y="158" width="150" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="431" y="182" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">ROS2</text>
+  <text x="431" y="198" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Domain 130</text>
+  <text x="431" y="148" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">FastDDS UDP</text>
+
+  <!-- ── STAGE 4: ros_bridge ── -->
+  <rect x="524" y="158" width="150" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="599" y="182" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">ros_bridge</text>
+  <text x="599" y="198" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">C2 PC · FastAPI :8000</text>
+  <text x="599" y="148" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">수신·분배</text>
+
+  <!-- ── BRANCH A: YOLO 탐지 ── -->
+  <rect x="870" y="80" width="150" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="945" y="104" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">YOLO 탐지</text>
+  <text x="945" y="120" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">4-class detection</text>
+  <text x="945" y="70" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">person · soldier · drone · animal</text>
+
+  <!-- ── BRANCH B: 스트리밍 ── -->
+  <rect x="870" y="240" width="150" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="945" y="264" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">스트리밍</text>
+  <text x="945" y="280" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">H264 / MJPEG</text>
+
+  <!-- ── STAGE 6: Web UI ── -->
+  <rect x="1020" y="158" width="66" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="1053" y="182" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Web UI</text>
+  <text x="1053" y="198" text-anchor="middle" fill="#b8b8b8" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Next.js</text>
+
+  <!-- Stage labels -->
+  <text x="95"   y="354" text-anchor="middle" fill="#666666" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">STAGE 1</text>
+  <text x="263"  y="354" text-anchor="middle" fill="#666666" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">STAGE 2</text>
+  <text x="431"  y="354" text-anchor="middle" fill="#666666" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">STAGE 3</text>
+  <text x="599"  y="354" text-anchor="middle" fill="#666666" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">STAGE 4</text>
+  <text x="945"  y="354" text-anchor="middle" fill="#666666" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">STAGE 5</text>
+  <text x="1053" y="354" text-anchor="middle" fill="#666666" font-size="8" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">STAGE 6</text>
+
+  <!-- Bandwidth annotation box -->
+  <rect x="20" y="376" width="1060" height="26" rx="4" fill="#222222" stroke="#666" stroke-width="1"/>
+  <text x="550" y="393" text-anchor="middle" fill="#777777" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">17.9 MB/s (원본 50Hz)  →  0.57 MB/s (5fps JPEG q50)  ·  BEST_EFFORT QoS depth=5  ·  YOLO conf≥0.55</text>
+</svg>
+</div>
+<p class="footer">cobot3 · 7 cameras · YOLO v8 4-class · aiortc H264</p>
+</div>
+</body>
+</html>

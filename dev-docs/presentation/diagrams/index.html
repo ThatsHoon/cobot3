@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cobot3 아키텍처 다이어그램 갤러리</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+    .header { margin-bottom: 2.5rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; }
+    .subtitle { color: #94a3b8; font-size: 0.85rem; margin-left: 1.75rem; margin-top: 0.25rem; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid #1e293b;
+      border-radius: 1rem;
+      overflow: hidden;
+      transition: border-color 0.2s, transform 0.2s;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .card:hover {
+      border-color: #22d3ee;
+      transform: translateY(-3px);
+    }
+    .card-preview {
+      width: 100%;
+      height: 200px;
+      border: none;
+      display: block;
+      pointer-events: none;
+      transform-origin: top left;
+    }
+    .preview-wrapper {
+      overflow: hidden;
+      height: 200px;
+      background: #020617;
+      position: relative;
+    }
+    .preview-overlay {
+      position: absolute;
+      inset: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+    .card-body { padding: 1.25rem; }
+    .card-num { font-size: 0.7rem; color: #475569; margin-bottom: 0.25rem; }
+    .card-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .card-desc { font-size: 0.75rem; color: #64748b; line-height: 1.5; }
+    .tag {
+      display: inline-block;
+      background: rgba(34,211,238,0.1);
+      border: 1px solid rgba(34,211,238,0.3);
+      color: #22d3ee;
+      font-size: 0.65rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      margin-top: 0.6rem;
+      margin-right: 0.3rem;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 3rem;
+      color: #334155;
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-row">
+      <div class="pulse-dot"></div>
+      <h1>cobot3 아키텍처 다이어그램</h1>
+    </div>
+    <p class="subtitle">GP 경계근무 4족 로봇 자율 순찰 시스템 · 2-PC 구성 · Isaac Sim 5.1 + ROS2 Humble</p>
+  </div>
+
+  <div class="grid">
+
+    <a class="card" href="D01-system-overview.html" target="_blank">
+      <div class="preview-wrapper">
+        <iframe class="card-preview" src="D01-system-overview.html" scrolling="no"
+          style="transform: scale(0.38); transform-origin: top left; width: 263%; height: 527%;"></iframe>
+        <div class="preview-overlay" onclick="window.open('D01-system-overview.html','_blank')"></div>
+      </div>
+      <div class="card-body">
+        <div class="card-num">D01</div>
+        <div class="card-title">전체 시스템 아키텍처</div>
+        <div class="card-desc">2-PC 토폴로지. Main(94) ↔ C2(105) 전체 서비스 구성, ROS2 버스, LAN 0.57 MB/s 최적화</div>
+        <span class="tag">2-PC</span><span class="tag">ROS2</span><span class="tag">Isaac Sim</span>
+      </div>
+    </a>
+
+    <a class="card" href="D02-ros2-node-graph.html" target="_blank">
+      <div class="preview-wrapper">
+        <iframe class="card-preview" src="D02-ros2-node-graph.html" scrolling="no"
+          style="transform: scale(0.38); transform-origin: top left; width: 263%; height: 527%;"></iframe>
+        <div class="preview-overlay" onclick="window.open('D02-ros2-node-graph.html','_blank')"></div>
+      </div>
+      <div class="card-body">
+        <div class="card-num">D02</div>
+        <div class="card-title">ROS2 노드 & 토픽 아키텍처</div>
+        <div class="card-desc">Domain=130 전체 노드 그래프. 다운링크/업링크 토픽, QoS 프로파일, FastDDS UDP-only</div>
+        <span class="tag">ROS2 topics</span><span class="tag">QoS</span><span class="tag">FastDDS</span>
+      </div>
+    </a>
+
+    <a class="card" href="D03-tech-stack.html" target="_blank">
+      <div class="preview-wrapper">
+        <iframe class="card-preview" src="D03-tech-stack.html" scrolling="no"
+          style="transform: scale(0.38); transform-origin: top left; width: 263%; height: 527%;"></iframe>
+        <div class="preview-overlay" onclick="window.open('D03-tech-stack.html','_blank')"></div>
+      </div>
+      <div class="card-body">
+        <div class="card-num">D03</div>
+        <div class="card-title">기능 단위별 기술 스택</div>
+        <div class="card-desc">시뮬레이션 / 로봇제어 / 통신 / 비전AI / 백엔드 / 프론트엔드 6개 레이어 스택</div>
+        <span class="tag">Isaac Sim</span><span class="tag">FastAPI</span><span class="tag">Next.js</span>
+      </div>
+    </a>
+
+    <a class="card" href="D04-camera-pipeline.html" target="_blank">
+      <div class="preview-wrapper">
+        <iframe class="card-preview" src="D04-camera-pipeline.html" scrolling="no"
+          style="transform: scale(0.38); transform-origin: top left; width: 263%; height: 527%;"></iframe>
+        <div class="preview-overlay" onclick="window.open('D04-camera-pipeline.html','_blank')"></div>
+      </div>
+      <div class="card-body">
+        <div class="card-num">D04</div>
+        <div class="card-title">카메라 & 영상 파이프라인</div>
+        <div class="card-desc">7카메라 OG → degrade → ROS2 → YOLO 4-class → WebRTC/MJPEG → Next.js UI 전체 흐름</div>
+        <span class="tag">YOLO v8</span><span class="tag">aiortc</span><span class="tag">7 cameras</span>
+      </div>
+    </a>
+
+    <a class="card" href="D05-patrol-fsm.html" target="_blank">
+      <div class="preview-wrapper">
+        <iframe class="card-preview" src="D05-patrol-fsm.html" scrolling="no"
+          style="transform: scale(0.38); transform-origin: top left; width: 263%; height: 527%;"></iframe>
+        <div class="preview-overlay" onclick="window.open('D05-patrol-fsm.html','_blank')"></div>
+      </div>
+      <div class="card-body">
+        <div class="card-num">D05</div>
+        <div class="card-title">Nav2 자율 순찰 FSM & 기동 절차</div>
+        <div class="card-desc">IDLE/PATROL/HOME/PAUSED 상태 전이 + cobot3-start_all 10단계 기동 순서 플로우차트</div>
+        <span class="tag">Nav2</span><span class="tag">FSM</span><span class="tag">startup</span>
+      </div>
+    </a>
+
+    <a class="card" href="D06-data-flow.html" target="_blank">
+      <div class="preview-wrapper">
+        <iframe class="card-preview" src="D06-data-flow.html" scrolling="no"
+          style="transform: scale(0.38); transform-origin: top left; width: 263%; height: 527%;"></iframe>
+        <div class="preview-overlay" onclick="window.open('D06-data-flow.html','_blank')"></div>
+      </div>
+      <div class="card-body">
+        <div class="card-num">D06</div>
+        <div class="card-title">End-to-End 데이터 플로우</div>
+        <div class="card-desc">다운링크(센서→UI) / 텔레메트리(500Hz→1s DB) / 업링크(원격조작→12-DOF) 3-스윔레인</div>
+        <span class="tag">E2E flow</span><span class="tag">telemetry</span><span class="tag">cmd_vel</span>
+      </div>
+    </a>
+
+  </div>
+
+  <p class="footer">cobot3 · GP 경계근무 자율 순찰 시스템 · 2026-05-26 · Main PC(94) + C2 PC(105)</p>
+</body>
+</html>

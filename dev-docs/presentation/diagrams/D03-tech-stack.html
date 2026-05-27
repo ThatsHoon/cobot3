@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><title>기술 스택</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;padding:40px;min-height:100vh}
+.wrap{max-width:1060px;margin:0 auto}
+h1{color:#e8e8e8;font-size:20px;font-weight:600;margin-bottom:6px}
+.sub{color:#888;font-size:12px;margin-bottom:28px}
+.diagram{border:1px solid #333;border-radius:8px;padding:28px;background:#181818;overflow:hidden}
+svg{display:block;width:100%}
+.footer{color:#666;font-size:11px;text-align:center;margin-top:16px}
+</style>
+</head>
+<body><div class="wrap">
+<h1>기술 스택</h1>
+<p class="sub">Main PC (Isaac Sim) · C2 PC (Command &amp; Control)</p>
+<div class="diagram">
+<svg viewBox="0 0 1000 562" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">
+
+  <!-- Column divider -->
+  <line x1="500" y1="30" x2="500" y2="502" stroke="#555" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Column headers -->
+  <text x="240" y="27" text-anchor="middle" fill="#aaa" font-size="11">Main PC</text>
+  <text x="710" y="27" text-anchor="middle" fill="#aaa" font-size="11">C2 PC</text>
+
+  <!-- ══════════════════════════════════════════
+       MAIN PC  (3 cards vertical, h=141, gap=20)
+       y=40 / 201 / 362
+  ══════════════════════════════════════════ -->
+
+  <!-- Card 1: Isaac Sim  y=40 -->
+  <rect x="140" y="40" width="200" height="141" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <!-- Cube icon, shifted +20 for vertical centering -->
+  <rect x="220" y="72" width="40" height="40" fill="none" stroke="#ccc" stroke-width="1.5"/>
+  <rect x="228" y="64" width="40" height="40" fill="none" stroke="#777" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="220" y1="72" x2="228" y2="64" stroke="#999" stroke-width="1"/>
+  <line x1="260" y1="72" x2="268" y2="64" stroke="#999" stroke-width="1"/>
+  <line x1="260" y1="112" x2="268" y2="104" stroke="#999" stroke-width="1"/>
+  <line x1="220" y1="112" x2="228" y2="104" stroke="#999" stroke-width="1"/>
+  <text x="240" y="130" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600">Isaac Sim 5.1</text>
+  <text x="240" y="147" text-anchor="middle" fill="#999" font-size="9">Simulation · Physics</text>
+
+  <!-- Card 2: ROS2  y=201 -->
+  <rect x="140" y="201" width="200" height="141" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <!-- Gear icon (original y=170 → shift +51) -->
+  <polygon points="240,253 257,262 257,280 240,289 223,280 223,262" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="240" cy="271" r="6" fill="none" stroke="#aaa" stroke-width="1.5"/>
+  <rect x="236" y="247" width="8" height="6" rx="1" fill="#2c2c2c" stroke="#ccc" stroke-width="1.5"/>
+  <rect x="236" y="287" width="8" height="6" rx="1" fill="#2c2c2c" stroke="#ccc" stroke-width="1.5"/>
+  <rect x="215" y="267" width="6" height="8" rx="1" fill="#2c2c2c" stroke="#ccc" stroke-width="1.5"/>
+  <rect x="259" y="267" width="6" height="8" rx="1" fill="#2c2c2c" stroke="#ccc" stroke-width="1.5"/>
+  <text x="240" y="309" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600">ROS2 Humble</text>
+  <text x="240" y="323" text-anchor="middle" fill="#999" font-size="9">Domain 130 · FastDDS</text>
+
+  <!-- Card 3: Python  y=362 -->
+  <rect x="140" y="362" width="200" height="141" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <!-- Python icon (original y=300 → shift +82) -->
+  <circle cx="234" cy="424" r="10" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="246" cy="436" r="10" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="231" cy="422" r="2.5" fill="#e8e8e8"/>
+  <circle cx="249" cy="438" r="2.5" fill="#e8e8e8"/>
+  <text x="240" y="470" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600">Python 3.10</text>
+  <text x="240" y="484" text-anchor="middle" fill="#999" font-size="9">로봇 제어 · 영상처리</text>
+
+  <!-- ══════════════════════════════════════════
+       C2 PC  (2×2 grid)
+       Left col x=510 w=190  │  Right col x=720 w=190
+       Row 1 y=40             │  Row 2 y=201
+  ══════════════════════════════════════════ -->
+
+  <!-- Card 4: FastAPI  x=510 y=40 -->
+  <rect x="510" y="40" width="190" height="141" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <!-- Lightning bolt, cx=605, +20 vertical -->
+  <path d="M 611 72 L 599 96 L 607 96 L 599 124 L 617 98 L 609 98 Z" fill="#e8e8e8"/>
+  <text x="605" y="138" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600">FastAPI</text>
+  <text x="605" y="152" text-anchor="middle" fill="#999" font-size="9">:8000 · REST + WebSocket</text>
+
+  <!-- Card 5: Next.js  x=720 y=40 -->
+  <rect x="720" y="40" width="190" height="141" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <!-- Triangle + N, cx=815, +20 vertical -->
+  <polygon points="815,83 833,115 797,115" fill="none" stroke="#ccc" stroke-width="2"/>
+  <text x="815" y="108" text-anchor="middle" fill="#ccc" font-size="16" font-weight="700">N</text>
+  <text x="815" y="140" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600">Next.js 14</text>
+  <text x="815" y="154" text-anchor="middle" fill="#999" font-size="9">Tactical UI · :3000</text>
+
+  <!-- Card 6: YOLO  x=510 y=201 -->
+  <rect x="510" y="201" width="190" height="141" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <!-- Eye icon, cx=605, cy=269 -->
+  <ellipse cx="605" cy="269" rx="20" ry="10" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="605" cy="269" r="7" fill="none" stroke="#ccc" stroke-width="1.5"/>
+  <circle cx="605" cy="269" r="3" fill="#e8e8e8"/>
+  <text x="605" y="308" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600">YOLO v8</text>
+  <text x="605" y="322" text-anchor="middle" fill="#999" font-size="9">4-class · person·soldier·drone</text>
+
+  <!-- Card 7: PostgreSQL  x=720 y=201 -->
+  <rect x="720" y="201" width="190" height="141" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <!-- Cylinder, cx=815, cy top=253 -->
+  <ellipse cx="815" cy="253" rx="18" ry="6" fill="none" stroke="#ccc" stroke-width="1.5"/>
+  <line x1="797" y1="253" x2="797" y2="277" stroke="#ccc" stroke-width="1.5"/>
+  <line x1="833" y1="253" x2="833" y2="277" stroke="#ccc" stroke-width="1.5"/>
+  <ellipse cx="815" cy="277" rx="18" ry="6" fill="none" stroke="#ccc" stroke-width="1.5"/>
+  <path d="M 797 265 Q 815 271 833 265" fill="none" stroke="#777" stroke-width="1"/>
+  <text x="815" y="304" text-anchor="middle" fill="#e8e8e8" font-size="12" font-weight="600">PostgreSQL</text>
+  <text x="815" y="318" text-anchor="middle" fill="#999" font-size="9">telemetry · events · DB</text>
+
+  <!-- ══════════════ SHARED FOOTER BAR ══════════════ -->
+  <rect x="50" y="518" width="900" height="38" rx="4" fill="#222" stroke="#555" stroke-width="1"/>
+  <text x="80"  y="542" fill="#999" font-size="10">공통</text>
+  <text x="140" y="542" fill="#b8b8b8" font-size="10">FastDDS UDP-only</text>
+  <text x="278" y="542" fill="#666" font-size="10">·</text>
+  <text x="290" y="542" fill="#b8b8b8" font-size="10">Ubuntu 22.04</text>
+  <text x="390" y="542" fill="#666" font-size="10">·</text>
+  <text x="402" y="542" fill="#b8b8b8" font-size="10">Docker (Lichtblick)</text>
+  <text x="538" y="542" fill="#666" font-size="10">·</text>
+  <text x="550" y="542" fill="#b8b8b8" font-size="10">Foxglove Bridge</text>
+
+</svg>
+</div>
+<p class="footer">cobot3 · Python 3.10 · ROS2 Humble · Isaac Sim 5.1 · Next.js 14</p>
+</div></body></html>

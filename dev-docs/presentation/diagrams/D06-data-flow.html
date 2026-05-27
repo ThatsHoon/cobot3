@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><title>데이터 플로우</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;padding:40px;min-height:100vh}
+.wrap{max-width:1060px;margin:0 auto}
+h1{color:#e8e8e8;font-size:20px;font-weight:600;margin-bottom:6px}
+.sub{color:#888;font-size:12px;margin-bottom:28px}
+.diagram{border:1px solid #333;border-radius:8px;padding:28px;background:#181818;overflow:hidden}
+svg{display:block;width:100%}
+.footer{color:#666;font-size:11px;text-align:center;margin-top:16px}
+</style>
+</head>
+<body><div class="wrap">
+<h1>데이터 플로우</h1>
+<p class="sub">다운링크 · 텔레메트리 · 업링크 — 세 가지 병렬 경로</p>
+<div class="diagram">
+<svg viewBox="0 0 1000 500">
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#bbb"/>
+    </marker>
+    <marker id="ah-dash" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#b8b8b8"/>
+    </marker>
+  </defs>
+
+  <!-- Lane dividers -->
+  <line x1="0" y1="160" x2="1000" y2="160" stroke="#555" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="0" y1="320" x2="1000" y2="320" stroke="#555" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- Lane background tints -->
+  <rect x="0" y="0" width="1000" height="160" fill="#0d0d0d"/>
+  <rect x="0" y="160" width="1000" height="160" fill="#0b0b0b"/>
+  <rect x="0" y="320" width="1000" height="180" fill="#0d0d0d"/>
+
+  <!-- Lane labels (vertical) -->
+  <text x="12" y="85" text-anchor="middle" fill="#888888" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" transform="rotate(-90, 12, 85)">다운링크</text>
+  <text x="12" y="245" text-anchor="middle" fill="#888888" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" transform="rotate(-90, 12, 245)">텔레메트리</text>
+  <text x="12" y="405" text-anchor="middle" fill="#888888" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif" transform="rotate(-90, 12, 405)">업링크</text>
+
+  <!-- ===== LANE 1: 다운링크 ===== -->
+
+  <!-- A1: 카메라 ×7 (primary) -->
+  <rect x="50" y="67" width="160" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="130" y="91" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">카메라 ×7</text>
+  <text x="130" y="107" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Isaac OG</text>
+
+  <!-- A2: 압축·5fps -->
+  <rect x="260" y="67" width="160" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="340" y="91" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">압축·5fps</text>
+  <text x="340" y="107" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">640×360 JPEG</text>
+
+  <!-- A3: ROS2 (dashed) -->
+  <rect x="470" y="67" width="160" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="550" y="91" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">ROS2</text>
+  <text x="550" y="107" text-anchor="middle" fill="#999999" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">0.57 MB/s</text>
+
+  <!-- A4: YOLO + UI (primary) -->
+  <rect x="680" y="67" width="160" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="760" y="91" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">YOLO + UI</text>
+  <text x="760" y="107" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">탐지·스트리밍</text>
+
+  <!-- Lane 1 arrows -->
+  <line x1="211" y1="95" x2="259" y2="95" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="421" y1="95" x2="469" y2="95" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="631" y1="95" x2="679" y2="95" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- ===== LANE 2: 텔레메트리 ===== -->
+
+  <!-- B1: Go2 로봇 (primary) -->
+  <rect x="50" y="227" width="160" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="130" y="251" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Go2 로봇</text>
+  <text x="130" y="267" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">500Hz physics</text>
+
+  <!-- B2: odom · GPS -->
+  <rect x="260" y="227" width="160" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="340" y="251" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">odom · GPS</text>
+  <text x="340" y="267" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">telemetry_bridge</text>
+
+  <!-- B3: ROS2 (dashed) -->
+  <rect x="470" y="227" width="160" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="550" y="251" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">ROS2</text>
+  <text x="550" y="267" text-anchor="middle" fill="#999999" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">5Hz decimated</text>
+
+  <!-- B4: DB + UI (primary) -->
+  <rect x="680" y="227" width="160" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="760" y="251" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">DB + UI</text>
+  <text x="760" y="267" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">PostgreSQL · /events</text>
+
+  <!-- Lane 2 arrows -->
+  <line x1="211" y1="255" x2="259" y2="255" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="421" y1="255" x2="469" y2="255" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="631" y1="255" x2="679" y2="255" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- ===== LANE 3: 업링크 ===== -->
+
+  <!-- C4: Web + PS5 (source, leftmost) -->
+  <rect x="50" y="387" width="160" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="130" y="411" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Web + PS5</text>
+  <text x="130" y="427" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">명령 소스</text>
+
+  <!-- C3: ROS2 (dashed) -->
+  <rect x="260" y="387" width="160" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="340" y="411" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">ROS2</text>
+  <text x="340" y="427" text-anchor="middle" fill="#999999" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">/robot/cmd_vel</text>
+
+  <!-- C2: Safety Filter -->
+  <rect x="470" y="387" width="160" height="56" rx="4" fill="#2c2c2c" stroke="#999" stroke-width="1.5"/>
+  <text x="550" y="411" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Safety Filter</text>
+  <text x="550" y="427" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">cmd_vel 클램프</text>
+
+  <!-- C1: Go2 로봇 (primary) -->
+  <rect x="680" y="387" width="160" height="56" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="760" y="411" text-anchor="middle" fill="#e8e8e8" font-size="13" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Go2 로봇</text>
+  <text x="760" y="427" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">12-DOF 제어</text>
+
+  <!-- Lane 3 arrows -->
+  <line x1="211" y1="415" x2="259" y2="415" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="421" y1="415" x2="469" y2="415" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="631" y1="415" x2="679" y2="415" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+
+</svg>
+</div>
+<p class="footer">cobot3 · 500Hz physics → 5Hz telemetry → 1s DB flush</p>
+</div></body></html>

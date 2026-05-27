@@ -13,6 +13,9 @@ import config
 log = logging.getLogger("c2.yolo")
 
 
+# 4-class 모델 침입자 그룹: person + soldier + drone → intruder alert 트리거
+_INTRUDER_CLASSES = {"person", "soldier", "drone"}
+# animal 그룹 — 4-class 모델에서 "animal" 단일 클래스
 _ANIMAL_CLASSES = {"animal", "bird", "cat", "dog", "horse", "sheep",
                    "cow", "elephant", "bear", "zebra", "giraffe", "deer"}
 
@@ -66,9 +69,9 @@ class YoloInfer:
             return dets, None, None
         now = time.monotonic()
 
-        # person
+        # intruder (person / soldier / drone) — 4-class 모델 침입자 그룹
         person_alert = None
-        persons = [d for d in dets if d["class_name"] == "person"
+        persons = [d for d in dets if d["class_name"] in _INTRUDER_CLASSES
                    and d["conf"] >= config.YOLO_ALERT_CONF]
         if persons and (now - self._last_person_alert_ts) >= config.YOLO_ALERT_COOLDOWN:
             self._last_person_alert_ts = now
@@ -76,8 +79,8 @@ class YoloInfer:
             x, y, w, h = top["bbox"]
             person_alert = {
                 "level": "ALERT",
-                "event": "person_detected_near_fence",
-                "label": "person",
+                "event": "intruder_detected",
+                "label": top["class_name"],
                 "confidence": float(top["conf"]),
                 "bbox_xyxy": [x, y, x + w, y + h],
                 "count": len(persons),

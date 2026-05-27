@@ -57,7 +57,7 @@
           "instanceId": "go2-urdf",
           "layerId": "foxglove.Urdf",
           "sourceType": "url",
-          "url": "http://192.168.10.94:8766/scene/go2_description/urdf/go2.urdf",
+          "url": "http://192.168.10.94:8780/scene/go2_description/urdf/go2.urdf",
           "filePath": "",
           "parameter": "",
           "topic": "",

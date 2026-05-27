@@ -25,19 +25,52 @@ SUN_PATH = "/World/Sun"
 DOME_PATH_PREFERRED = "/World/DomeLight_01"   # gp_scene 기존
 DOME_PATH_FALLBACK  = "/World/DomeLight"
 
+# 배경 하늘구체(skybox sphere) 경로 — gp_scene.usd 고정 구조
+SCENE01_SPHERE_LIGHT = "/World/scene_01/SphereLight"
+SCENE01_SKY_EMISSIVE = "/World/scene_01/Materials/Skybox/tex_emissive"
+
+# WHY: Hill_terrain1/2, Extended_field, tp_*_guard_tower 의 UsdPreviewSurface
+# pbr_shader.emissiveColor 가 baseColor 텍스처(tex_emissive)에 연결되어
+# 지형·감시탑이 항상 자체발광(self-emissive)해 씬 라이트와 무관하게 밝음.
+# inputs:scale Gf.Vec4f 로 시간대별 발광량을 조절해 지형도 어두워지게 함.
+TERRAIN_EMISSIVE_PATHS = [
+    "/World/Hill_terrain1/Materials/texture_material/tex_emissive",
+    "/World/Hill_terrain2/Materials/texture_material/tex_emissive",
+    "/World/Extended_field/Hill_terrain_extended/Materials/texture_material/tex_emissive",
+    "/World/Tactical_Fixed_Cameras/tp_a_guard_tower/Materials/Material/tex_emissive",
+    "/World/Tactical_Fixed_Cameras/tp_b_guard_tower/Materials/Material/tex_emissive",
+    "/World/Tactical_Fixed_Cameras/tp_c_guard_tower/Materials/Material/tex_emissive",
+    "/World/Tactical_Fixed_Cameras/tp_d_guard_tower/Materials/Material/tex_emissive",
+]
+
 TIME_OF_DAY_PRESETS = {
+    # sphere_intensity: /World/scene_01/SphereLight 조절값 (원본 30,000)
+    # sky_scale: 하늘 구체 emissive tex_emissive.inputs:scale RGBA 값
+    # terrain_scale: 지형·감시탑 self-emissive 스케일 (1.0=낮, 0.03=밤)
     "morning": {"sun_rotation": (-20.0, 0.0, 58.0),  "sun_intensity": 1250.0,
                 "sun_color": (1.0, 0.70, 0.42),
-                "dome_intensity": 470.0, "dome_color": (0.76, 0.88, 1.0)},
+                "dome_intensity": 470.0, "dome_color": (0.76, 0.88, 1.0),
+                "sphere_intensity": 12000.0,
+                "sky_scale": (0.72, 0.62, 0.45, 1.0),
+                "terrain_scale": 0.65},
     "noon":    {"sun_rotation": (-55.0, 0.0, 35.0),  "sun_intensity": 1800.0,
                 "sun_color": (1.0, 0.96, 0.84),
-                "dome_intensity": 650.0, "dome_color": (0.86, 0.92, 1.0)},
+                "dome_intensity": 650.0, "dome_color": (0.86, 0.92, 1.0),
+                "sphere_intensity": 30000.0,
+                "sky_scale": (1.0, 1.0, 1.0, 1.0),
+                "terrain_scale": 1.0},
     "evening": {"sun_rotation": (-12.0, 0.0, -62.0), "sun_intensity": 950.0,
                 "sun_color": (1.0, 0.48, 0.26),
-                "dome_intensity": 360.0, "dome_color": (0.56, 0.62, 0.82)},
+                "dome_intensity": 360.0, "dome_color": (0.56, 0.62, 0.82),
+                "sphere_intensity": 6000.0,
+                "sky_scale": (0.55, 0.32, 0.18, 1.0),
+                "terrain_scale": 0.38},
     "night":   {"sun_rotation": (-5.0, 0.0, 120.0),  "sun_intensity": 60.0,
                 "sun_color": (0.35, 0.48, 0.78),
-                "dome_intensity": 95.0,  "dome_color": (0.08, 0.11, 0.19)},
+                "dome_intensity": 95.0,  "dome_color": (0.08, 0.11, 0.19),
+                "sphere_intensity": 400.0,
+                "sky_scale": (0.06, 0.08, 0.14, 1.0),
+                "terrain_scale": 0.03},
 }
 WEATHER_PRESETS = {
     "clear":  {"sun_multiplier": 1.0,  "dome_multiplier": 1.0,
@@ -124,28 +157,44 @@ class WeatherVisuals:
                 rot_op = op; break
         if rot_op is None:
             rot_op = xf.AddRotateXYZOp()
-        # Light pass-through: skybox sphere(/World/scene_01) 가 sun ray 를
-        # 막아 내부 ground 가 어두워지는 증상 해결. shadowLink Collection 으로
-        # sphere 를 제외 → sun/dome 의 illumination 이 sphere 표면 통과.
-        # 2026-05-26 사용자 보고: scene_01 추가 후 시간대 빛 변화 미반영.
-        self._apply_light_pass_through(sun.GetPrim(), ["/World/scene_01"])
-        self._apply_light_pass_through(dome.GetPrim(), ["/World/scene_01"])
-        return {"sun_int": sun_int, "sun_col": sun_col, "sun_rot": rot_op,
-                "dome_int": dome_int, "dome_col": dome_col}
+        # /World/scene_01/SphereLight: 하늘구체 내부 항상-켜짐 SphereLight(30k).
+        # WHY: 이 라이트가 DomeLight/Sun 변화를 압도해 밤에도 내부가 밝게 유지됨.
+        # 시간대별 sphere_intensity 값으로 직접 조절 (shadowLink 우회 불필요).
+        sphere_light_int = None
+        sl_prim = stage.GetPrimAtPath(SCENE01_SPHERE_LIGHT)
+        if sl_prim and sl_prim.IsValid():
+            from pxr import UsdLux as _UsdLux
+            _sl = _UsdLux.SphereLight(sl_prim)
+            sphere_light_int = (_sl.GetIntensityAttr()
+                                or _sl.CreateIntensityAttr(30000.0))
 
-    @staticmethod
-    def _apply_light_pass_through(light_prim, exclude_paths: list) -> None:
-        """이 light 의 shadowLink Collection 으로 exclude_paths 제외 →
-        해당 prim 들이 light ray 를 막지 않음 (skybox 등). USD 표준 API."""
-        try:
-            from pxr import Usd
-            coll = Usd.CollectionAPI.Apply(light_prim, "shadowLink")
-            coll.CreateIncludesRel().SetTargets([Sdf.Path("/")])
-            coll.CreateExcludesRel().SetTargets(
-                [Sdf.Path(p) for p in exclude_paths]
-            )
-        except Exception:
-            pass  # 구버전 USD 또는 미지원 환경 — silent fallback
+        # /World/scene_01/Materials/Skybox/tex_emissive: 하늘 텍스처 emissive.
+        # inputs:scale 로 RGB 를 시간대별로 어둡게/밝게 조정.
+        sky_scale_attr = None
+        sky_prim = stage.GetPrimAtPath(SCENE01_SKY_EMISSIVE)
+        if sky_prim and sky_prim.IsValid():
+            sky_scale_attr = sky_prim.GetAttribute("inputs:scale")
+            if not sky_scale_attr or not sky_scale_attr.IsValid():
+                sky_scale_attr = sky_prim.CreateAttribute(
+                    "inputs:scale", Sdf.ValueTypeNames.Float4)
+            sky_scale_attr.Set(Gf.Vec4f(1.0, 1.0, 1.0, 1.0))
+
+        # 지형·감시탑 self-emissive scale attrs 수집
+        terrain_scale_attrs = []
+        for em_path in TERRAIN_EMISSIVE_PATHS:
+            em_prim = stage.GetPrimAtPath(em_path)
+            if em_prim and em_prim.IsValid():
+                sc_attr = em_prim.GetAttribute("inputs:scale")
+                if not sc_attr or not sc_attr.IsValid():
+                    sc_attr = em_prim.CreateAttribute(
+                        "inputs:scale", Sdf.ValueTypeNames.Float4)
+                terrain_scale_attrs.append(sc_attr)
+
+        return {"sun_int": sun_int, "sun_col": sun_col, "sun_rot": rot_op,
+                "dome_int": dome_int, "dome_col": dome_col,
+                "sphere_light_int": sphere_light_int,
+                "sky_scale": sky_scale_attr,
+                "terrain_scales": terrain_scale_attrs}
 
     def _build_effects(self) -> dict:
         stage = self._stage
@@ -247,6 +296,22 @@ class WeatherVisuals:
         L["sun_rot"].Set(Gf.Vec3f(*t["sun_rotation"]))
         L["dome_int"].Set(dome_i)
         L["dome_col"].Set(Gf.Vec3f(*dome_c))
+        # SphereLight — 날씨 배경 multiplier(dome_multiplier) 도 적용
+        if L["sphere_light_int"] is not None:
+            L["sphere_light_int"].Set(float(t["sphere_intensity"] * w["dome_multiplier"]))
+        # 하늘구체 emissive scale — 날씨 tint 도 반영
+        if L["sky_scale"] is not None:
+            s = t["sky_scale"]
+            # cloudy/rain/fog 는 하늘도 흐리게 (dome_multiplier 비례)
+            dm = float(w["dome_multiplier"])
+            L["sky_scale"].Set(Gf.Vec4f(
+                float(s[0] * dm), float(s[1] * dm), float(s[2] * dm), 1.0))
+        # 지형·감시탑 self-emissive scale — 시간대+날씨로 지형 밝기 조절
+        # WHY: 지형 pbr_shader.emissiveColor 가 baseColor 텍스처에 연결되어
+        # 씬 라이트와 무관하게 항상 발광. terrain_scale 로 직접 억제.
+        ts = float(t["terrain_scale"] * w["dome_multiplier"])
+        for sc_attr in L["terrain_scales"]:
+            sc_attr.Set(Gf.Vec4f(ts, ts, ts, 1.0))
 
     def update(self, dt: float) -> None:
         """매 step 호출 — 활성 effect 의 점 위치 갱신 (rain/snow drift, fog scroll)."""

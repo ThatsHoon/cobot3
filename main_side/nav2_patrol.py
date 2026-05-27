@@ -382,6 +382,15 @@ class Nav2PatrolController(Node):
             self._advance_routing()
         elif status != GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().warn(f"Nav2 goal 종료 status={status}")
+            if self._mode == MissionMode.ROUTING:
+                # WHY: Nav2 가 ABORT(status=6) 등을 반환해도 ROUTING 을 이어가야 한다.
+                # 현재 waypoint 를 그대로 재시도 — 장애물 일시적 막힘·controller
+                # timeout 등 일과성 실패에서 스스로 회복.
+                next_wp = self._route[self._route_idx]
+                self.get_logger().info(
+                    f"ROUTING ABORT 재시도 [{self._route_idx}/{len(self._route)}]: "
+                    f"({next_wp[0]:.1f},{next_wp[1]:.1f})")
+                self._send_goal_now(next_wp)
 
     def _advance_routing(self) -> None:
         self._route_idx += 1

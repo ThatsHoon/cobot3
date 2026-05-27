@@ -211,6 +211,11 @@ class RosBridge:
         if self._node:
             self._node.pub_npc_spawn(json.dumps(payload))
 
+    def pub_soldier_spawn(self, payload: dict):
+        """군인 소환 — 동일 IPC(/robot/npc/spawn + /tmp/cobot3_npc_cmd.json) 재사용."""
+        if self._node:
+            self._node.pub_npc_spawn(json.dumps(payload))
+
     def fire(self, target_ref: str, operator: str,
              target_alert_id: int | None = None):
         """weapon/fire 서비스 호출 (HITL 흐름, 2026-05-21):
@@ -401,7 +406,27 @@ if RCLPY_OK:
 
         def _on_leg(self, msg):
             self._rx["leg"] += 1
-            self.br.latest["leg_q"] = list(msg.position)
+            # WHY: Isaac OG ROS2PublishJointState 는 USD articulation 알파벳 순으로
+            # 발행(FL_calf/FL_hip/FL_thigh/…)하지만 웹·URDF 렌더·DiagnosticsStrip 은
+            # policy 순(FL_hip/FL_thigh/FL_calf/FR_…)을 기대한다. msg.name 으로 재정렬.
+            _POLICY_ORDER = [
+                "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+                "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+                "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+                "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+            ]
+            names = list(msg.name)
+            positions = list(msg.position)
+            if names and len(names) == len(positions):
+                name_idx = {n: i for i, n in enumerate(names)}
+                reordered = [
+                    positions[name_idx[jn]]
+                    if jn in name_idx else 0.0
+                    for jn in _POLICY_ORDER
+                ]
+                self.br.latest["leg_q"] = reordered
+            else:
+                self.br.latest["leg_q"] = positions
             now = time.monotonic()
             if now - self.br._js_last_log >= 0.1:   # 10 Hz 다운샘플
                 self.br._js_last_log = now

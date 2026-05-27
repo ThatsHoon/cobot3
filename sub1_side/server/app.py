@@ -428,23 +428,18 @@ async def inspect_command(rid: str, body: dict):
     return {"ok": True, "payload": payload}
 
 
-@app.post("/robots/{rid}/spawn_npc", dependencies=[Depends(require_key)])
-async def spawn_npc(rid: str, body: dict | None = None):
-    """NPC(사람 형체) 소환 → /robot/npc/spawn (str_msgs/String JSON).
-    Main 측 npc_relay 가 /tmp 파일에 dump, camera_publisher 가 폴링.
+@app.post("/robots/{rid}/spawn_soldier", dependencies=[Depends(require_key)])
+async def spawn_soldier(rid: str, body: dict | None = None):
+    """군인 NPC 소환 → /robot/npc/spawn (IPC 재사용) → soldier_manager.
+    소환 위치: gp_scene 직사각형(x=166~226, y=906~915, z=4.8) 랜덤.
+    walking → fence(-Y) 방향 이동 → 무기 피격 시 dying anim.
 
-    body 키 (모두 옵션):
-      forward_m (기본 20.0): Go2 전방 거리 m (음수=후방)
-      z_offset  (기본 5.0):  base.z + 이만큼 위에서 떨어뜨림
-      count     (기본 1):    좌우 0.6m 간격으로 다중 소환
+    body 키:
+      count (기본 1): 한 번에 소환할 군인 수 (최대 GP_SOLDIER_MAX)
     """
     body = body or {}
-    payload = {
-        "forward_m": float(body.get("forward_m", 20.0)),
-        "z_offset": float(body.get("z_offset", 5.0)),
-        "count": int(body.get("count", 1)),
-    }
-    ros.pub_npc_spawn(payload)
+    payload = {"count": max(1, int(body.get("count", 1)))}
+    ros.pub_soldier_spawn(payload)
     return {"ok": True, "payload": payload}
 
 

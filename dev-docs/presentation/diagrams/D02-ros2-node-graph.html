@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><title>ROS2 토픽 구조</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;padding:40px;min-height:100vh}
+.wrap{max-width:1060px;margin:0 auto}
+h1{color:#e8e8e8;font-size:20px;font-weight:600;margin-bottom:6px}
+.sub{color:#888;font-size:12px;margin-bottom:28px}
+.diagram{border:1px solid #333;border-radius:8px;padding:28px;background:#181818;overflow:hidden}
+svg{display:block;width:100%}
+.footer{color:#666;font-size:11px;text-align:center;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>ROS2 토픽 구조</h1><p class="sub">Domain=130 · FastDDS UDP · Main ↔ C2 핵심 토픽 흐름</p>
+<div class="diagram">
+<svg viewBox="0 0 1000 460">
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#bbb"/>
+    </marker>
+    <marker id="ah-dash" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#b8b8b8"/>
+    </marker>
+  </defs>
+
+  <!-- Main PC Box -->
+  <rect x="20" y="60" width="180" height="340" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="110" y="92" text-anchor="middle" fill="#e8e8e8" font-size="14" font-weight="700" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Main PC</text>
+  <text x="110" y="108" text-anchor="middle" fill="#888888" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">192.168.10.94</text>
+  <line x1="35" y1="118" x2="185" y2="118" stroke="#666" stroke-width="1"/>
+  <text x="110" y="136" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Isaac Sim 5.1</text>
+  <text x="110" y="152" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">OmniGraph sensor_bridge</text>
+  <text x="110" y="168" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">video_degrade ×7</text>
+  <text x="110" y="184" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">depth_degrade ×4</text>
+  <text x="110" y="200" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">telemetry_bridge</text>
+  <text x="110" y="216" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Nav2 stack</text>
+
+  <!-- C2 PC Box -->
+  <rect x="800" y="60" width="180" height="340" rx="4" fill="#383838" stroke="#999" stroke-width="1.5"/>
+  <text x="890" y="92" text-anchor="middle" fill="#e8e8e8" font-size="14" font-weight="700" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">C2 PC</text>
+  <text x="890" y="108" text-anchor="middle" fill="#888888" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">192.168.10.105</text>
+  <line x1="815" y1="118" x2="965" y2="118" stroke="#666" stroke-width="1"/>
+  <text x="890" y="136" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">ros_bridge.py</text>
+  <text x="890" y="152" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">FastAPI :8000</text>
+  <text x="890" y="168" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">YOLO v8</text>
+  <text x="890" y="184" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">db_writer</text>
+  <text x="890" y="200" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">nav2_patrol</text>
+  <text x="890" y="216" text-anchor="middle" fill="#b8b8b8" font-size="10" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Next.js :3000</text>
+
+  <!-- Topic Bar 1: 영상 스트림 (downlink) -->
+  <rect x="240" y="80" width="520" height="52" rx="4" fill="#222222" stroke="#555" stroke-width="1"/>
+  <text x="255" y="102" text-anchor="start" fill="#e8e8e8" font-size="12" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">영상 스트림</text>
+  <text x="255" y="118" text-anchor="start" fill="#999999" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">/c2/*/compressed ×7 · 5fps</text>
+  <text x="748" y="102" text-anchor="end" fill="#777777" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Main → C2</text>
+  <!-- Connectors -->
+  <line x1="200" y1="106" x2="239" y2="106" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="760" y1="106" x2="799" y2="106" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Topic Bar 2: 텔레메트리 (downlink) -->
+  <rect x="240" y="152" width="520" height="52" rx="4" fill="#222222" stroke="#555" stroke-width="1"/>
+  <text x="255" y="174" text-anchor="start" fill="#e8e8e8" font-size="12" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">텔레메트리</text>
+  <text x="255" y="190" text-anchor="start" fill="#999999" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">/robot/odom · state · gps</text>
+  <text x="748" y="174" text-anchor="end" fill="#777777" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Main → C2</text>
+  <line x1="200" y1="178" x2="239" y2="178" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="760" y1="178" x2="799" y2="178" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Topic Bar 3: 관절·순찰 (downlink) -->
+  <rect x="240" y="224" width="520" height="52" rx="4" fill="#222222" stroke="#555" stroke-width="1"/>
+  <text x="255" y="246" text-anchor="start" fill="#e8e8e8" font-size="12" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">관절·순찰</text>
+  <text x="255" y="262" text-anchor="start" fill="#999999" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">/robot/leg_joint_states · /patrol_state</text>
+  <text x="748" y="246" text-anchor="end" fill="#777777" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">Main → C2</text>
+  <line x1="200" y1="250" x2="239" y2="250" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+  <line x1="760" y1="250" x2="799" y2="250" stroke="#999" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Topic Bar 4: 명령 업링크 (uplink, dashed) -->
+  <rect x="240" y="296" width="520" height="52" rx="4" fill="#222222" stroke="#666" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="255" y="318" text-anchor="start" fill="#d0d0d0" font-size="12" font-weight="600" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">명령 (업링크)</text>
+  <text x="255" y="334" text-anchor="start" fill="#888888" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">/robot/cmd_vel · /mission_command</text>
+  <text x="748" y="318" text-anchor="end" fill="#777777" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">C2 → Main</text>
+  <!-- Uplink: C2 PC left edge → bar right edge (C2 side entry) -->
+  <line x1="800" y1="322" x2="761" y2="322" stroke="#999" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#ah-dash)"/>
+  <!-- Uplink: bar left edge → Main PC right edge -->
+  <line x1="240" y1="322" x2="201" y2="322" stroke="#999" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#ah-dash)"/>
+
+  <!-- Network band -->
+  <line x1="240" y1="400" x2="760" y2="400" stroke="#444" stroke-width="1" stroke-dasharray="3,4"/>
+  <circle cx="240" cy="400" r="2.5" fill="#666666"/>
+  <circle cx="760" cy="400" r="2.5" fill="#666666"/>
+  <text x="500" y="395" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">FastDDS UDP · ROS_DOMAIN_ID=130 · LAN 192.168.10.0/24</text>
+
+  <!-- Section labels -->
+  <text x="500" y="68" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">↓  downlink  (3 채널)</text>
+  <text x="500" y="288" text-anchor="middle" fill="#666666" font-size="9" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">↑  uplink  (1 채널)</text>
+</svg>
+</div>
+<p class="footer">cobot3 · ROS2 Humble · Domain=130 · FastDDS</p>
+</div>
+</body>
+</html>

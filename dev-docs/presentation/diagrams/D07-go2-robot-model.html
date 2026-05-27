@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Go2 로봇 모델 — 출처 및 적용 방식</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#0d1117;
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  padding:36px;
+  min-height:100vh;
+}
+.wrap{max-width:1060px;margin:0 auto}
+.header{margin-bottom:24px}
+h1{
+  color:#e6edf3;
+  font-size:20px;
+  font-weight:700;
+  letter-spacing:0.3px;
+  margin-bottom:4px;
+}
+.sub{
+  color:#7d8590;
+  font-size:12px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.badge{
+  display:inline-block;
+  padding:1px 8px;
+  border-radius:12px;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:0.5px;
+}
+.badge-blue{background:rgba(56,139,253,0.15);color:#58a6ff;border:1px solid rgba(56,139,253,0.3)}
+.badge-green{background:rgba(63,185,80,0.15);color:#3fb950;border:1px solid rgba(63,185,80,0.3)}
+.badge-orange{background:rgba(210,153,34,0.15);color:#d29922;border:1px solid rgba(210,153,34,0.3)}
+.diagram{
+  border:1px solid #21262d;
+  border-radius:10px;
+  padding:24px;
+  background:#161b22;
+  overflow:hidden;
+}
+svg{display:block;width:100%}
+.footer{
+  color:#484f58;
+  font-size:11px;
+  text-align:center;
+  margin-top:14px;
+  letter-spacing:0.3px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>Go2 로봇 모델 — 출처 및 적용 방식</h1>
+    <div class="sub">
+      <span class="badge badge-blue">Unitree Go2</span>
+      <span class="badge badge-green">walk-these-ways RL</span>
+      <span class="badge badge-orange">Isaac Sim 5.1</span>
+      <span style="margin-left:4px">URDF → USD 변환 · 12-DOF 보행 · Actuator Network 토크 제어</span>
+    </div>
+  </div>
+
+<div class="diagram">
+<svg viewBox="0 0 1000 548" font-family="'Segoe UI',system-ui,sans-serif">
+<defs>
+  <marker id="ah" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#4d9cf8"/>
+  </marker>
+  <marker id="ah-gray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6" fill="#484f58"/>
+  </marker>
+  <!-- glow filter for accent elements -->
+  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+    <feGaussianBlur stdDeviation="3" result="blur"/>
+    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <!-- subtle gradient for section headers -->
+  <linearGradient id="hdr-left" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#1f6feb" stop-opacity="0.25"/>
+    <stop offset="100%" stop-color="#1f6feb" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="hdr-right" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#3fb950" stop-opacity="0.2"/>
+    <stop offset="100%" stop-color="#3fb950" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="hdr-pipe" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#8957e5" stop-opacity="0.2"/>
+    <stop offset="100%" stop-color="#8957e5" stop-opacity="0"/>
+  </linearGradient>
+</defs>
+
+<!-- ══ SECTION PANELS ══════════════════════════════════════════════ -->
+
+<!-- Left panel: 모델 출처 -->
+<rect x="16" y="16" width="448" height="220" rx="6" fill="#1c2128" stroke="#30363d" stroke-width="1"/>
+<!-- accent top border -->
+<rect x="16" y="16" width="448" height="3" rx="2" fill="#1f6feb"/>
+<!-- header bg gradient -->
+<rect x="16" y="16" width="448" height="36" rx="6" fill="url(#hdr-left)"/>
+<rect x="16" y="40" width="448" height="12" fill="#1c2128"/><!-- gradient clip bottom -->
+<!-- section label -->
+<text x="32" y="37" fill="#58a6ff" font-size="11" font-weight="700" letter-spacing="1">모델 출처</text>
+<!-- divider -->
+<line x1="16" y1="46" x2="464" y2="46" stroke="#21262d" stroke-width="1"/>
+
+<!-- Right panel: 프로젝트 적용 방식 -->
+<rect x="480" y="16" width="504" height="220" rx="6" fill="#1c2128" stroke="#30363d" stroke-width="1"/>
+<rect x="480" y="16" width="504" height="3" rx="2" fill="#3fb950"/>
+<rect x="480" y="16" width="504" height="36" rx="6" fill="url(#hdr-right)"/>
+<rect x="480" y="40" width="504" height="12" fill="#1c2128"/>
+<text x="496" y="37" fill="#3fb950" font-size="11" font-weight="700" letter-spacing="1">프로젝트 적용 방식</text>
+<line x1="480" y1="46" x2="984" y2="46" stroke="#21262d" stroke-width="1"/>
+
+<!-- Bottom panel: 제어 파이프라인 -->
+<rect x="16" y="252" width="968" height="276" rx="6" fill="#1c2128" stroke="#30363d" stroke-width="1"/>
+<rect x="16" y="252" width="968" height="3" rx="2" fill="#8957e5"/>
+<rect x="16" y="252" width="968" height="36" rx="6" fill="url(#hdr-pipe)"/>
+<rect x="16" y="276" width="968" height="12" fill="#1c2128"/>
+<text x="32" y="273" fill="#bc8cff" font-size="11" font-weight="700" letter-spacing="1">제어 파이프라인</text>
+<line x1="16" y1="282" x2="984" y2="282" stroke="#21262d" stroke-width="1"/>
+
+<!-- ══ 모델 출처 CARDS ══════════════════════════════════════════════ -->
+
+<!-- Card: Unitree Go2 -->
+<rect x="32" y="56" width="196" height="80" rx="5" fill="#21262d" stroke="#388bfd" stroke-width="1.5"/>
+<rect x="32" y="56" width="196" height="4" rx="3" fill="#388bfd" fill-opacity="0.7"/>
+<text x="130" y="80" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">Unitree Go2</text>
+<text x="130" y="97" text-anchor="middle" fill="#8b949e" font-size="9">4족 보행 로봇 (실제 하드웨어)</text>
+<text x="130" y="111" text-anchor="middle" fill="#8b949e" font-size="9">12-DOF · hip / thigh / calf × 4다리</text>
+<text x="130" y="125" text-anchor="middle" fill="#388bfd" font-size="9" font-weight="600">go2.urdf (공식 Unitree 자산)</text>
+
+<!-- Card: walk-these-ways -->
+<rect x="252" y="56" width="196" height="80" rx="5" fill="#21262d" stroke="#388bfd" stroke-width="1.5"/>
+<rect x="252" y="56" width="196" height="4" rx="3" fill="#388bfd" fill-opacity="0.7"/>
+<text x="350" y="80" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">walk-these-ways 정책</text>
+<text x="350" y="97" text-anchor="middle" fill="#8b949e" font-size="9">CMU · gait-conditioned-agility</text>
+<text x="350" y="111" text-anchor="middle" fill="#8b949e" font-size="9">obs 70 × hist 30 → action 12</text>
+<text x="350" y="125" text-anchor="middle" fill="#388bfd" font-size="9" font-weight="600">pretrain-go2 JIT checkpoint</text>
+
+<!-- Card: Go1 Actuator Net -->
+<rect x="32" y="154" width="196" height="70" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
+<text x="130" y="175" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">Go1 Actuator Net</text>
+<text x="130" y="191" text-anchor="middle" fill="#8b949e" font-size="9">unitree_go1_actuator.pt</text>
+<text x="130" y="206" text-anchor="middle" fill="#8b949e" font-size="9">입력 (12,6): pos_err · vel × 3 steps → τ</text>
+
+<!-- Card: NVIDIA 기각 (dashed / warning) -->
+<rect x="252" y="154" width="196" height="70" rx="5" fill="#21262d" stroke="#d29922" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="350" y="172" text-anchor="middle" fill="#d29922" font-size="11" font-weight="700">NVIDIA go2.usd → 기각</text>
+<text x="350" y="188" text-anchor="middle" fill="#8b949e" font-size="9">WTW 학습 컨벤션 불일치</text>
+<text x="350" y="203" text-anchor="middle" fill="#d29922" font-size="9">→ 보행 전이 실패 → Unitree URDF 직접 임포트</text>
+
+<!-- ══ 프로젝트 적용 방식 CARDS ══════════════════════════════════════ -->
+
+<!-- Card: URDF → USD 변환 -->
+<rect x="496" y="56" width="210" height="80" rx="5" fill="#21262d" stroke="#3fb950" stroke-width="1.5"/>
+<rect x="496" y="56" width="210" height="4" rx="3" fill="#3fb950" fill-opacity="0.7"/>
+<text x="601" y="80" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">URDF → USD 변환</text>
+<text x="601" y="97" text-anchor="middle" fill="#8b949e" font-size="9">import_go2_unitree.py (1회 실행)</text>
+<text x="601" y="111" text-anchor="middle" fill="#8b949e" font-size="9">merge_fixed_joints=False · inertia=True</text>
+<text x="601" y="125" text-anchor="middle" fill="#3fb950" font-size="9" font-weight="600">출력: scene/go2_unitree/go2_unitree.usd</text>
+
+<!-- Card: 씬 통합 -->
+<rect x="730" y="56" width="234" height="80" rx="5" fill="#21262d" stroke="#3fb950" stroke-width="1.5"/>
+<rect x="730" y="56" width="234" height="4" rx="3" fill="#3fb950" fill-opacity="0.7"/>
+<text x="847" y="80" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">씬 통합</text>
+<text x="847" y="97" text-anchor="middle" fill="#8b949e" font-size="9">gp_scene.usd → /World/Go2 prim</text>
+<text x="847" y="111" text-anchor="middle" fill="#8b949e" font-size="9">spawn: StartingPoint Xform 자동 참조</text>
+<text x="847" y="125" text-anchor="middle" fill="#3fb950" font-size="9" font-weight="600">물리 500Hz · 제어 50Hz (decimation×10)</text>
+
+<!-- Card: 추가 제어 기능 -->
+<rect x="496" y="154" width="210" height="70" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
+<text x="601" y="174" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">추가 제어 기능</text>
+<text x="601" y="190" text-anchor="middle" fill="#8b949e" font-size="9">Adaptive Gait: FLAT ↔ SLOPE 자동 전환</text>
+<text x="601" y="205" text-anchor="middle" fill="#8b949e" font-size="9">Fall detect + 4-stage PD 자동 기립</text>
+
+<!-- Card: 명령 소스 -->
+<rect x="730" y="154" width="234" height="70" rx="5" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
+<text x="847" y="174" text-anchor="middle" fill="#e6edf3" font-size="12" font-weight="700">명령 소스 (우선순위)</text>
+<text x="847" y="190" text-anchor="middle" fill="#8b949e" font-size="9">Teleop /robot/cmd_vel  &gt;  Nav2 P-ctrl</text>
+<text x="847" y="205" text-anchor="middle" fill="#8b949e" font-size="9">비활성 시 Standstill (freq=0, yaw drift 차단)</text>
+
+<!-- ══ 제어 파이프라인 ══════════════════════════════════════════════ -->
+
+<!-- Step 1: OmniGraph -->
+<rect x="34" y="296" width="144" height="62" rx="5" fill="#21262d" stroke="#388bfd" stroke-width="1.5"/>
+<rect x="34" y="296" width="144" height="4" rx="3" fill="#388bfd" fill-opacity="0.6"/>
+<text x="106" y="318" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">OmniGraph</text>
+<text x="106" y="333" text-anchor="middle" fill="#8b949e" font-size="9">50Hz tick · IMU</text>
+<text x="106" y="347" text-anchor="middle" fill="#8b949e" font-size="9">Odom · JointState</text>
+
+<!-- Arrow -->
+<line x1="178" y1="327" x2="208" y2="327" stroke="#4d9cf8" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="193" y="320" text-anchor="middle" fill="#4d9cf8" font-size="8" font-weight="600">obs</text>
+
+<!-- Step 2: adaptation_module -->
+<rect x="208" y="296" width="156" height="62" rx="5" fill="#21262d" stroke="#8957e5" stroke-width="1.5"/>
+<rect x="208" y="296" width="156" height="4" rx="3" fill="#8957e5" fill-opacity="0.6"/>
+<text x="286" y="318" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">adaptation_module</text>
+<text x="286" y="333" text-anchor="middle" fill="#8b949e" font-size="9">obs_hist (70×30=2100)</text>
+<text x="286" y="347" text-anchor="middle" fill="#bc8cff" font-size="9">→ latent 2-dim</text>
+
+<!-- Arrow -->
+<line x1="364" y1="327" x2="394" y2="327" stroke="#4d9cf8" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="379" y="320" text-anchor="middle" fill="#bc8cff" font-size="8" font-weight="600">latent</text>
+
+<!-- Step 3: body network -->
+<rect x="394" y="296" width="156" height="62" rx="5" fill="#21262d" stroke="#8957e5" stroke-width="1.5"/>
+<rect x="394" y="296" width="156" height="4" rx="3" fill="#8957e5" fill-opacity="0.6"/>
+<text x="472" y="318" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">body network</text>
+<text x="472" y="333" text-anchor="middle" fill="#8b949e" font-size="9">2102-dim → 12 action</text>
+<text x="472" y="347" text-anchor="middle" fill="#bc8cff" font-size="9">scale 0.25 · hip×0.5</text>
+
+<!-- Arrow -->
+<line x1="550" y1="327" x2="580" y2="327" stroke="#4d9cf8" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="565" y="320" text-anchor="middle" fill="#4d9cf8" font-size="8" font-weight="600">jpt</text>
+
+<!-- Step 4: actuator_net -->
+<rect x="580" y="296" width="168" height="62" rx="5" fill="#21262d" stroke="#3fb950" stroke-width="1.5"/>
+<rect x="580" y="296" width="168" height="4" rx="3" fill="#3fb950" fill-opacity="0.6"/>
+<text x="664" y="318" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">actuator_net</text>
+<text x="664" y="333" text-anchor="middle" fill="#8b949e" font-size="9">(12, 6) pos_err + vel 3-step</text>
+<text x="664" y="347" text-anchor="middle" fill="#3fb950" font-size="9">→ torque ±23.7 / 35.55 Nm</text>
+
+<!-- Arrow -->
+<line x1="748" y1="327" x2="778" y2="327" stroke="#4d9cf8" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="763" y="320" text-anchor="middle" fill="#3fb950" font-size="8" font-weight="600">τ</text>
+
+<!-- Step 5: Go2 Articulation -->
+<rect x="778" y="296" width="180" height="62" rx="5" fill="#21262d" stroke="#388bfd" stroke-width="1.5"/>
+<rect x="778" y="296" width="180" height="4" rx="3" fill="#388bfd" fill-opacity="0.6"/>
+<text x="868" y="318" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="700">Go2 Articulation</text>
+<text x="868" y="333" text-anchor="middle" fill="#8b949e" font-size="9">12-DOF PhysX</text>
+<text x="868" y="347" text-anchor="middle" fill="#388bfd" font-size="9">500Hz physics substep</text>
+
+<!-- Feedback arc -->
+<path d="M 958 358 Q 958 406 500 406 Q 50 406 50 358" fill="none"
+      stroke="#484f58" stroke-width="1" stroke-dasharray="5,3"
+      marker-end="url(#ah-gray)"/>
+<text x="500" y="422" text-anchor="middle" fill="#484f58" font-size="9">q, qd, quat → obs_hist 갱신 (50 Hz feedback loop)</text>
+
+<!-- ── Recovery + Gait mode annotations ── -->
+<rect x="34" y="436" width="456" height="50" rx="5" fill="#1c2128" stroke="#21262d" stroke-width="1"/>
+<!-- Left accent -->
+<rect x="34" y="436" width="3" height="50" rx="2" fill="#d29922"/>
+<text x="50" y="452" fill="#d29922" font-size="9" font-weight="700">RECOVERY</text>
+<text x="120" y="452" fill="#8b949e" font-size="9">Fall 감지 (up_z &lt; 0.4, 1 s 지속)</text>
+<text x="50" y="467" fill="#8b949e" font-size="9">4-stage PD 기립 시퀀스 (0.8s × 4)</text>
+<text x="270" y="467" fill="#484f58" font-size="9">→ 정책 obs_hist 초기화 → 재개</text>
+<text x="50" y="480" fill="#8b949e" font-size="9">물리폭발 / 맵 탈출 감지</text>
+<text x="180" y="480" fill="#d29922" font-size="9">→ StartingPoint teleport</text>
+
+<rect x="510" y="436" width="448" height="50" rx="5" fill="#1c2128" stroke="#21262d" stroke-width="1"/>
+<rect x="510" y="436" width="3" height="50" rx="2" fill="#3fb950"/>
+<text x="526" y="452" fill="#3fb950" font-size="9" font-weight="700">ADAPTIVE GAIT</text>
+<text x="626" y="452" fill="#8b949e" font-size="9">pitch EMA + roll EMA → slope_score</text>
+<text x="526" y="467" fill="#8b949e" font-size="9">FLAT</text>
+<text x="556" y="467" fill="#484f58" font-size="9">pitch &lt; 8.6°</text>
+<text x="640" y="467" fill="#484f58" font-size="9">↔</text>
+<text x="656" y="467" fill="#8b949e" font-size="9">SLOPE</text>
+<text x="694" y="467" fill="#484f58" font-size="9">pitch &gt; 8.6°</text>
+<text x="526" y="480" fill="#8b949e" font-size="9">hysteresis 2s lock · EMA α=0.05 (≈1 s)</text>
+
+<!-- ── Bottom stats bar ── -->
+<rect x="16" y="500" width="968" height="26" rx="4" fill="#0d1117" stroke="#21262d" stroke-width="1"/>
+<text x="36"  y="517" fill="#3d444d" font-size="9">SPEC</text>
+<text x="68"  y="517" fill="#6e7681" font-size="9">12-DOF</text>
+<text x="114" y="517" fill="#21262d" font-size="9">|</text>
+<text x="122" y="517" fill="#6e7681" font-size="9">obs 2100-dim</text>
+<text x="214" y="517" fill="#21262d" font-size="9">|</text>
+<text x="222" y="517" fill="#6e7681" font-size="9">50 Hz policy</text>
+<text x="300" y="517" fill="#21262d" font-size="9">|</text>
+<text x="308" y="517" fill="#6e7681" font-size="9">500 Hz physics</text>
+<text x="406" y="517" fill="#21262d" font-size="9">|</text>
+<text x="414" y="517" fill="#6e7681" font-size="9">walk-these-ways pretrain-go2</text>
+<text x="618" y="517" fill="#21262d" font-size="9">|</text>
+<text x="626" y="517" fill="#6e7681" font-size="9">Go1 ActuatorNet</text>
+<text x="726" y="517" fill="#21262d" font-size="9">|</text>
+<text x="734" y="517" fill="#6e7681" font-size="9">Isaac Sim 5.1 + ROS2 Humble</text>
+<text x="902" y="517" fill="#21262d" font-size="9">|</text>
+<text x="910" y="517" fill="#6e7681" font-size="9">Domain 130</text>
+
+</svg>
+</div>
+<p class="footer">cobot3 · Unitree Go2 · walk-these-ways RL · Isaac Sim 5.1 · 12-DOF 4족 보행 제어</p>
+</div>
+</body>
+</html>
