@@ -21,7 +21,7 @@
 | `npc_relay.py` | **(신규)** `/npc/*` 명령 릴레이 (NPC 스폰/제거) |
 | `world_odom_tf_pub.py` | world→odom + **Go2→base** 2개 static TF 발행 (URDF 루트 매칭 fix) |
 | `landmarks_pub.py` | `/scene/landmarks` JSON latched 발행 |
-| `nav2_patrol.py` | PATROL/HOME/ROUTING FSM, ZoneRouter 라우팅 액션 클라이언트. 2026-05-24: `_sp_world` 캐시 + `_on_odom` 에서 odom→world 변환 (self._pose 일관) |
+| `nav2_patrol.py` | PATROL/HOME/ROUTING/**AB_PATROL** FSM, ZoneRouter 라우팅 액션 클라이언트. 2026-05-24: `_sp_world` 캐시 + `_on_odom` 에서 odom→world 변환. 2026-05-27: AB_PATROL 모드(TP_A↔TP_B 무한반복), sortie-while-PAUSED → resume 위임 |
 | `inspect_relay.py` | `/robot/inspect/command` 사이드카 — `/tmp/cobot3_inspect_cmd.json` dump (Isaac 5.1 OG String sub 미등록 우회) |
 | `publish_robot_description.py` | /robot_description URDF 토픽 발행 (Foxglove 3D) |
 | `run_urdf_server.sh` | URDF HTTP 서버 :8780 (CORS, Lichtblick urdf URL 소스). **2026-05-27: 8766→8780 변경** (MCP TCP 포트 충돌 해소) |
@@ -94,7 +94,14 @@ Odo (IsaacComputeOdometry) — chassisPrim=/World/Go2/base, chassisFrameId=Go2
 - **inspect 카메라**: 매 step `_update_inspect_xform()` 가 base body roll/
   pitch 를 보정 (`q_stab = qy(-pitch)*qx(-roll)`). pan/tilt 명령은 base
   frame 의 yaw/pitch 로 적용: `q_total = q_stab * q_user_base * _Q_FRONT`.
-  pan/tilt 각각 ±70° clamp.
+  ~~pan/tilt 각각 ±70° clamp~~ — **2026-05-27 해제**: `_INSPECT_LIM` 상수 삭제,
+  클램프 로직 제거. 전방위 팬/틸트 가능.
+  - **자동 fence 주시 (2026-05-27)**: 수동 명령 미수신 시 매 step 에
+    fence Y=`GP_SOLDIER_FENCE_Y`(기본 903.0) 방향 자동 계산 (`atan2`).
+    수동 명령 수신 시 `manual_until = now + GP_INSPECT_AUTO_TIMEOUT_S(10s)`,
+    타임아웃 후 자동 복귀. 환경변수:
+    `GP_FENCE_Y_WORLD`(903.0), `GP_FENCE_X_MIN`(166.91), `GP_FENCE_X_MAX`(226.63),
+    `GP_INSPECT_AUTO_TIMEOUT_S`(10.0).
   - **2026-05-24 부호 컨벤션**: `q_user_base = _qz(-pan) * _qy(-tilt)` 로 변경.
     웹/DualSense 의 "오른쪽=+pan, 위=+tilt" 직관과 정합 (수학적 right-hand rule
     역방향 보정). `look_at` 절대 좌표는 `pan = -atan2(dy, dx)` 로 호환.
@@ -129,7 +136,7 @@ _SENSOR_QOS = '{"history":"keepLast","depth":5,"reliability":"bestEffort",\
 | 카메라 | prim 경로 | 위치 (xyz, base 기준) | 회전 | 초점거리 | 비고 |
 |--------|-----------|---------------------|----|---------|------|
 | 후방 (real) | `/World/Go2/base/camera_rear` | (-0.235, 0.0, **0.40**) (2026-05-24 z +30cm) | `_Q_REAR` (시선 -X, up +Z) | 10.5mm | rear MJPEG |
-| 검사 (inspect) | `/World/Go2/base/camera_inspect` | (+0.235, 0.0, **0.40**) (2026-05-24 z +30cm) | `_Q_FRONT` + stabilization | 10.5mm | 짐벌 pan/tilt ±70°, YOLO 입력 |
+| 검사 (inspect) | `/World/Go2/base/camera_inspect` | (+0.235, 0.0, **0.40**) (2026-05-24 z +30cm) | `_Q_FRONT` + stabilization | 10.5mm | 짐벌 pan/tilt 무제한, 자동 fence 주시, YOLO 입력 |
 | 오버헤드 (overhead) | `/World/Overhead_Camera` | base.xy + (0,0,**200**) (2026-05-24 100→200m) | North-up 고정, identity quat | focal=8mm, HAP=VAP=20.955mm | world 직속, ±262m 지상 정방형 |
 | TP_A~D 전술 (2026-05-23) | `/World/Tactical_Fixed_Cameras/TP_*_Cam` | Tactical_Points + (0,0,8) | `_quat_camera_forward` | 6mm | 고정 관측, RGB+depth |
 

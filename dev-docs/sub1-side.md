@@ -8,7 +8,7 @@
 | `server/config.py` | 환경변수 중심 설정 (토픽명, API키, CORS, DB URL, YOLO 정책) |
 | `server/ros_bridge.py` | ROS2 구독/발행 (rclpy, MultiThreadedExecutor) — PAUSED 가드 |
 | `server/db_writer.py` | asyncpg 배치 적재 (1초 flush, copy_records_to_table) |
-| `server/yolo_infer.py` | YOLO 추론 (`dmz_sentry_best.pt` 2-class: person, animal) |
+| `server/yolo_infer.py` | YOLO 추론 (4-class: person/soldier/drone/animal). 안정 감지 트래커: soldier/person 2s → 공포탄, drone 1s → 정밀사격. 30s 쿨다운. |
 | `server/webrtc_video.py` | aiortc VideoStreamTrack (5fps, H264) |
 | `server/nav2_patrol.py` | Nav2 patrol FSM (IDLE/PATROL/HOME/PAUSED), HOME=(212.8,890.53) GOAL=(287.59,1129.728), ±10m 사각 도착 |
 | `server/cmd_vel_safety_filter.py` | Nav2 `/cmd_vel_nav2_raw` → `/robot/cmd_vel`, `MUTE_MODES={"PAUSED"}` |
@@ -124,15 +124,19 @@
 | `pub_cmd_vel(lin, ang, vy=0.0)` | `/robot/cmd_vel` | Twist | **PAUSED 가드** — patrol_state mode==PAUSED 시 무발행 |
 | `publish_goal(x, y)` | `/robot/nav/goal` | PoseStamped | (Nav2 stack 단독 시 미사용) |
 | `pub_inspect_cmd(payload)` | `/robot/inspect/command` | String JSON | pan/tilt/zoom/look_at |
-| `pub_mission(cmd)` | `/mission_command` | String | sortie/home/stop/resume/idle |
+| `pub_mission(cmd)` | `/mission_command` | String | sortie/home/stop/resume/idle/ab_patrol |
 | `send_speaker(payload)` | `/robot/speaker/audio` | String (JSON) | (미구현 소비자) |
 | `fire()` | `/robot/weapon/fire` | Trigger (service) | (미구현 서버) |
+| `_on_auto_fire_detected(label, cx, cy)` | — | — | YOLO 콜백 → `_auto_fire_async` asyncio 예약 |
+| `_auto_fire_async(label, cx, cy)` | — | — | patrol stop → inspect 조준 → 사격 → inspect 복귀 |
 
 **PAUSED race fix (2026-05-21):** `pub_cmd_vel` 진입 시 `latest["patrol_state"]
 .mode == "PAUSED"` 확인 → 즉시 return. velocity_smoother·dualsense·web teleop
 잔여 발행을 모두 ros_bridge 출구에서 차단.
 
 **헬스 타이머:** 5초마다 rx 카운터 + publisher 수 확인 → `diag` 이벤트 emit.
+
+**YOLO 자동사격 (Feature 3, 2026-05-27):** `start()` 에서 `yolo.set_auto_fire_cb(self._on_auto_fire_detected)` 주입. soldier/person 2s 안정 감지 시 공포탄(tilt 80°, Z-up), drone 1s 시 정밀조준 실사격. 사격 후 inspect를 target 방향 복귀. `/events` WS 에 `{type:"auto_fire", label, bbox_cx, bbox_cy, success, fire_id, state}` 방송.
 
 ---
 

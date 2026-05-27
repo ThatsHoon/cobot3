@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { gotoTacticalPoint, previewRoute, RoutingStatePayload, ROBOT_ID } from "@/lib/api";
+import { gotoTacticalPoint, previewRoute, postJSON, RoutingStatePayload, ROBOT_ID } from "@/lib/api";
 
 const TP_LIST = ["TP_A", "TP_B", "TP_C", "TP_D"];
 const TP_LABEL: Record<string, string> = {
@@ -12,15 +12,30 @@ const TP_LABEL: Record<string, string> = {
 
 interface Props {
   routingState?: RoutingStatePayload | null;
+  patrolMode?: string | null;
   onPreviewChange?: (route: { x: number; y: number }[] | null) => void;
 }
 
-export default function TacticalPointsPanel({ routingState, onPreviewChange }: Props) {
+export default function TacticalPointsPanel({ routingState, patrolMode, onPreviewChange }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [abLoading, setAbLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isRouting = routingState && !routingState.completed;
+  const isAbPatrol = patrolMode === "AB_PATROL";
+
+  async function handleAbPatrol() {
+    setAbLoading(true);
+    setError(null);
+    try {
+      await postJSON("/missions/command", { command: "ab_patrol" });
+    } catch (e: any) {
+      setError(e?.message ?? "A↔B 순찰 명령 전송 실패");
+    } finally {
+      setAbLoading(false);
+    }
+  }
   const progress =
     routingState && routingState.total > 0
       ? Math.min(100, Math.round((routingState.current_idx / routingState.total) * 100))
@@ -111,6 +126,16 @@ export default function TacticalPointsPanel({ routingState, onPreviewChange }: P
           data-tone="phos"
           className="btn w-full !py-2">
           {loading ? "TX..." : "이동 명령 / DISPATCH"}
+        </button>
+
+        {/* A↔B 반복 순찰 — TP_A → TP_B → TP_A 무한 루프 */}
+        <button
+          onClick={handleAbPatrol}
+          disabled={abLoading}
+          data-active={isAbPatrol ? "true" : "false"}
+          data-tone={isAbPatrol ? "phos" : undefined}
+          className="btn w-full !py-2 !text-[10px] !tracking-[0.14em] font-mono">
+          {abLoading ? "TX..." : isAbPatrol ? "● A↔B 순찰 中" : "A↔B 반복 순찰"}
         </button>
       </div>
     </div>

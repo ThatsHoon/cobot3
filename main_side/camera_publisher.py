@@ -1524,6 +1524,7 @@ _INSPECT_CMD_FILE = "/tmp/cobot3_inspect_cmd.json"
 _inspect_state = {
     "rx": 0, "last_log": 0.0, "last_mtime": 0.0,
     "pan": 0.0, "tilt": 0.0, "focal": 18.0,
+    "manual_until": 0.0,   # 이 시각 이후 자동 fence 주시 복귀
 }
 
 # ── Go2WtwController (walk-these-ways RL 보행 정책, in-process) ───────────
@@ -1609,7 +1610,12 @@ def _diag():
         log(f"DIAG 실패: {e!r}")
 
 
-_INSPECT_LIM = 70.0   # 사용자 사양 (2026-05-20): pan/tilt ±70°
+# WHY: FOV 제한 해제 (2026-05-27) — 자동 fence 주시 모드에서 Go2 방향과 무관하게
+# fence 를 향해야 하므로 ±70° 클램프를 제거. 수동 override 도 자유 회전 허용.
+_INSPECT_AUTO_TIMEOUT_S = float(os.environ.get("GP_INSPECT_AUTO_TIMEOUT_S", "10.0"))
+_FENCE_Y_WORLD = float(os.environ.get("GP_SOLDIER_FENCE_Y", "903.0"))
+_FENCE_X_MIN   = float(os.environ.get("GP_FENCE_X_MIN", "166.91"))
+_FENCE_X_MAX   = float(os.environ.get("GP_FENCE_X_MAX", "226.63"))
 
 
 def _update_overhead_xform():
@@ -1647,10 +1653,8 @@ def _update_inspect_xform():
         if not (_cam_prim and _cam_prim.IsValid()):
             return
         import math as _math
-        _LIM = _math.radians(_INSPECT_LIM)
-        _inspect_state["pan"] = max(-_LIM, min(_LIM, _inspect_state["pan"]))
-        _inspect_state["tilt"] = max(-_LIM, min(_LIM, _inspect_state["tilt"]))
-        # base world rotation → roll(X)/pitch(Y) 추출 (ZYX intrinsic)
+        import time as _time
+        # base world rotation → roll(X)/pitch(Y)/yaw(Z) 추출 (ZYX intrinsic)
         _base = stage.GetPrimAtPath(BASE_PRIM)
         _roll_w = _pitch_w = 0.0
         if _base and _base.IsValid():
@@ -1659,6 +1663,18 @@ def _update_inspect_xform():
             _r20 = float(_bt[2][0]); _r21 = float(_bt[2][1]); _r22 = float(_bt[2][2])
             _pitch_w = _math.atan2(-_r20, _math.sqrt(_r21*_r21 + _r22*_r22))
             _roll_w = _math.atan2(_r21, _r22)
+            # 자동 fence 주시: 수동 override timeout 지난 경우 fence 방향으로 pan 세팅
+            # WHY: Go2가 어느 방향을 향하든 inspect 카메라는 항상 fence(위협 방향)를
+            # 주시해야 경계 임무에 적합. 수동 명령 수신 후 TIMEOUT_S 동안만 수동 유지.
+            if _time.monotonic() > _inspect_state.get("manual_until", 0.0):
+                _yaw_w = _math.atan2(float(_bt[1][0]), float(_bt[0][0]))
+                _go2_x = float(_bt[3][0])
+                _go2_y = float(_bt[3][1])
+                _fx = max(_FENCE_X_MIN, min(_FENCE_X_MAX, _go2_x))
+                _world_angle = _math.atan2(_FENCE_Y_WORLD - _go2_y, _fx - _go2_x)
+                _pan_auto = (_world_angle - _yaw_w + _math.pi) % (2.0 * _math.pi) - _math.pi
+                _inspect_state["pan"] = _pan_auto
+                _inspect_state["tilt"] = 0.0
 
         def _qx(a):
             return Gf.Quatf(float(_math.cos(a*0.5)),
@@ -1720,6 +1736,8 @@ def _apply_inspect_cmd():
         return
     _inspect_state["last_mtime"] = m
     _inspect_state["rx"] += 1
+    # 수동 명령 수신 → 자동 fence 주시 타임아웃 갱신
+    _inspect_state["manual_until"] = _time.monotonic() + _INSPECT_AUTO_TIMEOUT_S
     import json as _json
     try:
         with open(_INSPECT_CMD_FILE) as _f:

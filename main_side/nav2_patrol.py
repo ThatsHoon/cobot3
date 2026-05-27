@@ -57,6 +57,7 @@ class MissionMode(str, Enum):
     PAUSED = "PAUSED"             # stop 명령 — mode·goal 보존
     WAITING_FOR_NAV2 = "WAITING_FOR_NAV2"
     ROUTING = "ROUTING"           # zone 경유 Tactical Point 이동
+    AB_PATROL = "AB_PATROL"       # TP_A ↔ TP_B 무한 반복 순찰
 
 
 def _yaw_from_quaternion(q) -> float:
@@ -123,12 +124,13 @@ class Nav2PatrolController(Node):
         self._pending_target = None    # cancel done → 이 target 으로 dispatch
         self._diag_ctr = 0             # 5Hz tick 안 5초 주기 lifecycle 진단
 
-        # ROUTING 모드 상태
+        # ROUTING / AB_PATROL 모드 상태
         self._router = None            # ZoneRouter 인스턴스 (landmarks 수신 후 초기화)
         self._sp_world = None          # StartingPoint world (x,y) — odom→world 변환용
         self._route: list = []         # [(x,y), ...] 순차 웨이포인트
         self._route_idx: int = 0       # 현재 목표 웨이포인트 인덱스
         self._route_tp_id: str = ""    # 목표 Tactical Point ID
+        self._ab_next_tp: str = "TP_A" # AB_PATROL: 다음에 이동할 TP
 
         latched = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -261,6 +263,13 @@ class Nav2PatrolController(Node):
     def _on_mission(self, msg: String) -> None:
         command = msg.data.strip().lower()
         if command in ("start", "start_patrol", "launch", "sortie"):
+            # WHY: 자동사격(YOLO)으로 PAUSED된 경우 "출격" = resume(이전 임무 재개).
+            # 새 sortie가 아니라 중단점 복귀가 운용 흐름상 자연스럽다.
+            if self._mode == MissionMode.PAUSED and self._paused_from_mode is not None:
+                self.get_logger().info(
+                    "mission: sortie while PAUSED → resume (이전 임무 재개)")
+                self._on_mission(type("_M", (), {"data": "resume"})())
+                return
             self._enter_active_mode_cleanup()
             self._mode = MissionMode.PATROL
             self._goal_arrived = False
@@ -288,16 +297,26 @@ class Nav2PatrolController(Node):
                 f"mission: stop → PAUSED (보존={self._paused_from_mode.value}, "
                 f"goal={self._paused_goal}, stop_burst {self._stop_burst_seconds}s)")
         elif command in ("resume", "continue"):
-            if self._mode == MissionMode.PAUSED and self._paused_goal:
-                # 캐쉬 후 cleanup — cleanup 이 paused_* 를 비우기 때문.
+            if self._mode == MissionMode.PAUSED and self._paused_from_mode is not None:
                 _resume_mode = self._paused_from_mode
                 _resume_goal = self._paused_goal
                 self._enter_active_mode_cleanup()
-                self._mode = _resume_mode
-                self._goal_arrived = False
-                self._send_goal_now(_resume_goal)
-                self.get_logger().info(
-                    f"mission: resume → {self._mode.value} goal={_resume_goal}")
+                if _resume_mode == MissionMode.AB_PATROL:
+                    # WHY: AB_PATROL resume은 _paused_goal 복원이 아니라
+                    # _ab_next_tp 방향으로 라우팅 재시작이 올바른 재개 방식.
+                    self._mode = MissionMode.AB_PATROL
+                    self._goal_arrived = False
+                    self.get_logger().info(
+                        f"mission: resume AB_PATROL → {self._ab_next_tp} 재출발")
+                    self._start_routing(self._ab_next_tp)
+                elif _resume_goal:
+                    self._mode = _resume_mode
+                    self._goal_arrived = False
+                    self._send_goal_now(_resume_goal)
+                    self.get_logger().info(
+                        f"mission: resume → {self._mode.value} goal={_resume_goal}")
+                else:
+                    self.get_logger().info("resume 무시 (저장 goal 없음)")
             else:
                 self.get_logger().info("resume 무시 (PAUSED 아님)")
         elif command in ("idle", "standby"):
@@ -305,6 +324,13 @@ class Nav2PatrolController(Node):
             self._cancel_current_goal()
             self._publish_stop()
             self.get_logger().info("mission: idle")
+        elif command in ("ab_patrol", "start_ab_patrol"):
+            self._ab_next_tp = "TP_A"
+            self._enter_active_mode_cleanup()
+            self._mode = MissionMode.AB_PATROL
+            self._goal_arrived = False
+            self.get_logger().info("mission: AB_PATROL → TP_A → TP_B 무한 순찰 시작")
+            self._start_routing("TP_A")
         elif command.startswith("goto_tp:"):
             tp_id = command[8:].upper().strip()
             self._start_routing(tp_id)
@@ -395,11 +421,24 @@ class Nav2PatrolController(Node):
     def _advance_routing(self) -> None:
         self._route_idx += 1
         if self._route_idx >= len(self._route):
-            self._mode = MissionMode.IDLE
-            self._publish_stop()
-            self.get_logger().info(
-                f"ROUTING 완료: {self._route_tp_id} 도착")
-            self._publish_routing_state(completed=True)
+            if self._mode == MissionMode.AB_PATROL:
+                # WHY: AB_PATROL은 TP_A/TP_B 완료 즉시 반대 TP로 재출발.
+                # _enter_active_mode_cleanup 을 거치지 않아 AB_PATROL mode를 유지.
+                prev_tp = self._route_tp_id
+                self._ab_next_tp = "TP_B" if self._ab_next_tp == "TP_A" else "TP_A"
+                self._route = []
+                self._route_idx = 0
+                self._route_tp_id = ""
+                self.get_logger().info(
+                    f"AB_PATROL: {prev_tp} 도착 → 다음 {self._ab_next_tp} 출발")
+                self._publish_routing_state(completed=True)
+                self._start_routing(self._ab_next_tp)
+            else:
+                self._mode = MissionMode.IDLE
+                self._publish_stop()
+                self.get_logger().info(
+                    f"ROUTING 완료: {self._route_tp_id} 도착")
+                self._publish_routing_state(completed=True)
         else:
             next_wp = self._route[self._route_idx]
             self.get_logger().info(
@@ -430,8 +469,11 @@ class Nav2PatrolController(Node):
             self.get_logger().warn(
                 f"goto_tp: {tp_id} 경로 없음 (TP 미존재 또는 zone 그래프 단절)")
             return
+        # WHY: AB_PATROL 재진입 시 mode를 보존해야 _advance_routing이 루프를 유지.
+        # 일반 goto_tp 는 ROUTING으로 전환.
+        _preserve_ab = self._mode == MissionMode.AB_PATROL
         self._enter_active_mode_cleanup()
-        self._mode = MissionMode.ROUTING
+        self._mode = MissionMode.AB_PATROL if _preserve_ab else MissionMode.ROUTING
         self._route = waypoints
         self._route_idx = 0
         self._route_tp_id = tp_id
@@ -507,7 +549,7 @@ class Nav2PatrolController(Node):
                 {"tp_id": self._route_tp_id,
                  "idx": self._route_idx,
                  "total": len(self._route)}
-                if self._mode == MissionMode.ROUTING else None
+                if self._mode in (MissionMode.ROUTING, MissionMode.AB_PATROL) else None
             ),
         }
         msg = String()

@@ -119,6 +119,11 @@ class RosBridge:
         log.info("RosBridge spinning (domain=%s rmw=%s)",
                  env["ROS_DOMAIN_ID"], env["RMW_IMPLEMENTATION"])
 
+        # YOLO 자동사격 콜백 주입 (Feature 3)
+        if yolo and yolo.enabled:
+            yolo.set_auto_fire_cb(self._on_auto_fire_detected)
+            log.info("YOLO 자동사격 콜백 등록 완료")
+
     def stop(self):
         if not RCLPY_OK:
             return
@@ -251,6 +256,55 @@ class RosBridge:
     def pub_weather_cmd(self, payload: dict):
         if self._node:
             self._node.pub_weather_cmd(json.dumps(payload))
+
+    # ---- YOLO 자동사격 (Feature 3) ------------------------------------
+
+    def _on_auto_fire_detected(self, label: str,
+                                bbox_cx: float, bbox_cy: float):
+        """YOLO 안정 감지 콜백. ROS 스레드 → asyncio 루프에 코루틴 예약."""
+        if self._loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._auto_fire_async(label, bbox_cx, bbox_cy), self._loop)
+
+    async def _auto_fire_async(self, label: str,
+                                cx: float, cy: float):
+        """자동사격 시퀀스 (asyncio 코루틴).
+
+        soldier/person → 공포탄(Z-up 80°), drone → 정밀 조준 후 실사격.
+        사격 전후 patrol PAUSE / inspect 방향 고정.
+        """
+        ts = _now_iso()
+        log.info("자동사격 시퀀스 시작: label=%s cx=%.1f cy=%.1f", label, cx, cy)
+
+        # 1. Patrol 일시정지
+        self.pub_mission("stop")
+
+        if label == "drone":
+            # 정밀 조준: bbox 중심으로 inspect 카메라 회전
+            self.pub_inspect_cmd({"look_at_pixel": [cx, cy], "absolute": False})
+            await asyncio.sleep(0.5)
+        else:
+            # 공포탄: tilt 80° up (Z축 방향 발사)
+            self.pub_inspect_cmd({"tilt": math.radians(80), "absolute": True})
+            await asyncio.sleep(0.3)
+
+        # 2. 사격
+        loop = asyncio.get_event_loop()
+        success, fire_id, state = await loop.run_in_executor(
+            None, self._node.call_fire if self._node else lambda: (False, None, "no_node"))
+
+        self._emit({
+            "type": "auto_fire", "ts": ts,
+            "label": label, "bbox_cx": cx, "bbox_cy": cy,
+            "success": success, "fire_id": fire_id, "state": state,
+        })
+        log.info("자동사격 완료: label=%s success=%s fire_id=%s state=%s",
+                 label, success, fire_id, state)
+
+        # 3. 사격 후 inspect → target 방향 복귀 (soldier/person)
+        if label != "drone":
+            self.pub_inspect_cmd({"look_at_pixel": [cx, cy], "absolute": False})
 
 
 if RCLPY_OK:

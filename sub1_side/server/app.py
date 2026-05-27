@@ -349,7 +349,8 @@ async def speaker(rid: str, body: dict):
 
 # ---- DMZ Sentry M7 신규 엔드포인트 -------------------------------------
 _MISSION_VALID = {"sortie", "home", "stop", "resume", "idle",
-                  "start", "halt", "continue", "rtb", "standby"}
+                  "start", "halt", "continue", "rtb", "standby",
+                  "ab_patrol", "start_ab_patrol"}
 
 
 @app.post("/missions/command", dependencies=[Depends(require_key)])

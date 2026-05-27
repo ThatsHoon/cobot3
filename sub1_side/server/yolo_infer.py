@@ -25,6 +25,10 @@ class YoloInfer:
         self._model = None
         self._last_person_alert_ts = 0.0
         self._last_animal_alert_ts = 0.0
+        # 안정 감지 트래커: {label: {first_ts, last_ts, bbox_cx, bbox_cy}}
+        self._stable: dict[str, dict] = {}
+        self._auto_fire_cooldown_until: float = 0.0
+        self._auto_fire_cb = None
         try:
             from ultralytics import YOLO
             self._model = YOLO(config.YOLO_MODEL)
@@ -35,6 +39,61 @@ class YoloInfer:
     @property
     def enabled(self) -> bool:
         return self._model is not None
+
+    def set_auto_fire_cb(self, cb):
+        """ros_bridge 에서 주입: cb(label, bbox_cx, bbox_cy)"""
+        self._auto_fire_cb = cb
+
+    def _update_stable(self, dets: list[dict]) -> None:
+        """매 프레임 호출. soldier/person 2s · drone 1s 안정 감지 시 cb 호출.
+
+        WHY: 단발 오탐 방지 — 일정 시간 연속 검출된 경우에만 자동사격 트리거.
+        """
+        now = time.monotonic()
+        seen: set[str] = set()
+
+        for d in dets:
+            label = d.get("class_name", "")
+            if label not in ("soldier", "person", "drone"):
+                continue
+            if d.get("conf", 0) < config.YOLO_ALERT_CONF:
+                continue
+
+            # bbox xyxy → 중심점
+            bbox = d.get("bbox", [0, 0, 0, 0])
+            # bbox는 [x1, y1, w, h] 형식 (infer() 참조)
+            cx = bbox[0] + bbox[2] / 2.0
+            cy = bbox[1] + bbox[3] / 2.0
+            seen.add(label)
+
+            if label not in self._stable:
+                self._stable[label] = {
+                    "first_ts": now, "last_ts": now,
+                    "bbox_cx": cx, "bbox_cy": cy,
+                }
+            else:
+                self._stable[label]["last_ts"] = now
+                self._stable[label]["bbox_cx"] = cx
+                self._stable[label]["bbox_cy"] = cy
+
+            threshold = 1.0 if label == "drone" else 2.0
+            elapsed = now - self._stable[label]["first_ts"]
+            if (elapsed >= threshold
+                    and now >= self._auto_fire_cooldown_until
+                    and self._auto_fire_cb is not None):
+                log.info("자동사격 트리거: label=%s cx=%.1f cy=%.1f elapsed=%.2fs",
+                         label, cx, cy, elapsed)
+                self._auto_fire_cooldown_until = now + getattr(
+                    config, "AUTO_FIRE_COOLDOWN_S", 30.0)
+                cb = self._auto_fire_cb
+                self._stable.clear()
+                cb(label, cx, cy)
+                return
+
+        # 0.5초 이상 미감지 항목 제거
+        for k in list(self._stable.keys()):
+            if k not in seen and now - self._stable[k]["last_ts"] > 0.5:
+                del self._stable[k]
 
     def infer(self, bgr) -> list[dict]:
         # WHY conf=YOLO_ALERT_CONF (0.7): 사용자 사양 #8 — bbox 표시도 0.7 이상만.
@@ -65,6 +124,8 @@ class YoloInfer:
         - animal: conf >= YOLO_ANIMAL_ALERT_CONF, cooldown YOLO_ANIMAL_ALERT_COOLDOWN
         """
         dets = self.infer(bgr)
+        # _update_stable 은 빈 dets 로도 호출해야 stale 항목 정리가 동작한다
+        self._update_stable(dets)
         if not dets:
             return dets, None, None
         now = time.monotonic()

@@ -124,6 +124,8 @@ YOLO_ALERT_COOLDOWN = float(os.environ.get("C2_YOLO_ALERT_COOLDOWN", "3.0"))
 # P3 신규: 동물 alert 정책 (독립 cooldown)
 YOLO_ANIMAL_ALERT_CONF = float(os.environ.get("C2_YOLO_ANIMAL_ALERT_CONF", "0.50"))
 YOLO_ANIMAL_ALERT_COOLDOWN = float(os.environ.get("C2_YOLO_ANIMAL_ALERT_COOLDOWN", "5.0"))
+# 자동사격 쿨다운 (Feature 3 — 안정 감지 후 재발동 방지)
+AUTO_FIRE_COOLDOWN_S = float(os.environ.get("GP_AUTO_FIRE_COOLDOWN_S", "30.0"))
 
 # TP fixed-camera projection — must match main_side/camera_publisher.py.
 TACTICAL_CAMERA_HEIGHT = float(os.environ.get("GP_TACTICAL_CAMERA_HEIGHT", "8.0"))

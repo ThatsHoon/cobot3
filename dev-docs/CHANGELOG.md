@@ -7,6 +7,33 @@
 
 ## 2026-05-27
 
+### AB_PATROL 모드 + Inspect FOV 해제 + YOLO 자동사격
+**변경 파일:**
+- `main_side/nav2_patrol.py` (수정 — AB_PATROL MissionMode, _ab_next_tp, resume/advance 분기)
+- `main_side/camera_publisher.py` (수정 — _INSPECT_LIM 제거, 자동 fence 주시, manual_until 타임아웃)
+- `sub1_side/server/app.py` (수정 — ab_patrol/start_ab_patrol 유효 명령 추가)
+- `sub1_side/server/yolo_infer.py` (수정 — 안정 감지 트래커, set_auto_fire_cb, _update_stable)
+- `sub1_side/server/ros_bridge.py` (수정 — YOLO 자동사격 콜백 주입, _auto_fire_async)
+- `sub1_side/server/config.py` (수정 — AUTO_FIRE_COOLDOWN_S 상수 추가)
+- `sub1_side/web/components/TacticalPointsPanel.tsx` (수정 — A↔B 반복 순찰 버튼 추가)
+
+**AB_PATROL (Feature 1):**
+nav2_patrol.py 에 `MissionMode.AB_PATROL` 추가. `ab_patrol` 명령 시 TP_A → TP_B → TP_A 무한 반복.
+`_advance_routing()` 완료 시 AB_PATROL 모드이면 반대 TP로 즉시 재라우팅. PAUSED → resume 시
+`_start_routing(_ab_next_tp)` 호출로 재개. 웹 UI TacticalPointsPanel에 "A↔B 반복 순찰" 버튼 추가.
+
+**Inspect 자동 fence 주시 (Feature 2):**
+`_INSPECT_LIM = 70.0` 제거 → ±70° 팬/틸트 클램프 해제. 자동 fence 주시 상수
+`_FENCE_Y_WORLD`, `_FENCE_X_MIN/MAX`, `_INSPECT_AUTO_TIMEOUT_S` 추가.
+수동 명령 수신 시 `manual_until = now + 10s`. 타임아웃 후 fence 방향 자동 복귀.
+
+**YOLO 자동사격 (Feature 3):**
+`yolo_infer.py`: 안정 감지 트래커(soldier/person 2s, drone 1s), 30s 쿨다운.
+`ros_bridge.py`: 비동기 사격 시퀀스(patrol stop → inspect 조준 → call_fire → inspect 복귀).
+`/events` WS에 `auto_fire` 이벤트 방송.
+
+---
+
 ### 지형 자체발광(emissive) 제어 + MCP 모드 수정 + URDF 서버 포트 변경
 **변경 파일:**
 - `main_side/weather_visuals.py` (수정 — terrain emissive scale 제어 추가)
