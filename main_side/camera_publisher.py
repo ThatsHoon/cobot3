@@ -15,6 +15,7 @@ OG Odom/JointState/TF 와이어링·sub1_side(C2) 전부 무수정. go2.usd 가
 """
 import math
 import os
+import random
 import time
 
 from isaacsim import SimulationApp
@@ -851,23 +852,23 @@ _TACTICAL_POINTS = {
 APPROACH_OBJECT_ROOT = "/World/Approach_Objects"
 _APPROACH_ENABLED = os.environ.get("GP_APPROACH_OBJECTS", "0") == "1"
 _APPROACH_SPEED = float(os.environ.get("GP_APPROACH_OBJECT_SPEED", "1.10"))
-_APPROACH_START_OFFSET = float(os.environ.get("GP_APPROACH_START_OFFSET", "52.0"))
-_APPROACH_TARGET_OFFSET = float(os.environ.get("GP_APPROACH_TARGET_OFFSET", "26.0"))
-_APPROACH_START_Y = float(os.environ.get("GP_APPROACH_START_Y", "945.0"))
-_APPROACH_TARGET_Y = float(os.environ.get("GP_APPROACH_TARGET_Y", "920.0"))
-_APPROACH_GROUND_Z = float(os.environ.get("GP_APPROACH_GROUND_Z", "4.45"))
 _APPROACH_ASSET_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "scene", "assets", "objects")
+# 동물/드론 소환 영역 — soldier_manager 의 _SPAWN_* 와 동일 직사각형.
+# WHY 동일 영역: 군인 소환 버튼 누를 때와 같은 뷰 범위 안에서 자연스럽게 섞이도록.
+_ANIMAL_SPAWN_X0  = float(os.environ.get("GP_ANIMAL_SPAWN_X0",  "166.91"))
+_ANIMAL_SPAWN_X1  = float(os.environ.get("GP_ANIMAL_SPAWN_X1",  "226.63"))
+_ANIMAL_SPAWN_Y0  = float(os.environ.get("GP_ANIMAL_SPAWN_Y0",  "915.71"))  # 원거리(스폰)
+_ANIMAL_SPAWN_Y1  = float(os.environ.get("GP_ANIMAL_SPAWN_Y1",  "903.0"))   # fence(정지)
+_ANIMAL_SPAWN_Z   = float(os.environ.get("GP_ANIMAL_SPAWN_Z",   "4.8"))
 _APPROACH_ASSETS = [
-    # label, usd, scale, lane, x_offset, y_extra, z_extra
-    # 동물 스케일: cobot3-new_hi 대비 절반 이하로 줄여 화면에서 작게 보이게 함.
-    # (USDZ 원본이 cm 단위 export → scale=0.01이 1m 크기. "작게" 요청으로 축소)
-    ("wolf",    "wolf_animated.usdz",            0.025, "TP_A",  0.0, 0.0, 0.0),
-    ("deer",    "deer_low_poly_animated.usdz",   0.005, "TP_A", -8.0, 0.0, 0.0),
-    ("person",  "person.usdz",                   4.2,   "TP_A",  8.0, 0.0, 0.0),
-    ("boar",    "boar_walk.usdz",                0.020, "TP_B", -58.0, 0.0, 0.1),
-    ("soldier", "soldier.usdz",                  4.2,   "TP_B", -50.0, 0.0, 0.0),
-    ("drone",   "drone.usdz",                    3.3,   "TP_B", -42.0, 0.0, 0.0),
+    # label, usd, scale  (소환 위치는 _ANIMAL_SPAWN_* 영역에서 랜덤 결정)
+    # person/soldier 제거 — 군인 소환은 soldier_manager 단독 담당.
+    # USDZ 원본이 cm 단위 export → scale≈0.01 이 ~1m 크기.
+    ("wolf",  "wolf_animated.usdz",          0.025),
+    ("deer",  "deer_low_poly_animated.usdz", 0.005),
+    ("boar",  "boar_walk.usdz",              0.020),
+    ("drone", "drone.usdz",                  3.3),
 ]
 # USDZ exporters sometimes use Y-up character coordinates. The animated boar
 # comes in standing upright unless we convert its local Y-up pose to Isaac Z-up.
@@ -1076,7 +1077,7 @@ def _align_object_bottom_to_ground(root_prim, trans_op, label, x, y, z):
             return z
         min_z = float(rng.GetMin()[2])
         clearance = float(_APPROACH_GROUND_CLEARANCE.get(label, 0.0))
-        target_min_z = _APPROACH_GROUND_Z + clearance
+        target_min_z = _ANIMAL_SPAWN_Z + clearance
         dz = target_min_z - min_z
         if abs(dz) < 1e-4:
             return z
@@ -1202,26 +1203,23 @@ def _setup_approach_objects():
         log("접근 오브젝트 비활성(GP_APPROACH_OBJECTS=0)")
         return
     available = []
-    for label, filename, scale, lane, x_offset, y_extra, z_extra in _APPROACH_ASSETS:
+    for label, filename, scale in _APPROACH_ASSETS:
         asset_path = os.path.join(_APPROACH_ASSET_DIR, filename)
         if os.path.isfile(asset_path):
-            available.append((label, asset_path, scale, lane, x_offset,
-                              y_extra, z_extra))
+            available.append((label, asset_path, scale))
         else:
             log(f"[approach] asset 없음: {asset_path}")
     if not available:
         log(f"[approach] 사용 가능한 object asset 없음: {_APPROACH_ASSET_DIR}")
         return
     stage.DefinePrim(APPROACH_OBJECT_ROOT, "Xform")
-    for idx, (label, asset_path, scale, lane, x_offset, y_extra,
-              z_extra) in enumerate(available):
-        lane_pos = _TACTICAL_POINTS.get(lane)
-        if not lane_pos:
-            _, lane_pos = _nearest_tp_for_x(0.0)
-        x = float(lane_pos[0]) + float(x_offset)
-        start_y = _APPROACH_START_Y + float(y_extra)
-        z = _APPROACH_GROUND_Z + float(z_extra)
-        target_y = _APPROACH_TARGET_Y
+    for label, asset_path, scale in available:
+        # 군인 소환 영역과 동일한 직사각형 안에서 랜덤 배치.
+        # WHY: 지휘통제실 군인 소환 버튼과 동일 시야 범위 → 자연스럽게 혼재.
+        x = random.uniform(_ANIMAL_SPAWN_X0, _ANIMAL_SPAWN_X1)
+        start_y = _ANIMAL_SPAWN_Y0   # 영역 원거리(북쪽) 에서 출발
+        z = _ANIMAL_SPAWN_Z
+        target_y = _ANIMAL_SPAWN_Y1  # fence 방향(남쪽)으로 이동 후 정지
         path = f"{APPROACH_OBJECT_ROOT}/{label}"
         root = stage.DefinePrim(path, "Xform")
         xf = UsdGeom.Xformable(root)
@@ -1252,12 +1250,11 @@ def _setup_approach_objects():
             "y": float(start_y),
             "z": float(z),
             "target_y": float(target_y),
-            "tp": lane or "none",
         })
         log(f"[approach] {label} 소환 {path} asset={os.path.basename(asset_path)} "
             f"ref={ref_path or 'default'} "
-            f"@ ({x:.1f},{start_y:.1f},{z:.1f}) → "
-            f"TP={lane} y={target_y:.1f}, speed={_APPROACH_SPEED:.2f}m/s")
+            f"@ ({x:.1f},{start_y:.1f},{z:.1f}) → fence_y={target_y:.1f}, "
+            f"speed={_APPROACH_SPEED:.2f}m/s")
 
 
 def _update_approach_objects(dt):
