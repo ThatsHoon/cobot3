@@ -81,7 +81,7 @@ ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)
 
 # YOLO 모델 우선순위 (P3 2026-05-20): C2_YOLO_MODEL env > _DEFAULT_MODEL > models/*.pt > yolov8n.pt
 _MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
-_DEFAULT_MODEL = "dmz_4class_v14.pt"  # 기본 모델 (2026-05-27 교체)
+_DEFAULT_MODEL = "cobot3_4class_v3_best.pt"  # 기본 모델 (2026-05-27 교체)
 
 
 def _pick_model() -> str:
