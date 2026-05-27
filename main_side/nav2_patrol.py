@@ -283,7 +283,10 @@ class Nav2PatrolController(Node):
             self.get_logger().info(f"mission: home → {self._home}")
         elif command in ("stop", "halt", "pause"):
             # mode 보존
-            if self._mode in (MissionMode.PATROL, MissionMode.HOME, MissionMode.ROUTING):
+            if self._mode in (MissionMode.PATROL, MissionMode.HOME,
+                              MissionMode.ROUTING, MissionMode.AB_PATROL):
+                # WHY: AB_PATROL 도 stop 보존 대상 — 빠지면 resume 시 _paused_from_mode=IDLE
+                # 로 남아 "저장 goal 없음" 으로 무시되어 순찰 재개 불가.
                 self._paused_from_mode = self._mode
                 self._paused_goal = (self._goal if self._mode == MissionMode.PATROL
                                      else self._home if self._mode == MissionMode.HOME
@@ -325,6 +328,10 @@ class Nav2PatrolController(Node):
             self._publish_stop()
             self.get_logger().info("mission: idle")
         elif command in ("ab_patrol", "start_ab_patrol"):
+            # WHY: 이미 AB_PATROL 진행 중이면 중복 재시작 무시 — 버튼 연타 방지.
+            if self._mode == MissionMode.AB_PATROL:
+                self.get_logger().info("mission: AB_PATROL 이미 진행 중 — 무시")
+                return
             self._ab_next_tp = "TP_A"
             self._enter_active_mode_cleanup()
             self._mode = MissionMode.AB_PATROL
