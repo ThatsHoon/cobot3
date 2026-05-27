@@ -167,16 +167,25 @@ class SpotController:
         from isaacsim.core.utils.types import ArticulationAction
         policy = self._policy
 
+        view = policy.robot._articulation_view
+        if view is None or not view.is_physics_handle_valid():
+            policy._policy_counter += 1
+            return
+
+        # WHY: zero velocity 명령 시 RL policy 를 바이패스하고 default_pos 직접 적용.
+        # RL policy 는 zero command 에서도 미세한 action 을 출력하기 때문에 로봇이
+        # 제자리에서 흐느적거린다. default_pos 고정으로 완전한 제자리 대기를 구현.
+        if np.all(np.abs(command) < 1e-6):
+            default_q = np.asarray(policy.default_pos, dtype=float)
+            policy.robot.apply_action(ArticulationAction(joint_positions=default_q))
+            policy._policy_counter += 1
+            return
+
         if policy._policy_counter % policy._decimation == 0:
             obs = policy._compute_observation(command)
             action = policy._compute_action(obs)
             policy._previous_action = action.copy()
             policy.action = action
-
-        view = policy.robot._articulation_view
-        if view is None or not view.is_physics_handle_valid():
-            policy._policy_counter += 1
-            return
 
         all_pos = (np.asarray(policy.default_pos, dtype=float)
                    + policy.action * policy._action_scale)

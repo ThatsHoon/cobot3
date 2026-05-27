@@ -74,14 +74,19 @@ TOPICS = {
     "weapon_fire":  "/robot/weapon/fire",   # std_srvs/Trigger
     # Zone 기반 라우팅 (2026-05-22)
     "routing_state": "/routing_state",      # std_msgs/String (JSON) — zone 경유 진행상황
+    # Main-side YOLO 결과 (2026-05-27) — yolo_node(Main) → ros_bridge(C2) 구독
+    "yolo_main_dets": "/c2/yolo/inspect/detections",
 }
 
 ROSOUT_WARN_LEVEL = 30  # WARN 이상만 중계 (설계 §9.4)
 
+# C2_YOLO_LOCAL=0: 모델 로드 없이 stable-tracker만 동작 (main_side 추론 사용 시 메모리 절감)
+C2_YOLO_LOCAL = os.environ.get("C2_YOLO_LOCAL", "1")
+
 
 # YOLO 모델 우선순위 (P3 2026-05-20): C2_YOLO_MODEL env > _DEFAULT_MODEL > models/*.pt > yolov8n.pt
 _MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
-_DEFAULT_MODEL = "cobot3_4class_v3_best.pt"  # 기본 모델 (2026-05-27 교체)
+_DEFAULT_MODEL = "cobot3_4class_v3_best_small.pt"  # small 모델 (2026-05-27 교체)
 
 
 def _pick_model() -> str:

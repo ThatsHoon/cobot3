@@ -106,8 +106,11 @@ export FASTRTPS_DEFAULT_PROFILES_FILE=./fastdds_no_shm.xml
 # (1) Isaac GUI + OG ROS2
 bash run_camera_pub_gui.sh &    # 로그: /tmp/cobot3_isaac_gui.console.log
 
-# (2) 비디오 압축 (2인스턴스)
-bash run_degrade.sh &           # 로그: /tmp/cobot3_degrade.log
+# (2) 비디오/depth 압축 (7 video + 4 depth = 11 인스턴스, 2026-05-27)
+# ⚠ SSH 세션에서 직접 실행 금지 — SSH 끊김 시 SIGHUP으로 전체 사망
+# 권장: systemd 서비스 사용 (아래 §7 참조)
+systemctl --user start cobot3-degrade.service
+# 또는 로컬 터미널에서: bash run_degrade.sh &
 
 # (3) 텔레메트리 브리지
 bash run_telemetry_bridge.sh &  # 로그: /tmp/cobot3_telemetry_bridge.log
@@ -225,6 +228,7 @@ docker stop cobot3-lichtblick 2>/dev/null
 | `DEPTH_IN` (2026-05-24 신규) | (인스턴스별) | TP depth 입력 토픽, 예: `/cam/tactical/tp_a/depth` |
 | `DEPTH_OUT` (2026-05-24 신규) | (인스턴스별) | TP depth 압축 출력 토픽, 예: `/c2/tp_a/depth_compressed` |
 | `DEPTH_FPS` (2026-05-24 신규) | `2.0` | depth_degrade 출력 fps |
+| `FRAME_TIMING` (2026-05-27 신규) | `0` | `1`로 설정 시 3-point 타이밍 로그 활성화. Main: `[FT] SEND`, C2 수신: `[FT] RECV recv_gap net yolo_busy`, C2 MJPEG: `[FT] MJPEG yield gap`. 네트워크 지연·블랙아웃 진단용 |
 | `DEPTH_W`, `DEPTH_H` (2026-05-24 신규) | `320, 180` | depth 다운샘플 해상도 |
 | `GP_APPROACH_OBJECTS` (2026-05-26 신규) | `1` | 접근 오브젝트 활성 (0=비활성) |
 | `GP_APPROACH_OBJECT_SPEED` | `1.10` | NPC 접근 속도 (m/s) |
@@ -284,6 +288,8 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 
 | 증상 | 원인 | 해결책 |
 |------|------|-------|
+| **영상 블랙아웃 (recv_gap 수십 초)** | SSH에서 `run_degrade.sh` 실행 → SSH 끊길 때 SIGHUP이 프로세스 그룹 전파 → 모든 degrade 노드 동시 사망. YOLO와 무관 | **영구 해결:** `systemctl --user start cobot3-degrade.service` (SSH 독립 cgroup). 진단: `journalctl --user -u cobot3-degrade.service -f` |
+| **채널당 publisher=2 (중복 인스턴스)** | `run_degrade.sh` 가 여러 세션에서 중복 기동됨 | `systemctl --user stop cobot3-degrade.service` → `pgrep -f 'video_degrade\|depth_degrade' \| xargs -r kill -9` → 서비스 재시작 |
 | Main → C2 LAN 트래픽이 비정상 높음 (>5 MB/s) | (a) depth_degrade 미동작 → raw `/cam/tactical/*/depth` 가 C2로 직접 흐름, (b) FastDDS multicast가 `/cam/*/rgb`를 LAN으로 누출 | (a) `ps aux \| grep depth_degrade` 확인 후 `run_degrade.sh` 재시작, (b) `cat /sys/class/net/<iface>/statistics/tx_bytes` 차분 측정 → 정상 ≤2 MB/s. 상세: communication-optimization.md §8 |
 | `video_degrade` SystemExit "DEGRADE_IN env 필수" (2026-05-24) | 단독 실행 시 env 미설정 | `run_degrade.sh` 사용 또는 `DEGRADE_IN=... DEGRADE_OUT=... python3 video_degrade_node.py` |
 | `detection_events` row 미증가 (2026-05-24) | YOLO 채널 제한 (`C2_YOLO_CAMERAS=inspect,tp_a` 기본) | 전체 활성화: `export C2_YOLO_CAMERAS=inspect,tp_a,tp_b,tp_c,tp_d` 후 sub1side 재시작 |
@@ -324,12 +330,53 @@ psql -d cobot3 -c "SELECT count(*) FROM robot_state_log;"
 
 ---
 
-## 7. 로그 파일
+## 7. cobot3-degrade systemd 서비스 (2026-05-27 신규)
+
+SSH 세션과 독립적으로 degrade 노드를 관리하는 systemd user 서비스.
+
+```
+위치: ~/.config/systemd/user/cobot3-degrade.service
+WorkingDirectory: ~/dev_ws/isaac_sim/cobot3/main_side
+```
+
+**관리 명령:**
+```bash
+systemctl --user status  cobot3-degrade.service   # 상태
+systemctl --user start   cobot3-degrade.service   # 시작
+systemctl --user stop    cobot3-degrade.service   # 중지
+systemctl --user restart cobot3-degrade.service   # 재시작
+journalctl --user -u cobot3-degrade.service -f    # 실시간 로그
+```
+
+**특성:**
+- `Restart=always RestartSec=3` — 서비스 전체 사망 시 3초 후 자동 재시작
+- `KillMode=control-group` — stop 시 cgroup 내 모든 자식 프로세스 정리
+- `StandardInput=null` — SSH/터미널 없이 독립 실행
+- `loginctl enable-linger rokey` 적용 — rokey 로그인 없이도 서비스 유지
+- 부팅 후 자동 시작 (`[Install] WantedBy=default.target` + enabled)
+
+**내부 구조:** `run_degrade.sh` 의 `_restart_loop` 가 각 채널(11개)을 무한 루프로 감싸
+개별 노드 크래시 시 2초 후 자동 재기동.
+systemd `Restart=always` 는 `run_degrade.sh` 자체(상위 프로세스) 사망 시 복구.
+
+**FRAME_TIMING 타이밍 계측:**
+```bash
+# 환경변수 FRAME_TIMING=1 (서비스 기본값)
+# inspect 채널 3-point 타이밍:
+journalctl --user -u cobot3-degrade.service | grep 'FT.*SEND'   # Main 발송
+# C2: tail /tmp/cobot3_server.log | grep 'FT.*RECV'             # C2 수신
+# C2: tail /tmp/cobot3_server.log | grep 'FT.*MJPEG'            # MJPEG 출력
+```
+
+---
+
+## 8. 로그 파일
 
 | 로그 경로 | 내용 |
 |-----------|------|
 | `/tmp/cobot3_isaac_gui.console.log` | Isaac Sim stdout (스팸 필터 후) |
-| `/tmp/cobot3_degrade.log` | video_degrade_node (rear+inspect+overhead+tp_a~d) + depth_degrade_node (tp_a~d, 2026-05-24) |
+| `journalctl --user -u cobot3-degrade.service` | video_degrade_node × 7 + depth_degrade_node × 4 (systemd 서비스, 2026-05-27) |
+| `/tmp/degrade_crash_<channel>.log` | degrade 노드 예외 크래시 시 스택트레이스 (2026-05-27) |
 | `/tmp/cobot3_telemetry_bridge.log` | telemetry_bridge_node |
 | `/tmp/cobot3_server.log` | FastAPI uvicorn |
 | `/tmp/cobot3_foxglove.log` | Foxglove Bridge (:8765) |

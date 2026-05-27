@@ -119,13 +119,43 @@ class DepthDegrade(Node):
 
 
 def main():
+    import signal, traceback, sys
+
+    _exit_reason = ["unknown"]
+
+    def _sig_handler(signum, frame):
+        _exit_reason[0] = f"signal {signal.Signals(signum).name}"
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _sig_handler)
+    signal.signal(signal.SIGHUP,  _sig_handler)
+
     rclpy.init()
     node = DepthDegrade()
+    _start = time.monotonic()
     try:
+        _exit_reason[0] = "spin_normal_exit"
         rclpy.spin(node)
     except KeyboardInterrupt:
+        _exit_reason[0] = "KeyboardInterrupt(SIGINT)"
+    except SystemExit:
         pass
+    except Exception as exc:
+        _exit_reason[0] = f"EXCEPTION: {exc!r}"
+        tb = traceback.format_exc()
+        _crash_path = f"/tmp/degrade_crash_{OUT_DEPTH.replace('/','_')}.log"
+        try:
+            with open(_crash_path, "w") as _f:
+                _f.write(f"channel: {OUT_DEPTH}\nuptime: {time.monotonic()-_start:.1f}s\n")
+                _f.write(f"exception: {exc!r}\n\n{tb}")
+            print(f"[degrade CRASH] {exc!r} → {_crash_path}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
     finally:
+        _uptime = time.monotonic() - _start
+        print(f"[degrade EXIT] channel={OUT_DEPTH} reason={_exit_reason[0]} "
+              f"uptime={_uptime:.1f}s out={getattr(node,'_n_out',0)}frames",
+              file=sys.stderr, flush=True)
         try:
             node.destroy_node()
         except Exception:

@@ -261,21 +261,43 @@ dlon = (x_m / (6378137 × cos(LAT0°))) × (180/π)
 
 ## video_degrade_node.py
 
-**인스턴스 3개** (run_degrade.sh에서 환경변수로 분기, 2026-05-21):
+**인스턴스 7개** (run_degrade.sh → _restart_loop 자동 재기동, 2026-05-27):
 
 | 인스턴스 | DEGRADE_IN | DEGRADE_OUT | 용도 |
 |---------|-----------|------------|------|
-| rear     | `/cam/rear/rgb`     | `/c2/rear/compressed`     | 후방 카메라 (real) |
-| inspect  | `/cam/inspect/rgb`  | `/c2/inspect/compressed`  | 검사 카메라 (YOLO 입력) |
-| overhead | `/cam/overhead/rgb` | `/c2/overhead/compressed` | 오버헤드 카메라 (North-up) |
+| rear     | `/cam/rear/rgb`          | `/c2/rear/compressed`     | 후방 카메라 |
+| inspect  | `/cam/inspect/rgb`       | `/c2/inspect/compressed`  | 검사 카메라 (YOLO 입력) |
+| overhead | `/cam/overhead/rgb`      | `/c2/overhead/compressed` | 오버헤드 (North-up) |
+| tp_a     | `/cam/tactical/tp_a/rgb` | `/c2/tp_a/compressed`     | TP_A 고정 감시 |
+| tp_b     | `/cam/tactical/tp_b/rgb` | `/c2/tp_b/compressed`     | TP_B 고정 감시 |
+| tp_c     | `/cam/tactical/tp_c/rgb` | `/c2/tp_c/compressed`     | TP_C 고정 감시 |
+| tp_d     | `/cam/tactical/tp_d/rgb` | `/c2/tp_d/compressed`     | TP_D 고정 감시 |
+
+**환경변수:**
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `DEGRADE_IN` | (필수) | 구독 토픽 |
+| `DEGRADE_OUT` | (필수) | 발행 토픽 |
+| `DEPTH_FPS` | `5.0` | 스로틀 목표 FPS |
+| `FRAME_TIMING` | `0` | `1`로 설정 시 inspect 채널 `[FT] SEND` 타이밍 로그 활성화 |
 
 **처리 파이프라인:**
 1. 수신: `sensor_msgs/Image` (BEST_EFFORT, depth=5)
 2. numpy 변환 (rgb8/bgr8/rgba8/bgra8 처리)
 3. 리사이즈 640×360 (INTER_AREA)
 4. JPEG 인코딩 (quality=50)
-5. 발행: `sensor_msgs/CompressedImage` (BEST_EFFORT)
-6. 스로틀: TARGET_FPS=5.0 Hz
+5. header.stamp → Main PC wall-clock(`time.time_ns()`)으로 덮어씀 (C2 네트워크 지연 측정용)
+6. 발행: `sensor_msgs/CompressedImage` (BEST_EFFORT)
+7. 스로틀: `self._last += 1/TARGET_FPS` 누적 방식 (드리프트 1주기 초과 시 리셋)
+
+**크래시 진단 (2026-05-27):**
+- SIGTERM/SIGHUP 핸들러 → `[degrade EXIT] reason=signal.SIGTERM` stderr 출력
+- 예외 발생 시 `/tmp/degrade_crash_<channel>.log` 에 스택트레이스 기록
+
+**기동 방식:** `run_degrade.sh` 의 `_restart_loop` 함수가 각 인스턴스를 래핑.
+노드 비정상 종료 시 2초 후 자동 재기동. SSH 세션 독립을 위해
+`systemctl --user start cobot3-degrade.service` 로 기동 권장.
 
 ---
 

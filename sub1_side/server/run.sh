@@ -35,6 +35,9 @@ fi
 export COBOT3_DB_URL="${COBOT3_DB_URL:-postgresql:///cobot3}"
 # export ISAAC_SIM_API_KEY=...   # 변경계열 보호용 (미설정 시 LAN 개발모드)
 
+# 프레임 타이밍 디버그 (1=on, 0=off). inspect 채널 송수신/MJPEG 시각 기록.
+export FRAME_TIMING="${FRAME_TIMING:-1}"
+
 # venv 의 uvicorn 을 명시적으로 사용 (PATH·CWD 비의존 절대경로). 상대경로
 # ./.venv 는 호출 위치에 따라 빗나가 시스템 python3 fallback(uvicorn 부재)
 # 으로 샐 수 있어 $0 기준 절대경로로 고정.

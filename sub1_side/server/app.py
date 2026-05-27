@@ -10,7 +10,12 @@
 import asyncio
 import contextlib
 import logging
+import os
+import time
 from datetime import datetime, timezone
+
+_FRAME_TIMING = os.environ.get("FRAME_TIMING", "0") == "1"
+_ft_log = logging.getLogger("c2.ft")  # frame-timing 전용 logger
 
 
 def _now_iso():
@@ -243,18 +248,38 @@ def _build_tp_grid_frame():
 @app.get("/c2/video/mjpeg")
 async def mjpeg(camera: str = "rear"):
     cam = camera if camera in _MJPEG_ALLOWED else "rear"
+    loop = asyncio.get_event_loop()
+    _JPEG_PARAMS = [cv2.IMWRITE_JPEG_QUALITY, 50]
+
+    def _encode(f):
+        ok, buf = cv2.imencode(".jpg", f, _JPEG_PARAMS)
+        return buf.tobytes() if ok else None
+
+    _mjpeg_prev_yield: list[float] = [0.0]   # mutable cell — closure 캡처용
+
     async def gen():
         while True:
+            # WHY: cv2.imencode / _build_tp_grid_frame 는 CPU-bound 동기 함수.
+            # asyncio 이벤트 루프에서 직접 호출하면 루프를 10-20ms 블로킹해
+            # WebSocket 브로드캐스트 태스크 처리가 지연되고 MJPEG 주기가 흔들림.
+            # run_in_executor 로 스레드풀에 위임해 asyncio 비차단을 보장한다.
             if cam == "tp_grid":
-                f = _build_tp_grid_frame()
+                f = await loop.run_in_executor(None, _build_tp_grid_frame)
             else:
                 f = ros.get_video_frame(cam)
             if f is not None:
-                ok, jpg = cv2.imencode(".jpg", f,
-                                       [cv2.IMWRITE_JPEG_QUALITY, 50])
-                if ok:
+                data = await loop.run_in_executor(None, _encode, f)
+                if data:
+                    if _FRAME_TIMING and cam == "inspect":
+                        _now = time.monotonic()
+                        _gap = (_now - _mjpeg_prev_yield[0]) * 1000
+                        _mjpeg_prev_yield[0] = _now
+                        _flag = f"  ← MJPEG gap {_gap:.0f}ms !!!" if _gap > 300 else ""
+                        _ft_log.info(
+                            f"[FT] MJPEG yield t={_now:.3f} "
+                            f"gap={_gap:.0f}ms{_flag}")
                     yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-                           + jpg.tobytes() + b"\r\n")
+                           + data + b"\r\n")
             await asyncio.sleep(0.2)     # 5fps
     return StreamingResponse(
         gen(), media_type="multipart/x-mixed-replace; boundary=frame")

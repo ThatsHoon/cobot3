@@ -108,7 +108,7 @@
 | `/robot/odom` | Odometry | `_on_odom` | quaternion→yaw → latest["odom"]{x,y,z,yaw} |
 | `/robot/leg_joint_states` | JointState | `_on_leg` | positions → latest["leg_q"] + DB 10Hz |
 | `/c2/rear/compressed` | CompressedImage | `_on_video(…,"rear")` | OpenCV decode + frame cache |
-| `/c2/inspect/compressed` | CompressedImage | `_on_video(…,"inspect")` | OpenCV decode + **YOLO 추론** (config.YOLO_CAMERAS 가드, 기본 inspect+tp_a) + frame cache |
+| `/c2/inspect/compressed` | CompressedImage | `_on_video(…,"inspect")` | OpenCV decode + **비동기 YOLO 추론** (ThreadPoolExecutor, 이전 추론 중이면 드롭) + frame cache |
 | `/c2/overhead/compressed` | CompressedImage | `_on_video(…,"overhead")` | OpenCV decode + frame cache |
 | `/c2/tp_{a,b,c,d}/compressed` | CompressedImage | `_on_video(…,"tp_*")` | YOLO + 3D map projection (config.YOLO_CAMERAS 가드) |
 | `/c2/tp_{a,b,c,d}/depth_compressed` (2026-05-24) | CompressedImage (PNG 16UC1 320×180) | `_on_depth(…,"tp_*")` | PNG decode → meter float32 → bbox 중앙 거리 샘플 |
@@ -137,6 +137,10 @@
 **헬스 타이머:** 5초마다 rx 카운터 + publisher 수 확인 → `diag` 이벤트 emit.
 
 **YOLO 자동사격 (Feature 3, 2026-05-27):** `start()` 에서 `yolo.set_auto_fire_cb(self._on_auto_fire_detected)` 주입. soldier/person 2s 안정 감지 시 공포탄(tilt 80°, Z-up), drone 1s 시 정밀조준 실사격. 사격 후 inspect를 target 방향 복귀. `/events` WS 에 `{type:"auto_fire", label, bbox_cx, bbox_cy, success, fire_id, state}` 방송.
+
+**비동기 YOLO (2026-05-27):** `_yolo_executor = ThreadPoolExecutor(max_workers=1)` + `_yolo_futures` dict. `_on_video("inspect")` 에서 이전 Future 미완료 시 현재 프레임 드롭(drop) → YOLO가 video delivery thread 를 블로킹하지 않음. 결과는 `_last_dets["inspect"]` 에 캐시, 다음 프레임 overlay에 사용.
+
+**FRAME_TIMING (2026-05-27):** `FRAME_TIMING=1` 환경변수 시 `_on_video("inspect")` 에서 `[FT] RECV #N recv_gap=...ms net=...ms yolo_busy=...` 로그. `net_ms` = C2 수신시각 - Main header.stamp(wall-clock). 블랙아웃 원인 진단용.
 
 ---
 

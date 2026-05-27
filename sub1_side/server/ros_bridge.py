@@ -6,6 +6,7 @@ rclpy 노드를 별도 스레드(MultiThreadedExecutor)에서 spin 하고,
 asyncio 와는 loop.call_soon_threadsafe 로 안전 연결 (server-bridge.md 패턴).
 """
 import asyncio
+import concurrent.futures
 import json
 import logging
 import math
@@ -82,6 +83,13 @@ class RosBridge:
         self._exec = None
         self._thread = None
         self._js_last_log = 0.0      # joint_snapshots 10Hz 다운샘플 타이머
+        # Main-side YOLO 결과 캐시 — bbox overlay용 (2026-05-27)
+        self._last_dets: dict[str, list] = {}
+        self._dets_lock = threading.Lock()
+        # WHY: YOLO 추론(50-200ms)을 ROS callback thread 에서 분리.
+        # max_workers=1 → 이전 추론이 끝나기 전에 새 프레임이 들어오면 drop(영상 연속성 보장).
+        self._yolo_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._yolo_futures: dict[str, concurrent.futures.Future] = {}
 
     # ---- 생명주기 -----------------------------------------------------
     def start(self, loop, db, event_cb, yolo=None):
@@ -302,9 +310,13 @@ class RosBridge:
         log.info("자동사격 완료: label=%s success=%s fire_id=%s state=%s",
                  label, success, fire_id, state)
 
-        # 3. 사격 후 inspect → target 방향 복귀 (soldier/person)
+        # 3. 사격 후 inspect → 원래 시야각으로 복귀 후 fence 자동주시 즉시 재활성
+        # WHY: 공포탄은 공중 발사(tilt 80°) 후 표적 추적이 아닌 정면 복귀가 목적.
+        # reset=True → pan=0, tilt=0. restore_auto=True → manual_until=0 으로 덮어써
+        # 10초 suppression 없이 fence 자동주시가 다음 step 에서 즉시 재개된다.
         if label != "drone":
-            self.pub_inspect_cmd({"look_at_pixel": [cx, cy], "absolute": False})
+            await asyncio.sleep(0.5)   # 발사 모션 완료 대기
+            self.pub_inspect_cmd({"reset": True, "restore_auto": True})
 
 
 if RCLPY_OK:
@@ -367,6 +379,11 @@ if RCLPY_OK:
             # ---- Zone 기반 라우팅 (2026-05-22) ----
             self.create_subscription(String, T["routing_state"],
                                      self._on_routing_state, rel_qos)
+            # Main-side YOLO 검출 결과 구독 (2026-05-27)
+            if "yolo_main_dets" in T:
+                self.create_subscription(
+                    String, T["yolo_main_dets"],
+                    self._on_yolo_main_dets, rel_qos)
             self._weather_pub = self.create_publisher(
                 String, T["weather_cmd"], rel_qos)
             # ---- 업링크 발행/클라이언트 ----
@@ -488,6 +505,79 @@ if RCLPY_OK:
                     config.ROBOT_ID, _now_iso(),
                     [], self.br.latest["leg_q"]))
 
+        def _on_yolo_main_dets(self, msg):
+            """Main-side yolo_node 검출 결과 수신 (2026-05-27).
+
+            WHY: YOLO 추론을 Main PC 에서 수행 → C2 CPU 부하 절감.
+            결과를 받아 stable-tracker(auto-fire), WebSocket, DB, /alerts 에 전달.
+            """
+            try:
+                data = json.loads(msg.data)
+            except Exception:
+                return
+            camera = data.get("camera", "inspect")
+            dets   = data.get("dets", [])
+            ts     = data.get("stamp") or _now_iso()
+
+            # bbox overlay 캐시 갱신 (video callback 에서 사용)
+            with self.br._dets_lock:
+                self.br._last_dets[camera] = dets
+
+            # stable-tracker → auto-fire 콜백
+            if self.br._yolo is not None:
+                self.br._yolo._update_stable(dets)
+
+            # WebSocket detection 이벤트 + /detections_text 발행
+            if dets:
+                self.br._emit({"type": "detection", "ts": ts, "items": dets})
+                det_msg = String()
+                det_msg.data = json.dumps({
+                    "stamp": ts, "frame_id": f"camera_{camera}",
+                    "detections": dets})
+                self._det_pub.publish(det_msg)
+                for d in dets:
+                    x, y, w, h = d["bbox"]
+                    self.br._db and self.br._db.put("detection_events", (
+                        ts, config.ROBOT_ID, f"camera_{camera}", "detection",
+                        d["class_name"], d["conf"],
+                        json.dumps({"x": x, "y": y, "w": w, "h": h}),
+                        None, None, None, None, None))
+
+            # intruder alert
+            alert = data.get("person_alert")
+            if alert:
+                a_msg = String()
+                a_msg.data = json.dumps(alert)
+                self._alerts_pub.publish(a_msg)
+                x1, y1, x2, y2 = alert["bbox_xyxy"]
+                self.br._db and self.br._db.put("alerts", (
+                    config.ROBOT_ID, ts, alert["level"], alert["event"],
+                    float(alert["confidence"]),
+                    json.dumps([x1, y1, x2, y2]),
+                    int(alert["count"]), False))
+                self.br._emit({"type": "alert", "ts": ts, "data": alert})
+                self.get_logger().warn(
+                    f"ALERT intruder={alert['label']} conf={alert['confidence']:.2f}")
+
+            # animal alert
+            animal_alert = data.get("animal_alert")
+            if animal_alert:
+                aa_msg = String()
+                aa_msg.data = json.dumps(animal_alert)
+                self._animal_pub.publish(aa_msg)
+                x1, y1, x2, y2 = animal_alert["bbox_xyxy"]
+                self.br._db and self.br._db.put("alerts", (
+                    config.ROBOT_ID, ts, animal_alert["level"],
+                    animal_alert["event"],
+                    float(animal_alert["confidence"]),
+                    json.dumps([x1, y1, x2, y2]),
+                    int(animal_alert["count"]), False))
+                self.br._emit({"type": "animal_alert", "ts": ts,
+                               "data": animal_alert})
+                self.get_logger().warn(
+                    f"ANIMAL_ALERT {animal_alert['label']} "
+                    f"conf={animal_alert['confidence']:.2f}")
+
         def _on_rosout(self, msg):
             self._rx["rosout"] += 1
             if msg.level < config.ROSOUT_WARN_LEVEL:   # WARN 이상만
@@ -506,64 +596,115 @@ if RCLPY_OK:
                 self.get_logger().info(
                     f"✓ 첫 {camera} 영상 프레임 수신({len(msg.data)}B) — "
                     f"degrade↔web_server 통신 OK")
+
+            # --- 수신 타이밍 로그 (FRAME_TIMING=1 일 때만) ---
+            import os as _os
+            if _os.environ.get("FRAME_TIMING") == "1" and camera == "inspect":
+                _recv_ns = time.time_ns()
+                _pub_s   = msg.header.stamp.sec
+                _pub_ns_val = msg.header.stamp.nanosec
+                _pub_total_ns = _pub_s * 1_000_000_000 + _pub_ns_val
+                _net_ms  = (_recv_ns - _pub_total_ns) / 1e6 if _pub_s > 0 else -1
+                _prev_recv = getattr(self, "_ft_prev_recv", 0)
+                _recv_gap = (_recv_ns / 1e9 - _prev_recv) * 1000 if _prev_recv else 0
+                self._ft_prev_recv = _recv_ns / 1e9
+                _yolo_busy = (
+                    "inspect" in self.br._yolo_futures
+                    and not self.br._yolo_futures["inspect"].done()
+                )
+                _flag = ""
+                if _recv_gap > 300 and _prev_recv:
+                    _flag += f"  ← recv_gap {_recv_gap:.0f}ms !!!"
+                if _net_ms > 200:
+                    _flag += f"  ← net {_net_ms:.0f}ms !!!"
+                self.get_logger().info(
+                    f"[FT] RECV #{self._rx[key]:05d} "
+                    f"recv_gap={_recv_gap:.0f}ms net={_net_ms:.1f}ms "
+                    f"yolo_busy={_yolo_busy}{_flag}")
+
             arr = np.frombuffer(bytes(msg.data), dtype=np.uint8)
             bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
             if bgr is None:
                 return
-            if self.br._yolo is not None and camera == "inspect" and "inspect" in config.YOLO_CAMERAS:
-                dets, alert, animal_alert = self.br._yolo.infer_with_alerts(bgr)
-                if dets:
-                    ts = _now_iso()
-                    for d in dets:
-                        x, y, w, h = d["bbox"]
-                        cv2.rectangle(bgr, (int(x), int(y)),
-                                      (int(x + w), int(y + h)), (0, 0, 255), 2)
-                        cv2.putText(bgr, f'{d["class_name"]} {d["conf"]:.2f}',
-                                    (int(x), int(y) - 5),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                        # 2026-05-24: detection_events 통합 (kind='detection')
-                        self.br._db and self.br._db.put("detection_events", (
-                            ts, config.ROBOT_ID, "camera_inspect", "detection",
-                            d["class_name"], d["conf"],
-                            json.dumps({"x": x, "y": y, "w": w, "h": h}),
-                            None, None, None, None, None))
-                    self.br._emit({"type": "detection", "ts": ts, "items": dets})
-                    det_msg = String()
-                    det_msg.data = json.dumps({
-                        "stamp": ts, "frame_id": "camera_inspect",
-                        "detections": dets})
-                    self._det_pub.publish(det_msg)
-                if alert is not None:
-                    ts = _now_iso()
-                    a_msg = String()
-                    a_msg.data = json.dumps(alert)
-                    self._alerts_pub.publish(a_msg)
-                    x1, y1, x2, y2 = alert["bbox_xyxy"]
-                    self.br._db and self.br._db.put("alerts", (
-                        config.ROBOT_ID, ts, alert["level"], alert["event"],
-                        float(alert["confidence"]),
-                        json.dumps([x1, y1, x2, y2]),
-                        int(alert["count"]), False))
-                    self.br._emit({"type": "alert", "ts": ts, "data": alert})
-                    self.get_logger().warn(
-                        f"ALERT person conf={alert['confidence']:.2f} → /alerts")
-                if animal_alert is not None:
-                    ts = _now_iso()
-                    aa_msg = String()
-                    aa_msg.data = json.dumps(animal_alert)
-                    self._animal_pub.publish(aa_msg)
-                    x1, y1, x2, y2 = animal_alert["bbox_xyxy"]
-                    self.br._db and self.br._db.put("alerts", (
-                        config.ROBOT_ID, ts, animal_alert["level"],
-                        animal_alert["event"],
-                        float(animal_alert["confidence"]),
-                        json.dumps([x1, y1, x2, y2]),
-                        int(animal_alert["count"]), False))
-                    self.br._emit({"type": "animal_alert", "ts": ts,
-                                   "data": animal_alert})
-                    self.get_logger().warn(
-                        f"ANIMAL_ALERT {animal_alert['label']} "
-                        f"conf={animal_alert['confidence']:.2f} → /animal_alerts")
+
+            # WHY: 캐시된 이전 프레임 탐지 결과로 bbox 오버레이 후 즉시 프레임 저장.
+            # YOLO 추론(50-200ms) 전에 _set_video_frame 을 호출해야 MJPEG 폴러가
+            # 200ms 주기 안에 최신 프레임을 획득할 수 있다.
+            # bbox lag: 최대 1프레임(200ms @ 5fps) — 운용상 허용.
+            if camera == "inspect":
+                with self.br._dets_lock:
+                    _cached = list(self.br._last_dets.get("inspect") or [])
+                for _d in _cached:
+                    _x, _y, _w, _h = _d["bbox"]
+                    cv2.rectangle(bgr, (int(_x), int(_y)),
+                                  (int(_x + _w), int(_y + _h)), (0, 0, 255), 2)
+                    cv2.putText(bgr, f'{_d["class_name"]} {_d["conf"]:.2f}',
+                                (int(_x), int(_y) - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            self.br._set_video_frame(bgr, camera)
+
+            # inspect 카메라: C2 로컬 YOLO 추론 (config.YOLO_CAMERAS 로 채널 제한)
+            # WHY: 추론을 ThreadPoolExecutor(max_workers=1)에 submit해 ROS callback thread
+            # 를 즉시 반환. 이전 추론이 아직 실행 중이면 이번 프레임은 drop(추론 병목 방지).
+            if (self.br._yolo is not None and camera == "inspect"
+                    and "inspect" in config.YOLO_CAMERAS):
+                prev = self.br._yolo_futures.get("inspect")
+                if prev is None or prev.done():
+                    node_ref = self   # closure
+                    frame_copy = bgr.copy()
+
+                    def _run_yolo_inspect(br=self.br, node=node_ref,
+                                         frame=frame_copy):
+                        try:
+                            dets, alert, animal_alert = br._yolo.infer_with_alerts(frame)
+                        except Exception as _e:
+                            log.warning("YOLO inspect 추론 실패: %r", _e)
+                            return
+                        with br._dets_lock:
+                            br._last_dets["inspect"] = dets
+                        if dets:
+                            ts = _now_iso()
+                            frame_id = "camera_inspect"
+                            for d in dets:
+                                br._db and br._db.put("detection_events", (
+                                    ts, config.ROBOT_ID, frame_id, "detection",
+                                    d["class_name"], d["conf"],
+                                    json.dumps({"x": d["bbox"][0], "y": d["bbox"][1],
+                                                "w": d["bbox"][2], "h": d["bbox"][3]}),
+                                    None, None, None, None, None))
+                            br._emit({"type": "detection", "ts": ts, "items": dets})
+                            det_msg = String()
+                            det_msg.data = json.dumps({"stamp": ts,
+                                                       "frame_id": frame_id,
+                                                       "detections": dets})
+                            node._det_pub.publish(det_msg)
+                        if alert:
+                            ts = ts if dets else _now_iso()
+                            a_msg = String(); a_msg.data = json.dumps(alert)
+                            node._alerts_pub.publish(a_msg)
+                            x1, y1, x2, y2 = alert["bbox_xyxy"]
+                            br._db and br._db.put("alerts", (
+                                config.ROBOT_ID, ts, alert["level"], alert["event"],
+                                float(alert["confidence"]),
+                                json.dumps([x1, y1, x2, y2]),
+                                int(alert["count"]), False))
+                            br._emit({"type": "alert", "ts": ts, "data": alert})
+                        if animal_alert:
+                            ts = ts if dets else _now_iso()
+                            aa_msg = String(); aa_msg.data = json.dumps(animal_alert)
+                            node._animal_pub.publish(aa_msg)
+                            x1, y1, x2, y2 = animal_alert["bbox_xyxy"]
+                            br._db and br._db.put("alerts", (
+                                config.ROBOT_ID, ts, animal_alert["level"],
+                                animal_alert["event"],
+                                float(animal_alert["confidence"]),
+                                json.dumps([x1, y1, x2, y2]),
+                                int(animal_alert["count"]), False))
+                            br._emit({"type": "animal_alert", "ts": ts,
+                                      "data": animal_alert})
+
+                    self.br._yolo_futures["inspect"] = \
+                        self.br._yolo_executor.submit(_run_yolo_inspect)
             # TP cameras: run YOLO + 3D projection (config.YOLO_CAMERAS 로 채널 제한)
             _tp_cameras = {"tp_a", "tp_b", "tp_c", "tp_d"}
             if (self.br._yolo is not None and camera in _tp_cameras
@@ -600,7 +741,6 @@ if RCLPY_OK:
                     det_msg.data = json.dumps({"stamp": ts, "frame_id": frame_id,
                                                "detections": dets})
                     self._det_pub.publish(det_msg)
-            self.br._set_video_frame(bgr, camera)
 
         def _decode_depth(self, msg):
             """2026-05-24: CompressedImage(PNG 16UC1 mm) 디코드 →

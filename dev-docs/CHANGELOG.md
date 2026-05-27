@@ -5,7 +5,80 @@
 
 ---
 
+## 2026-05-27 (후반)
+
+### 영상 블랙아웃 근본 원인 진단 및 수정 — degrade 노드 안정화
+**변경 파일:**
+- `main_side/video_degrade_node.py` (수정)
+- `main_side/depth_degrade_node.py` (수정)
+- `main_side/run_degrade.sh` (수정)
+- `sub1_side/server/config.py` (수정 — YOLO 모델 교체)
+- `sub1_side/server/ros_bridge.py` (수정 — 비동기 YOLO, FRAME_TIMING)
+- `sub1_side/server/app.py` (수정 — MJPEG 타이밍 로그)
+- `sub1_side/server/run.sh` (수정 — FRAME_TIMING 환경변수)
+- `~/.config/systemd/user/cobot3-degrade.service` (신규 — systemd 서비스)
+
+**근본 원인:**
+SSH 세션에서 `run_degrade.sh` 실행 시 SSH 연결 끊김 → SIGHUP이 프로세스 그룹 전파
+→ 모든 degrade 노드 동시 사망 → recv_gap 15~77초 블랙아웃.
+YOLO 추론이 원인이 아님을 3-point 타이밍 계측(SEND/RECV/MJPEG yield)으로 확인.
+
+**video_degrade_node.py 변경:**
+- **5fps 지터 수정:** `self._last = now` → `self._last += 1/TARGET_FPS` (누적 방식).
+  드리프트 1주기 초과 시 리셋 guard. gap 표준편차 31%→17% 개선.
+- **wall-clock 타임스탬프:** header.stamp을 Main PC wall-clock(`time.time_ns()`)으로
+  덮어씀. C2에서 크로스-머신 네트워크 지연 측정 가능.
+- **FRAME_TIMING 계측:** `FRAME_TIMING=1` 환경변수 시 inspect 채널에
+  `[FT] SEND #N t=... gap=...ms` 로그 출력.
+- **크래시 진단:** SIGTERM/SIGHUP 핸들러, 예외 시 `/tmp/degrade_crash_<channel>.log` 기록.
+  `[degrade EXIT]` 종료 사유 stderr 출력.
+
+**depth_degrade_node.py 변경:**
+- video_degrade_node.py 와 동일한 크래시 진단 main() 패턴 적용.
+
+**run_degrade.sh 변경:**
+- `_restart_loop` bash 함수 도입: 각 채널을 무한 루프로 감싸 노드 사망 시 2초 후 자동 재기동.
+- FRAME_TIMING=1 inline 설정 (inspect 채널).
+- 7 video + 4 depth = 11 채널 전체 _restart_loop 적용.
+
+**ros_bridge.py 변경 (C2):**
+- `ThreadPoolExecutor(max_workers=1)` + `_yolo_futures` dict 도입.
+  inspect YOLO 추론을 별도 스레드에서 비동기 실행. 이전 추론 완료 전 새 프레임 드롭.
+- `FRAME_TIMING=1` 시 `[FT] RECV #N recv_gap=...ms net=...ms yolo_busy=...` 로그.
+
+**app.py 변경 (C2):**
+- MJPEG gen() 내 `[FT] MJPEG yield t=... gap=...ms` 로그 (FRAME_TIMING=1, inspect).
+- `cv2.imencode` + `_build_tp_grid_frame` → `loop.run_in_executor()` 오프로드
+  (asyncio 이벤트 루프 블로킹 제거).
+
+**config.py 변경 (C2):**
+- 기본 YOLO 모델: `cobot3_4class_v3_best_small.pt` (nano → small 교체).
+
+**systemd 서비스 신규:**
+- `~/.config/systemd/user/cobot3-degrade.service`
+- SSH 세션과 완전 독립 (`StandardInput=null`, 자체 cgroup).
+- `Restart=always RestartSec=3`, `KillMode=control-group`.
+- `loginctl enable-linger rokey` — 로그인 없이도 서비스 유지.
+- 관리 명령: `systemctl --user {start|stop|restart|status} cobot3-degrade.service`
+
+---
+
 ## 2026-05-27
+
+### YOLO 추론 main_side 이전
+**변경 파일:**
+- `main_side/yolo_node.py` (신규 — Main PC YOLO 추론 ROS2 노드)
+- `main_side/run_degrade.sh` (수정 — yolo_node 기동 블록 추가)
+- `sub1_side/server/config.py` (수정 — yolo_main_dets 토픽 + C2_YOLO_LOCAL 환경변수)
+- `sub1_side/server/ros_bridge.py` (수정 — inspect YOLO 제거, _on_yolo_main_dets 추가, bbox 캐시 오버레이)
+- `sub1_side/server/yolo_infer.py` (수정 — C2_YOLO_LOCAL=0 모델 스킵, enabled 항상 True)
+
+**YOLO 아키텍처 변경:**
+Main PC의 `yolo_node.py`가 `/c2/inspect/compressed` 구독 → YOLO 추론 →
+`/c2/yolo/inspect/detections` 발행. C2 ros_bridge가 이를 구독하여 기존과 동일하게
+WebSocket·DB·자동사격·bbox 오버레이 처리. `C2_YOLO_LOCAL=0` 환경변수로 C2 모델 로드 스킵.
+
+---
 
 ### AB_PATROL 모드 + Inspect FOV 해제 + YOLO 자동사격
 **변경 파일:**
@@ -31,6 +104,19 @@ nav2_patrol.py 에 `MissionMode.AB_PATROL` 추가. `ab_patrol` 명령 시 TP_A �
 `yolo_infer.py`: 안정 감지 트래커(soldier/person 2s, drone 1s), 30s 쿨다운.
 `ros_bridge.py`: 비동기 사격 시퀀스(patrol stop → inspect 조준 → call_fire → inspect 복귀).
 `/events` WS에 `auto_fire` 이벤트 방송.
+
+### YOLO 자동사격 기준 변경 + Inspect YOLO 단독 적용
+**변경 파일:**
+- `sub1_side/server/yolo_infer.py` (수정 — 프레임 카운트 기반 안정 감지)
+- `sub1_side/server/config.py` (수정 — C2_YOLO_CAMERAS 기본값 inspect 단독)
+
+**안정 감지 기준 변경 (frame-count-within-window):**
+- soldier/person: 5초 window 내 3프레임 이상 → 공포탄 (기존: 2초 연속)
+- drone: 3초 window 내 2프레임 이상 → 정밀사격 (기존: 1초 연속)
+- `_STABLE_THRESHOLDS` 클래스 변수로 threshold 관리, window 만료 시 카운트 리셋
+
+**YOLO 채널 inspect 단독:**
+`C2_YOLO_CAMERAS` 기본값 `"inspect,tp_a"` → `"inspect"` 로 변경. TP_A~D 카메라 YOLO 비활성화.
 
 ---
 

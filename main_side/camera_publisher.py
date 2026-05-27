@@ -1740,9 +1740,7 @@ def _apply_inspect_cmd():
         return
     _inspect_state["last_mtime"] = m
     _inspect_state["rx"] += 1
-    # 수동 명령 수신 → 자동 fence 주시 타임아웃 갱신
     import time as _time
-    _inspect_state["manual_until"] = _time.monotonic() + _INSPECT_AUTO_TIMEOUT_S
     import json as _json
     try:
         with open(_INSPECT_CMD_FILE) as _f:
@@ -1750,6 +1748,15 @@ def _apply_inspect_cmd():
     except Exception as _e:
         log(f"[inspect] JSON 파싱 실패: {_e!r}")
         return
+
+    # 수동 명령 수신 → 자동 fence 주시 타임아웃 갱신
+    # WHY: restore_auto=True 는 자동사격 완료 후 fence 자동주시를 즉시 복귀시키는
+    # 내부 신호. 이 경우 manual_until 을 0으로 덮어써 다음 step 에서 fence 자동복귀
+    # 가 즉시 활성화된다. 일반 수동 명령은 TIMEOUT 연장이 정상 동작.
+    if cmd.get("restore_auto"):
+        _inspect_state["manual_until"] = 0.0   # 즉시 fence 자동주시 복귀
+    else:
+        _inspect_state["manual_until"] = _time.monotonic() + _INSPECT_AUTO_TIMEOUT_S
 
     if cmd.get("reset"):
         _inspect_state["pan"] = 0.0

@@ -26,6 +26,10 @@ TARGET_FPS = 5.0
 OUT_W, OUT_H = 640, 360
 JPEG_Q = 50
 
+# WHY: FRAME_TIMING=1 시에만 타이밍 로그 활성화. 평상시 off 로 로그 과부하 방지.
+_TIMING = os.environ.get("FRAME_TIMING", "0") == "1"
+_is_inspect = "inspect" in OUT_RGB  # inspect 채널만 타이밍 집중 추적
+
 SENSOR_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     history=HistoryPolicy.KEEP_LAST, depth=5)
@@ -42,6 +46,7 @@ class VideoDegrade(Node):
         self._n_in = 0
         self._n_out = 0
         self._first_logged = False
+        self._prev_pub_t = 0.0   # 직전 발송 wall-clock (프레임 간격 측정용)
         self.create_timer(5.0, self._stats)
         L = self.get_logger()
         L.info("==== video_degrade ENV 점검 ====")
@@ -64,7 +69,14 @@ class VideoDegrade(Node):
         now = time.monotonic()
         if now - self._last < 1.0 / TARGET_FPS:      # 5fps 스로틀
             return
-        self._last = now
+        # WHY: self._last = now 대신 누적 방식 사용.
+        # Isaac 이 간헐적으로 늦게 발행하면 self._last=now 로 갱신하면
+        # 다음 통과 가능 시점도 함께 밀려 지터가 연쇄된다.
+        # += 방식은 이상적인 200ms 주기를 유지해 한 프레임 지연이 다음에 전파되지 않음.
+        # 단, 누적 드리프트가 1 주기(200ms) 이상 벌어지면 리셋해 튐 방지.
+        self._last += 1.0 / TARGET_FPS
+        if now - self._last > 1.0 / TARGET_FPS:
+            self._last = now
         # sensor_msgs/Image → ndarray (rgb8/bgr8/rgba8 대응)
         h, w = msg.height, msg.width
         buf = np.frombuffer(msg.data, dtype=np.uint8)
@@ -92,10 +104,22 @@ class VideoDegrade(Node):
             return
         out = CompressedImage()
         out.header = msg.header
+        # WHY: header.stamp 을 wall-clock(UNIX ns)으로 덮어씀.
+        # Isaac 시뮬레이션 시각은 C2 wall-clock 과 비교 불가 → 네트워크 지연 측정 불가.
+        _pub_ns = time.time_ns()
+        out.header.stamp.sec      = _pub_ns // 1_000_000_000
+        out.header.stamp.nanosec  = _pub_ns %  1_000_000_000
         out.format = "jpeg"
         out.data = jpg.tobytes()
         self.pub.publish(out)
         self._n_out += 1
+
+        if _TIMING and _is_inspect:
+            _gap = (_pub_ns / 1e9 - self._prev_pub_t) * 1000
+            _flag = f"  ← gap {_gap:.0f}ms !!!" if self._prev_pub_t and _gap > 300 else ""
+            self.get_logger().info(
+                f"[FT] SEND #{self._n_out:05d} t={_pub_ns/1e9:.3f}{_flag}")
+            self._prev_pub_t = _pub_ns / 1e9
 
     def _stats(self):
         npub = self.count_publishers(IN_RGB)
@@ -112,18 +136,52 @@ class VideoDegrade(Node):
 
 
 def main():
+    import signal, traceback, sys
+
+    _exit_reason = ["unknown"]
+
+    def _sig_handler(signum, frame):
+        _exit_reason[0] = f"signal {signal.Signals(signum).name}"
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _sig_handler)
+    signal.signal(signal.SIGHUP,  _sig_handler)
+    # SIGINT → KeyboardInterrupt 는 기존 except 에서 처리
+
     rclpy.init()
     node = VideoDegrade()
+    _start = time.monotonic()
     try:
+        _exit_reason[0] = "spin_normal_exit"
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        _exit_reason[0] = "KeyboardInterrupt(SIGINT)"
+    except SystemExit:
+        pass  # _exit_reason already set by signal handler
+    except Exception as exc:
+        # WHY: spin()이 예외로 터지면 이전 코드는 이유 없이 종료.
+        # 여기서 스택트레이스를 파일에 기록해 재발 시 원인 추적 가능.
+        _exit_reason[0] = f"EXCEPTION: {exc!r}"
+        tb = traceback.format_exc()
+        _crash_path = f"/tmp/degrade_crash_{OUT_RGB.replace('/','_')}.log"
+        try:
+            with open(_crash_path, "w") as _f:
+                _f.write(f"channel: {OUT_RGB}\n")
+                _f.write(f"uptime: {time.monotonic()-_start:.1f}s\n")
+                _f.write(f"exception: {exc!r}\n\n")
+                _f.write(tb)
+            print(f"[degrade CRASH] {exc!r} → {_crash_path}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
     finally:
+        _uptime = time.monotonic() - _start
+        print(f"[degrade EXIT] channel={OUT_RGB} reason={_exit_reason[0]} "
+              f"uptime={_uptime:.1f}s out={getattr(node,'_n_out',0)}frames",
+              file=sys.stderr, flush=True)
         try:
             node.destroy_node()
         except Exception:
             pass
-        # kill/SIGTERM 시 컨텍스트가 이미 내려갈 수 있어 이중 shutdown 가드
         try:
             if rclpy.ok():
                 rclpy.shutdown()
