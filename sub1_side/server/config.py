@@ -116,10 +116,10 @@ YOLO_CLASSES = {
 YOLO_ANIMAL_CLASS_IDS = {3}
 
 # YOLO 인퍼런스 채널 선택 (2026-05-24). CPU 부하 조절용.
-# 기본: inspect + tp_a (1차 정찰 카메라 2채널). 전부 켜려면
+# 기본: inspect 단독. 전부 켜려면
 # C2_YOLO_CAMERAS=inspect,tp_a,tp_b,tp_c,tp_d 로 override.
 YOLO_CAMERAS: set[str] = {
-    c.strip() for c in os.environ.get("C2_YOLO_CAMERAS", "inspect,tp_a").split(",")
+    c.strip() for c in os.environ.get("C2_YOLO_CAMERAS", "inspect").split(",")
     if c.strip()
 }
 
