@@ -1756,7 +1756,10 @@ def _update_inspect_xform():
             # WHY: Go2가 어느 방향을 향하든 inspect 카메라는 항상 fence(위협 방향)를
             # 주시해야 경계 임무에 적합. 수동 명령 수신 후 TIMEOUT_S 동안만 수동 유지.
             if _time.monotonic() > _inspect_state.get("manual_until", 0.0):
-                _yaw_w = _math.atan2(float(_bt[1][0]), float(_bt[0][0]))
+                # WHY: GfMatrix4d row-vector 규칙에서 M[0][1]=sin(θ), M[1][0]=-sin(θ).
+                # atan2(M[1][0], M[0][0]) = atan2(-sinθ, cosθ) = -θ (부호 반전 버그).
+                # 올바른 yaw: atan2(M[0][1], M[0][0]) = atan2(sinθ, cosθ) = +θ.
+                _yaw_w = _math.atan2(float(_bt[0][1]), float(_bt[0][0]))
                 _go2_x = float(_bt[3][0])
                 _go2_y = float(_bt[3][1])
                 _fx = max(_FENCE_X_MIN, min(_FENCE_X_MAX, _go2_x))
