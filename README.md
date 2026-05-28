@@ -1,7 +1,7 @@
 # cobot3 — GP 경계근무 4족보행 로봇 시스템 (Unitree Go2)
 
 Isaac Sim 안에서 Unitree **Go2** 를 구동(walk-these-ways RL locomotion)하고,
-3-카메라 영상/텔레메트리/Foxglove SDK native 시각화를 별도 PC 의 지휘통제실(C2)
+7-카메라 RGB + 4채널 Depth 영상/텔레메트리/Foxglove SDK native 시각화를 별도 PC 의 지휘통제실(C2)
 웹 UI 로 실시간 송출·조작하는 프로젝트.
 
 > 2026-05 Spot+팔 → **Go2** 전환 완료. walk-these-ways RL 정책(42-dim obs ×
@@ -21,7 +21,10 @@ cobot3/
 ├── main_side/    Isaac Sim PC 측
 │                 카메라/텔레메트리 발행, Go2WtwController(walk-these-ways RL),
 │                 OG sensor_bridge, camera_info_publisher, mission_echo,
-│                 npc_relay, world_odom_tf_pub, 씬·에셋, 런처, FastDDS
+│                 npc_relay, world_odom_tf_pub, landmarks_pub, inspect_relay,
+│                 fall_relay, weapon_relay, wind_publisher, soldier_manager(NPC),
+│                 yolo_node(YOLO 추론), depth_degrade_node, zone_router,
+│                 씬·에셋, 런처, FastDDS
 │
 ├── sub1_side/    지휘통제실(C2) PC 측
 │                 FastAPI 서버, Next.js UI, PostgreSQL 스키마,
@@ -65,7 +68,7 @@ git clone https://github.com/ThatsHoon/cobot3.git \
 ```bash
 echo 'export ROS_DOMAIN_ID=130' >> ~/.bashrc
 echo 'export RMW_IMPLEMENTATION=rmw_fastrtps_cpp' >> ~/.bashrc
-echo 'export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/main_side/fastdds_no_shm.xml' >> ~/.bashrc
+echo 'export FASTRTPS_DEFAULT_PROFILES_FILE=/home/rokey/dev_ws/isaac_sim/cobot3/main_side/fastdds_no_shm.xml' >> ~/.bashrc  # ← 클론 위치에 맞게 경로 수정
 echo 'export ROS_LOCALHOST_ONLY=0' >> ~/.bashrc
 echo 'export COBOT3_DB_URL="postgresql:///cobot3"' >> ~/.bashrc
 source ~/.bashrc
@@ -93,11 +96,13 @@ psql -d cobot3 -f ../db/schema.sql
 ```bash
 cobot3-start_all
 # → run_camera_pub_gui.sh (Isaac GUI + OG)
-# → run_degrade.sh (3-카메라 압축)
+# → run_degrade.sh (7 RGB + 4 Depth, 11개 인스턴스)
 # → run_telemetry_bridge.sh
-# → mission_echo.py · npc_relay.py · world_odom_tf_pub.py
-# → camera_info_publisher.py (3-카메라 CameraInfo latched)
-# → run_urdf_server.sh (:8766 Go2 URDF 서빙)
+# → world_odom_tf_pub.py · landmarks_pub.py · inspect_relay.py
+# → mission_echo.py · npc_relay.py · soldier_manager.py
+# → fall_relay.py · weapon_relay.py · wind_publisher.py
+# → camera_info_publisher.py (전 카메라 CameraInfo latched)
+# → run_urdf_server.sh (:8780 Go2 URDF 서빙)
 ```
 
 **C2 PC (sub1_side)** — `cobot3-start_all`
