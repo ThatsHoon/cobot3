@@ -15,7 +15,7 @@
 | `telemetry_bridge_node.py` | /robot/odom → /robot/gps + /robot/state 파생 (5Hz) |
 | `video_degrade_node.py` | 카메라 영상 5fps JPEG q50 압축 (rear/inspect/overhead + TP_A~D = 7 인스턴스). 2026-05-24: `DEGRADE_IN` env 필수 (front 카메라 잔재 default 제거) |
 | `depth_degrade_node.py` (2026-05-24 신규) | TP depth 320×180 PNG 16UC1 압축 4 인스턴스. LAN depth 트래픽 9MB/s → ~0.4MB/s |
-| `scene/assets/objects/` (2026-05-26 신규) | 접근 오브젝트 USDZ 6개 (boar_walk, wolf_animated, deer_low_poly_animated, drone, person, soldier). `.gitignore` 대상, `scene_pack.sh` 공유 |
+| `scene/assets/objects/` (2026-05-26 신규) | 접근 오브젝트 USDZ 4개 (boar_walk, wolf_animated, deer_low_poly_animated, drone). `.gitignore` 대상, `scene_pack.sh` 공유 |
 | `camera_info_publisher.py` | 3-카메라 CameraInfo TRANSIENT_LOCAL latched. 2026-05-24: 1Hz timer 제거 → 1회 발행 + 60s 보호 |
 | `mission_echo.py` | **(신규)** `/mission_command` rclpy 사이드카 — Isaac console.log echo (디버깅) |
 | `npc_relay.py` | **(신규)** `/npc/*` 명령 릴레이 (NPC 스폰/제거) |
@@ -64,6 +64,41 @@
 | `_GO2_HOME_XYZ` | Routing_Zones/StartingPoint (194.56, 837.70, 5.02) | `GP_GO2_SPAWN_X/Y/Z` | Go2 spawn/home. stage 로드 후 `/World/Routing_Zones/StartingPoint` Xform 을 읽어 자동 설정 (2026-05-22). |
 | `_GO2_GOAL_XYZ` | Routing_Zones/Standard_Point (199.09, 892.60, 4.52) | `GP_GO2_GOAL_X/Y/Z` | 시동 시 이동 목표. `/World/Routing_Zones/Standard_Point` Xform 으로 자동 설정 (2026-05-22). arrive_box=2.0m. |
 | `Clock` 발행 주기 | 50 Hz (OnPlaybackTick 의 render_dt=1/50 기반) | — | `ROS2PublishClock` 은 자체 publishRate input 없음 — tick 펄스로 구동. Nav2 controller 10Hz 의 5× 마진. |
+
+### 접근 오브젝트 (동물·드론 on-demand 소환, 2026-05-27)
+
+씬 기동 시 자동 소환 없음 — 지휘통제실 버튼 클릭 시에만 on-demand 생성.
+
+| 에셋 | 파일 | 스케일 | 비고 |
+|------|------|--------|------|
+| wolf | `wolf_animated.usdz` | **0.01667** (2026-05-28: 0.025 → ×2/3) | SkelAnim repeat |
+| deer | `deer_low_poly_animated.usdz` | **0.010** (2026-05-28: 0.005 → ×2) | Take_001 |
+| boar | `boar_walk.usdz` | **0.01333** (2026-05-28: 0.020 → ×2/3) | SkelAnim repeat |
+| drone | `drone.usdz` | 3.3 | hover anim |
+
+**소환 영역** (군인 랜덤 스폰 영역과 동일):
+
+| 상수 | 기본값 | 환경변수 |
+|------|--------|---------|
+| x 범위 | 166.91 ~ 226.63 | `GP_ANIMAL_SPAWN_X0/X1` |
+| y 시작(원거리) | 915.71 | `GP_ANIMAL_SPAWN_Y0` |
+| y 종점(fence) | 903.0 | `GP_ANIMAL_SPAWN_Y1` |
+| z 고도 | **5.3** (2026-05-28: 4.8 → +0.5) | `GP_ANIMAL_SPAWN_Z` |
+
+**IPC 흐름:**
+```
+C2 POST /spawn_animal {kind, count}
+  → ros_bridge.pub_animal_spawn()
+  → /robot/npc/spawn (kind 포함)
+  → npc_relay.py → /tmp/cobot3_animal_cmd.json
+  → camera_publisher._poll_animal_cmd() (매 step)
+  → _spawn_animal_on_demand(label, count)
+  → /World/Approach_Objects/{label}_{idx:03d} USD Prim 생성
+  → _approach_objects 리스트에 추가 → fence 방향 자동 이동 시작
+```
+
+**prim 경로:** `/World/Approach_Objects/{label}_{idx:03d}` (카운터 suffix로 중복 방지)
+**이동 속도:** `_APPROACH_SPEED` (`GP_APPROACH_OBJECT_SPEED`, 기본 1.10 m/s)
 
 ### OmniGraph 구조 (`/World/Graphs/sensor_bridge`)
 
@@ -407,8 +442,10 @@ TRANSIENT_LOCAL). Lichtblick 3D `cameraInfoTopic` 으로 frustum 렌더.
 
 - `mission_echo.py` — `/mission_command` 구독, stdout 으로 Isaac console 에
   미션 명령 echo (사용자 디버깅 요청). rclpy 사이드카.
-- `npc_relay.py` — `/npc/spawn` 등 NPC 명령을 카메라 publisher 의 내부
-  스폰 함수로 릴레이.
+- `npc_relay.py` — `/robot/npc/spawn` String JSON 구독, 페이로드 라우팅:
+  - `kind` 키 없음 → 군인 소환 → `/tmp/cobot3_npc_cmd.json`
+  - `kind` 키 있음 (`wolf`/`deer`/`boar`/`drone`) → 동물/드론 on-demand → `/tmp/cobot3_animal_cmd.json`
+  camera_publisher 가 각 파일의 mtime poll 로 수신 처리.
 - `world_odom_tf_pub.py` — 2개 static TF 발행 (모두 RELIABLE +
   TRANSIENT_LOCAL):
   - `world → odom` (identity) — Nav2 tf_buffer 가 요구

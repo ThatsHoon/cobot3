@@ -860,14 +860,14 @@ _ANIMAL_SPAWN_X0  = float(os.environ.get("GP_ANIMAL_SPAWN_X0",  "166.91"))
 _ANIMAL_SPAWN_X1  = float(os.environ.get("GP_ANIMAL_SPAWN_X1",  "226.63"))
 _ANIMAL_SPAWN_Y0  = float(os.environ.get("GP_ANIMAL_SPAWN_Y0",  "915.71"))  # 원거리(스폰)
 _ANIMAL_SPAWN_Y1  = float(os.environ.get("GP_ANIMAL_SPAWN_Y1",  "903.0"))   # fence(정지)
-_ANIMAL_SPAWN_Z   = float(os.environ.get("GP_ANIMAL_SPAWN_Z",   "4.8"))
+_ANIMAL_SPAWN_Z   = float(os.environ.get("GP_ANIMAL_SPAWN_Z",   "5.3"))
 _APPROACH_ASSETS = [
     # label, usd, scale  (소환 위치는 _ANIMAL_SPAWN_* 영역에서 랜덤 결정)
     # person/soldier 제거 — 군인 소환은 soldier_manager 단독 담당.
     # USDZ 원본이 cm 단위 export → scale≈0.01 이 ~1m 크기.
-    ("wolf",  "wolf_animated.usdz",          0.025),
-    ("deer",  "deer_low_poly_animated.usdz", 0.005),
-    ("boar",  "boar_walk.usdz",              0.020),
+    ("wolf",  "wolf_animated.usdz",          0.01667),   # 0.025 × 2/3
+    ("deer",  "deer_low_poly_animated.usdz", 0.010),     # 0.005 × 2
+    ("boar",  "boar_walk.usdz",              0.01333),   # 0.020 × 2/3
     ("drone", "drone.usdz",                  3.3),
 ]
 # USDZ exporters sometimes use Y-up character coordinates. The animated boar
@@ -912,6 +912,95 @@ _APPROACH_ANIM_REPEAT_LABELS = {
     if label.strip()
 }
 _approach_objects = []
+
+# on-demand 소환 카운터: 기동 후 버튼 클릭 시 고유 prim 경로 생성에 사용.
+_ANIMAL_SPAWN_COUNTER: dict = {}
+# IPC 파일: npc_relay 가 /robot/npc/animal_spawn → 이 파일에 덤프.
+_ANIMAL_CMD_FILE = "/tmp/cobot3_animal_cmd.json"
+_animal_cmd_state = {"last_mtime": 0.0}
+
+
+def _spawn_animal_on_demand(label: str, count: int = 1):
+    """지휘통제실 버튼 클릭 → IPC → 동물/드론 on-demand 소환.
+
+    WHY: 기동 시 일괄 소환(_setup_approach_objects)과 별개로, 운용 중 추가
+    소환이 필요. 기존 _approach_objects 리스트에 append → _update_approach_objects
+    가 자동으로 fence 방향 이동 처리.
+    """
+    found = next(
+        ((l, fn, sc) for l, fn, sc in _APPROACH_ASSETS if l == label), None
+    )
+    if found is None:
+        log(f"[animal_spawn] 알 수 없는 label: {label!r}")
+        return
+    l, filename, scale = found
+    asset_path = os.path.join(_APPROACH_ASSET_DIR, filename)
+    if not os.path.isfile(asset_path):
+        log(f"[animal_spawn] asset 없음: {asset_path}")
+        return
+
+    if not stage.GetPrimAtPath(APPROACH_OBJECT_ROOT).IsValid():
+        stage.DefinePrim(APPROACH_OBJECT_ROOT, "Xform")
+
+    for _ in range(count):
+        idx = _ANIMAL_SPAWN_COUNTER.get(label, 0) + 1
+        _ANIMAL_SPAWN_COUNTER[label] = idx
+        path = f"{APPROACH_OBJECT_ROOT}/{label}_{idx:03d}"
+        x = random.uniform(_ANIMAL_SPAWN_X0, _ANIMAL_SPAWN_X1)
+        start_y = _ANIMAL_SPAWN_Y0
+        z = _ANIMAL_SPAWN_Z
+        target_y = _ANIMAL_SPAWN_Y1
+
+        root = stage.DefinePrim(path, "Xform")
+        xf = UsdGeom.Xformable(root)
+        xf.ClearXformOpOrder()
+        trans_op = xf.AddTranslateOp()
+        trans_op.Set(Gf.Vec3d(float(x), float(start_y), float(z)))
+        xf.AddOrientOp().Set(_quat_yaw(_APPROACH_ASSET_YAW_DEG.get(label, 180.0)))
+        scale_prim = stage.DefinePrim(f"{path}/scale", "Xform")
+        sx = UsdGeom.Xformable(scale_prim)
+        sx.ClearXformOpOrder()
+        sx.AddScaleOp().Set(Gf.Vec3f(float(scale), float(scale), float(scale)))
+        fix_rot_x = _APPROACH_ASSET_FIX_ROT_X.get(label)
+        if fix_rot_x is not None:
+            sx.AddOrientOp().Set(_quat_roll_x(fix_rot_x))
+        offset_prim = stage.DefinePrim(f"{path}/scale/offset", "Xform")
+        asset_prim = stage.DefinePrim(f"{path}/scale/offset/asset", "Xform")
+        _approach_add_asset_reference(asset_prim, asset_path)
+        _hide_asset_helper_prims(asset_prim, label)
+        _force_skel_animation_binding(asset_prim, label)
+        _repeat_skel_animation_samples(asset_prim, label)
+        _normalize_referenced_asset(asset_prim, offset_prim, label, scale)
+        z = _align_object_bottom_to_ground(root, trans_op, label, x, start_y, z)
+        _approach_objects.append({
+            "label": label, "path": path, "translate_op": trans_op,
+            "x": float(x), "y": float(start_y), "z": float(z),
+            "target_y": float(target_y),
+        })
+        log(f"[animal_spawn] on-demand {label}#{idx} "
+            f"@ ({x:.1f},{start_y:.1f},{z:.1f}) → fence_y={target_y:.1f}")
+
+
+def _poll_animal_cmd():
+    """/tmp/cobot3_animal_cmd.json mtime 변화 시 on-demand 동물/드론 소환."""
+    try:
+        m = os.path.getmtime(_ANIMAL_CMD_FILE)
+    except OSError:
+        return
+    if m <= _animal_cmd_state["last_mtime"]:
+        return
+    _animal_cmd_state["last_mtime"] = m
+    import json as _json
+    try:
+        with open(_ANIMAL_CMD_FILE) as _f:
+            payload = _json.load(_f)
+    except Exception as _e:
+        log(f"[animal_cmd] 파일 파싱 실패: {_e!r}")
+        return
+    label = payload.get("kind", "")
+    count = max(1, int(payload.get("count", 1)))
+    if label:
+        _spawn_animal_on_demand(label, count)
 
 
 def _quat_yaw(deg):
@@ -1268,7 +1357,9 @@ def _update_approach_objects(dt):
         obj["translate_op"].Set(Gf.Vec3d(obj["x"], obj["y"], obj["z"]))
 
 
-_setup_approach_objects()
+# 기동 시 자동 동물 소환 비활성 — 지휘통제실 버튼 클릭(on-demand)으로만 소환.
+# WHY: 씬 열릴 때 자동 배치하면 운용 전 시야가 오염됨.
+# _configure_approach_animation_timeline 은 boar_walk 타임라인 설정이므로 유지.
 _configure_approach_animation_timeline()
 
 # 군인 소환 매니저 초기화 (stage 확정 이후 선언+init)
@@ -2366,6 +2457,7 @@ try:
         _poll_fire_cmd()
         _step_fire(world.get_physics_dt())
         _update_approach_objects(world.get_physics_dt())
+        _poll_animal_cmd()
         if n in (60, 150):
             _diag()
         # timeline play 자가 복원 — GUI 일시정지나 외부 stop() 으로 멈춰

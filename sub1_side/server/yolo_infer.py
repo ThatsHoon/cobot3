@@ -52,7 +52,7 @@ class YoloInfer:
 
     # 자동사격 프레임 카운트 기준: {label: (window_초, 최소_프레임)}
     _STABLE_THRESHOLDS: dict[str, tuple[float, int]] = {
-        "soldier": (5.0, 3),   # 5초 window 내 3프레임 → 공포탄
+        "soldier": (5.0, 3),   # 5초 window 내 3프레임 → 정밀사격
         "person":  (5.0, 3),
         "drone":   (3.0, 2),   # 3초 window 내 2프레임 → 정밀사격
     }

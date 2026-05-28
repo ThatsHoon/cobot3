@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-05-28
+
+### 동물 스케일·Z높이 조정 + 자동 소환 비활성 + YOLO 사격 방식 통일
+**변경 파일:**
+- `main_side/camera_publisher.py` (수정)
+- `sub1_side/server/yolo_infer.py` (수정)
+- `sub1_side/server/ros_bridge.py` (수정)
+
+**변경 내용:**
+- **동물 스케일**: wolf 0.025→0.01667(×2/3), boar 0.020→0.01333(×2/3), deer 0.005→0.010(×2)
+- **소환 Z높이**: `_ANIMAL_SPAWN_Z` 4.8→5.3 (+0.5m)
+- **자동 소환 비활성**: 씬 기동 시 `_setup_approach_objects()` 호출 제거. 지휘통제실 버튼 클릭(on-demand)으로만 동물 소환
+- **YOLO 자동사격 방식 통일**: soldier/person도 drone과 동일하게 `look_at_pixel` 정밀조준 사격 (구: 공포탄 tilt 80° 제거)
+- **YOLO stable tracker**: soldier/person 3초/5프레임 → **5초/3프레임** (최종)
+
+---
+
+## 2026-05-27 (심야)
+
+### 지휘통제실 NPC 소환 패널 확장 — 군인 + 드론·늑대·사슴·돼지 on-demand 소환
+**변경 파일:**
+- `sub1_side/web/components/NpcSpawnButton.tsx` (수정)
+- `sub1_side/server/app.py` (수정)
+- `sub1_side/server/ros_bridge.py` (수정)
+- `main_side/camera_publisher.py` (수정)
+- `main_side/npc_relay.py` (수정)
+
+**변경 내용:**
+- `NpcSpawnButton`: 군인 SOLDIER 버튼 유지 + WOLF/DEER/BOAR/DRONE 4개 버튼(2열 그리드) 추가
+- `app.py`: `POST /robots/{rid}/spawn_animal` 신규 엔드포인트 (kind + count 페이로드)
+- `ros_bridge.py`: `pub_animal_spawn()` 메서드 추가 — 기존 `/robot/npc/spawn` 토픽, kind 필드로 라우팅
+- `npc_relay.py`: payload에 `kind` 키 존재 시 `/tmp/cobot3_animal_cmd.json`으로 분기 (기존 군인 → `/tmp/cobot3_npc_cmd.json` 유지)
+- `camera_publisher.py`: `_poll_animal_cmd()` + `_spawn_animal_on_demand()` 추가 — 메인 루프에서 매 step 폴링, 동물/드론을 군인 소환 영역(x=166~226, y=903~915, z=4.8)에 on-demand 추가 소환
+
+---
+
 ## 2026-05-27 (야간)
 
 ### 동물 접근 오브젝트 활성화 — wolf/deer/boar 씬 배치

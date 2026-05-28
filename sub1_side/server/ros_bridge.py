@@ -229,6 +229,13 @@ class RosBridge:
         if self._node:
             self._node.pub_npc_spawn(json.dumps(payload))
 
+    def pub_animal_spawn(self, payload: dict):
+        """동물/드론 소환 — 동일 /robot/npc/spawn 토픽, kind 필드로 라우팅.
+        npc_relay 가 kind 유무로 /tmp/cobot3_animal_cmd.json 에 분기 기록.
+        """
+        if self._node:
+            self._node.pub_npc_spawn(json.dumps(payload))
+
     def fire(self, target_ref: str, operator: str,
              target_alert_id: int | None = None):
         """weapon/fire 서비스 호출 (HITL 흐름, 2026-05-21):
@@ -279,7 +286,7 @@ class RosBridge:
                                 cx: float, cy: float):
         """자동사격 시퀀스 (asyncio 코루틴).
 
-        soldier/person → 공포탄(Z-up 80°), drone → 정밀 조준 후 실사격.
+        soldier/person/drone 모두 bbox 중심 정밀 조준 후 실사격.
         사격 전후 patrol PAUSE / inspect 방향 고정.
         """
         ts = _now_iso()
@@ -288,14 +295,9 @@ class RosBridge:
         # 1. Patrol 일시정지
         self.pub_mission("stop")
 
-        if label == "drone":
-            # 정밀 조준: bbox 중심으로 inspect 카메라 회전
-            self.pub_inspect_cmd({"look_at_pixel": [cx, cy], "absolute": False})
-            await asyncio.sleep(0.5)
-        else:
-            # 공포탄: tilt 80° up (Z축 방향 발사)
-            self.pub_inspect_cmd({"tilt": math.radians(80), "absolute": True})
-            await asyncio.sleep(0.3)
+        # 정밀 조준: bbox 중심으로 inspect 카메라 회전 (soldier/person/drone 동일)
+        self.pub_inspect_cmd({"look_at_pixel": [cx, cy], "absolute": False})
+        await asyncio.sleep(0.5)
 
         # 2. 사격
         loop = asyncio.get_event_loop()
@@ -309,14 +311,6 @@ class RosBridge:
         })
         log.info("자동사격 완료: label=%s success=%s fire_id=%s state=%s",
                  label, success, fire_id, state)
-
-        # 3. 사격 후 inspect → 원래 시야각으로 복귀 후 fence 자동주시 즉시 재활성
-        # WHY: 공포탄은 공중 발사(tilt 80°) 후 표적 추적이 아닌 정면 복귀가 목적.
-        # reset=True → pan=0, tilt=0. restore_auto=True → manual_until=0 으로 덮어써
-        # 10초 suppression 없이 fence 자동주시가 다음 step 에서 즉시 재개된다.
-        if label != "drone":
-            await asyncio.sleep(0.5)   # 발사 모션 완료 대기
-            self.pub_inspect_cmd({"reset": True, "restore_auto": True})
 
 
 if RCLPY_OK:

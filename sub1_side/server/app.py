@@ -454,6 +454,27 @@ async def inspect_command(rid: str, body: dict):
     return {"ok": True, "payload": payload}
 
 
+_VALID_ANIMAL_KINDS = {"wolf", "deer", "boar", "drone"}
+
+
+@app.post("/robots/{rid}/spawn_animal", dependencies=[Depends(require_key)])
+async def spawn_animal(rid: str, body: dict | None = None):
+    """동물/드론 on-demand 소환 → /robot/npc/spawn (kind 필드) → npc_relay
+    → /tmp/cobot3_animal_cmd.json → camera_publisher._poll_animal_cmd().
+
+    body 키:
+      kind  (필수): "wolf" | "deer" | "boar" | "drone"
+      count (기본 1): 소환 마릿수
+    """
+    body = body or {}
+    kind = str(body.get("kind", "")).lower()
+    if kind not in _VALID_ANIMAL_KINDS:
+        raise HTTPException(400, f"kind must be one of {sorted(_VALID_ANIMAL_KINDS)}")
+    payload = {"kind": kind, "count": max(1, int(body.get("count", 1)))}
+    ros.pub_animal_spawn(payload)
+    return {"ok": True, "payload": payload}
+
+
 @app.post("/robots/{rid}/spawn_soldier", dependencies=[Depends(require_key)])
 async def spawn_soldier(rid: str, body: dict | None = None):
     """군인 NPC 소환 → /robot/npc/spawn (IPC 재사용) → soldier_manager.

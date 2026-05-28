@@ -8,7 +8,7 @@
 | `server/config.py` | 환경변수 중심 설정 (토픽명, API키, CORS, DB URL, YOLO 정책) |
 | `server/ros_bridge.py` | ROS2 구독/발행 (rclpy, MultiThreadedExecutor) — PAUSED 가드 |
 | `server/db_writer.py` | asyncpg 배치 적재 (1초 flush, copy_records_to_table) |
-| `server/yolo_infer.py` | YOLO 추론 (4-class: person/soldier/drone/animal). 안정 감지 트래커: soldier/person 2s → 공포탄, drone 1s → 정밀사격. 30s 쿨다운. |
+| `server/yolo_infer.py` | YOLO 추론 (4-class: person/soldier/drone/animal). 안정 감지 트래커: soldier/person **5초/3프레임** → 정밀사격, drone 3초/2프레임 → 정밀사격. 30s 쿨다운. |
 | `server/webrtc_video.py` | aiortc VideoStreamTrack (5fps, H264) |
 | `server/nav2_patrol.py` | Nav2 patrol FSM (IDLE/PATROL/HOME/PAUSED), HOME=(212.8,890.53) GOAL=(287.59,1129.728), ±10m 사각 도착 |
 | `server/cmd_vel_safety_filter.py` | Nav2 `/cmd_vel_nav2_raw` → `/robot/cmd_vel`, `MUTE_MODES={"PAUSED"}` |
@@ -48,6 +48,7 @@
 | POST | `/robots/{rid}/speaker` | `{preset: str}` or `{pcm_b64, rate}` | `{ok}` |
 | POST | `/robots/{rid}/goto_tp` (2026-05-23) | `{tp_id: "TP_A".."TP_D"}` | `{ok, tp_id}` |
 | POST | `/robots/{rid}/inspect` | `{pan?, tilt?, look_at?, look_at_pixel?, absolute?, reset?}` | `{ok}` |
+| POST | `/robots/{rid}/spawn_animal` **(2026-05-27 신규)** | `{kind: "wolf"\|"deer"\|"boar"\|"drone", count?: int}` | `{ok, payload}` |
 | GET | `/robots/{rid}/preview_route?tp_id=TP_*` (2026-05-23) | — | `{tp_id, route:[{x,y}…]}`. **2026-05-24: 로봇 현재 world 위치(StartingPoint+odom) 기반 경로 계산** |
 
 ### 영상
@@ -125,10 +126,12 @@
 | `publish_goal(x, y)` | `/robot/nav/goal` | PoseStamped | (Nav2 stack 단독 시 미사용) |
 | `pub_inspect_cmd(payload)` | `/robot/inspect/command` | String JSON | pan/tilt/zoom/look_at |
 | `pub_mission(cmd)` | `/mission_command` | String | sortie/home/stop/resume/idle/ab_patrol |
+| `pub_soldier_spawn(payload)` | `/robot/npc/spawn` | String JSON | `{count}` → npc_relay → `/tmp/cobot3_npc_cmd.json` |
+| `pub_animal_spawn(payload)` **(2026-05-27 신규)** | `/robot/npc/spawn` | String JSON | `{kind, count}` → npc_relay → `/tmp/cobot3_animal_cmd.json` |
 | `send_speaker(payload)` | `/robot/speaker/audio` | String (JSON) | (미구현 소비자) |
 | `fire()` | `/robot/weapon/fire` | Trigger (service) | (미구현 서버) |
 | `_on_auto_fire_detected(label, cx, cy)` | — | — | YOLO 콜백 → `_auto_fire_async` asyncio 예약 |
-| `_auto_fire_async(label, cx, cy)` | — | — | patrol stop → inspect 조준 → 사격 → inspect 복귀 |
+| `_auto_fire_async(label, cx, cy)` | — | — | patrol stop → **bbox 중심 정밀조준(look_at_pixel)** → 사격 (soldier/person/drone 동일) |
 
 **PAUSED race fix (2026-05-21):** `pub_cmd_vel` 진입 시 `latest["patrol_state"]
 .mode == "PAUSED"` 확인 → 즉시 return. velocity_smoother·dualsense·web teleop
@@ -136,7 +139,7 @@
 
 **헬스 타이머:** 5초마다 rx 카운터 + publisher 수 확인 → `diag` 이벤트 emit.
 
-**YOLO 자동사격 (Feature 3, 2026-05-27):** `start()` 에서 `yolo.set_auto_fire_cb(self._on_auto_fire_detected)` 주입. soldier/person 2s 안정 감지 시 공포탄(tilt 80°, Z-up), drone 1s 시 정밀조준 실사격. 사격 후 inspect를 target 방향 복귀. `/events` WS 에 `{type:"auto_fire", label, bbox_cx, bbox_cy, success, fire_id, state}` 방송.
+**YOLO 자동사격 (2026-05-27/28 수정):** `start()` 에서 `yolo.set_auto_fire_cb(self._on_auto_fire_detected)` 주입. soldier/person/drone 모두 **bbox 중심 look_at_pixel 정밀조준 후 실사격** (구: soldier/person 공포탄 tilt 80° 제거). stable tracker 기준: soldier/person **5초/3프레임**, drone 3초/2프레임. `/events` WS 에 `{type:"auto_fire", label, bbox_cx, bbox_cy, success, fire_id, state}` 방송.
 
 **비동기 YOLO (2026-05-27):** `_yolo_executor = ThreadPoolExecutor(max_workers=1)` + `_yolo_futures` dict. `_on_video("inspect")` 에서 이전 Future 미완료 시 현재 프레임 드롭(drop) → YOLO가 video delivery thread 를 블로킹하지 않음. 결과는 `_last_dets["inspect"]` 에 캐시, 다음 프레임 overlay에 사용.
 
@@ -201,7 +204,7 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 | `BaseMovementPanel` | — | 4족 8-방향 + WASD/QE/Space + 속도 슬라이더 (기본 표시) |
 | `TeleopPad` | — | (legacy 토글) D-패드 + 속도, Nav2 비활성 시 보조 |
 | `DualSenseStatus` | — | 게임패드 연결 상태 + 키매핑 표시 |
-| `NpcSpawnButton` | — | NPC 소환 (fwd/drop/count + 버튼) |
+| `NpcSpawnButton` | — | NPC 소환 패널 **(2026-05-27 확장)**: SOLDIER 버튼(count 1~5 슬라이더) + WOLF/DEER/BOAR/DRONE 버튼(2열 그리드, amber 톤). 각 버튼 → 해당 `/spawn_soldier` 또는 `/spawn_animal` REST 호출. |
 | `InspectorCameraPanel` | — | 검사 카메라 pan/tilt/zoom/look_at REST. **2026-05-24: PAN_STEP=TILT_STEP=2°/click (이전 8°/5°)** — 정밀 조준. ▶ 클릭=카메라 오른쪽 (백엔드 `_qz(-pan)` 부호 컨벤션과 정합). |
 | `TacticalPointsPanel` (2026-05-23) | routingState, onPreviewChange | TP_A~D 선택→`previewRoute`(미리보기) / "이동" → `goto_tp` 발행. 라우팅 진행률 표시 |
 | `AlertsLog` | liveEvents | person alert 누적 (최근 20, ACK 가능) |

@@ -2,6 +2,10 @@
 /tmp/cobot3_npc_cmd.json 에 덮어쓴다. camera_publisher 가 mtime 폴링 후
 Go2 base pose 기준으로 사람 형체 NPC 를 procedural 합성·낙하.
 
+페이로드 라우팅:
+  "kind" 키 없음  → 군인 소환 → /tmp/cobot3_npc_cmd.json
+  "kind" 키 있음  → 동물/드론 소환 → /tmp/cobot3_animal_cmd.json
+
 Isaac 5.1 OG 에 ROS2SubscribeString 미등록이라 본 사이드카로 우회
 (inspect_relay 와 동일 패턴).
 
@@ -15,7 +19,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
-NPC_CMD_FILE = Path("/tmp/cobot3_npc_cmd.json")
+NPC_CMD_FILE    = Path("/tmp/cobot3_npc_cmd.json")
+ANIMAL_CMD_FILE = Path("/tmp/cobot3_animal_cmd.json")
 
 
 class NpcRelay(Node):
@@ -25,7 +30,7 @@ class NpcRelay(Node):
         self.create_subscription(String, "/robot/npc/spawn",
                                  self._on_cmd, rel)
         self.get_logger().info(
-            f"npc_relay: /robot/npc/spawn → {NPC_CMD_FILE}")
+            f"npc_relay: /robot/npc/spawn → {NPC_CMD_FILE} | {ANIMAL_CMD_FILE}")
 
     def _on_cmd(self, msg: String):
         try:
@@ -33,12 +38,19 @@ class NpcRelay(Node):
         except json.JSONDecodeError as e:
             self.get_logger().warn(f"JSON 파싱 실패: {e}; data={msg.data[:80]!r}")
             return
+
+        # "kind" 키가 있으면 동물/드론 소환, 없으면 군인 소환.
+        if "kind" in payload:
+            target = ANIMAL_CMD_FILE
+        else:
+            target = NPC_CMD_FILE
+
         try:
-            NPC_CMD_FILE.write_text(json.dumps(payload))
+            target.write_text(json.dumps(payload))
         except OSError as e:
             self.get_logger().warn(f"파일 쓰기 실패: {e}")
             return
-        self.get_logger().info(f"npc spawn 수신·dump: {payload}")
+        self.get_logger().info(f"npc spawn 수신·dump → {target.name}: {payload}")
 
 
 def main():
