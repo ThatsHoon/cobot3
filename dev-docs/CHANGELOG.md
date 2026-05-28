@@ -7,6 +7,15 @@
 
 ## 2026-05-28
 
+### ImmersiveCameraView Go2 URDF 렌더링 불가 버그 수정
+**변경 파일:** `sub1_side/web/components/ImmersiveCameraViewClient.tsx` (수정)
+
+**변경 내용:**
+- **URDF URL 포트 수정**: `8766`(isaac-sim-mcp RPC 포트, HTTP 아님) → `8780`(run_urdf_server.sh 파일 서버). C2 디버그 페이지에서 Go2 URDF 메시가 전혀 렌더링되지 않던 근본 원인.
+- **Three.js shadow map 경고 제거**: `PCFSoftShadowMap` → `PCFShadowMap` (Three.js r175+ deprecated API 교체). 콘솔 경고 수백 회 누적 해소.
+
+---
+
 ### Inspect 카메라 fence 자동주시 yaw 부호 버그 수정
 **변경 파일:** `main_side/camera_publisher.py` (수정)
 

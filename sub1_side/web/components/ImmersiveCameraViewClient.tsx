@@ -35,7 +35,8 @@ const URDF_URL_ENV = process.env.NEXT_PUBLIC_GO2_URDF_URL;
 function defaultUrdfUrl(): string {
   if (URDF_URL_ENV) return URDF_URL_ENV;
   if (typeof window === "undefined") return "";
-  return "http://192.168.10.94:8766/scene/go2_description/urdf/go2.urdf";
+  // WHY: 8766 = isaac-sim-mcp RPC 포트 (HTTP 아님). URDF 파일 서버는 run_urdf_server.sh :8780.
+  return "http://192.168.10.94:8780/scene/go2_description/urdf/go2.urdf";
 }
 
 function useMjpegTexture(cam: CamConfig["id"]): THREE.Texture | null {
@@ -284,7 +285,8 @@ export default function ImmersiveCameraViewClient({
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.1;
           gl.shadowMap.enabled = true;
-          gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          // WHY: PCFSoftShadowMap은 Three.js r175+에서 deprecated → PCFShadowMap 사용.
+          gl.shadowMap.type = THREE.PCFShadowMap;
         }}
       >
         <fog attach="fog" args={["#000000", 8, 20]} />

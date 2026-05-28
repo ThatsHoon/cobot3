@@ -221,7 +221,7 @@ db.put("fire_events", (robot_id, ts, target_ref, hit, dist, operator))
 | 그리드 | 컴포넌트 | 토픽/구성 |
 |---|---|---|
 | row1 좌 (8col) | Lichtblick iframe | `http://host:8080/?ds=foxglove-websocket&ds.url=ws://host:8765` |
-| row1 우 (4col) | `ImmersiveCameraView` | Three.js SphereGeometry inside-out 에 rear/inspect VideoTexture 섹터 매핑 + Go2 URDF 메시. **2026-05-24**: legQ prop 추가 (Go2Urdf 에서 12-DOF `setJointValue` 매 프레임 lerp 동기), sphere phi 정렬 `+π/2`→`+π` (+X=robot forward). 데이터: REST `/robots/{rid}/state` 5Hz 폴링으로 odom.yaw + leg_q[12] 동기. |
+| row1 우 (4col) | `ImmersiveCameraView` | Three.js SphereGeometry inside-out 에 rear/inspect VideoTexture 섹터 매핑 + Go2 URDF 메시. **2026-05-24**: legQ prop 추가 (Go2Urdf 에서 12-DOF `setJointValue` 매 프레임 lerp 동기), sphere phi 정렬 `+π/2`→`+π` (+X=robot forward). 데이터: REST `/robots/{rid}/state` 5Hz 폴링으로 odom.yaw + leg_q[12] 동기. URDF URL: `http://192.168.10.94:8780/scene/go2_description/urdf/go2.urdf` (run_urdf_server.sh :8780). **2026-05-28**: URDF 포트 8766→8780 수정(렌더링 불가 버그), `PCFSoftShadowMap`→`PCFShadowMap` (Three.js r175+). |
 | row2 좌 (5col) | `TopicHealthMonitor` | `/c2/sample` 1Hz 폴링 — rx 카운터·publishers·env·hint |
 | row2 중 (4col) | `RawJsonInspector` | latest 토픽 JSON 원문 |
 | row2 우 (3col) | `DualSenseStatus` | 게임패드 연결·키맵 |
