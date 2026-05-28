@@ -13,6 +13,9 @@ sub1_side/web/.env.local
 
 # YOLO 가중치 (ultralytics 가 web_server 첫 기동 시 자동 다운로드 — 재생성)
 sub1_side/server/*.pt
+# 운용 모델은 예외 추적 (cobot3 DMZ 4-class 커스텀 학습 산출물)
+!sub1_side/server/models/cobot3_4class_v3_best_small.pt
+!sub1_side/server/models/cobot3_4class_v4_best_nano.pt
 
 # 생성 산출물
 # (구 scenes/assets/ 규칙 제거 — scenes/ 는 dev-docs/legacy_scenes/ 로

@@ -4,3 +4,6 @@
 # 단, README/gitignore 자신은 추적
 !README.md
 !.gitignore
+# 운용 모델 예외 — cobot3 DMZ 4-class 커스텀 학습 산출물
+!cobot3_4class_v3_best_small.pt
+!cobot3_4class_v4_best_nano.pt
