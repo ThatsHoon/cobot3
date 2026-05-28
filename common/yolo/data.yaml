@@ -1,0 +1,13 @@
+# cobot3 DMZ 경계근무 특화 YOLO 4-class 표준 클래스 정의
+# 이 파일을 기준으로 모델 학습 및 추론 클래스 ID 를 통일한다.
+#
+# 사용처:
+#   학습: main_side/scripts/yolo_train/ 에서 data 경로만 교체하여 재사용
+#   추론: sub1_side/server/config.py YOLO_CLASSES 와 ID 순서 일치 필수
+
+nc: 4
+names:
+  0: person    # 민간인 / 비전투원
+  1: soldier   # 무장 군인 / 전투원
+  2: drone     # 무인기
+  3: animal    # 동물 (anymal) — wolf/boar/deer 등 경계 구역 동물
