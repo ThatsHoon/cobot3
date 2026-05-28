@@ -21,15 +21,21 @@ pkill -f "uvicorn app:app"
 
 `config.YOLO_CLASSES` 와 모델 학습 시 클래스 ID 가 일치해야 함.
 
-| ID | 라벨 | 종류 |
-|---|---|---|
-| 0 | person | 사람 |
-| 1 | animal | 동물 (jsy 학습 모델 호환) |
-| 16~25 | bird/cat/dog/horse/sheep/cow/elephant/bear/zebra/giraffe | COCO 동물 |
+| ID | 라벨 | 그룹 | alert 정책 |
+|---|---|---|---|
+| 0 | person | intruder | intruder_detected → 정밀사격 |
+| 1 | soldier | intruder | intruder_detected → 정밀사격 |
+| 2 | drone | intruder | intruder_detected → 정밀사격 |
+| 3 | anymal | animal | animal_detected → 모니터링 |
 
-## jsy 학습 모델
+> DMZ 경계근무 특화 4-class 모델. COCO80 범용 모델 대비 정확도 향상.
+> `config.py`의 `YOLO_CLASSES` ID 순서와 모델 학습 클래스 순서가 반드시 일치해야 함.
 
-`cobot3_for_extracting_dtModel_web_component/models/dmz_person_calibration_001_best.pt`
-(2-class person+animal). 본 폴더에 복사 시 자동 사용.
+## alert 분류 로직 (`yolo_infer.py`)
 
-학습 파이프라인: `main_side/scripts/yolo_train/` 참조.
+- **intruder 그룹** (`person`, `soldier`, `drone`): conf ≥ `YOLO_ALERT_CONF`(0.7), 5초/3프레임 stable tracker 충족 시 자동사격 트리거
+- **animal 그룹** (`anymal`): conf ≥ `YOLO_ANIMAL_ALERT_CONF`(0.5), 모니터링 이벤트만 발생 (사격 없음)
+
+## 학습 파이프라인
+
+`main_side/scripts/yolo_train/` 참조.
